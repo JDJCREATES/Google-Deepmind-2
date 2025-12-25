@@ -1,35 +1,153 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { useState, useRef, useEffect } from 'react';
+import ChatMessage, { type Message } from './components/ChatMessage';
+import MonacoEditor from './components/MonacoEditor';
+import FileExplorer from './components/FileExplorer';
+import EditorTabs from './components/EditorTabs';
+import { IoSend } from 'react-icons/io5';
+import { MdLightMode, MdDarkMode } from 'react-icons/md';
+import { VscSettingsGear, VscLayoutSidebarLeft, VscLayoutSidebarRightOff } from 'react-icons/vsc';
+import { BiCodeBlock } from 'react-icons/bi';
+import './App.css';
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [theme, setTheme] = useState<'vs-dark' | 'light'>('vs-dark');
+  const [showExplorer, setShowExplorer] = useState(true);
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: '1',
+      content: 'Hello! I\'m your AI coding assistant. Open a file in the explorer to get started!',
+      sender: 'ai',
+      timestamp: new Date(),
+    },
+  ]);
+  const [inputValue, setInputValue] = useState('');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const toggleTheme = () => {
+    setTheme(theme === 'vs-dark' ? 'light' : 'vs-dark');
+  };
+
+  const handleSendMessage = () => {
+    if (!inputValue.trim()) return;
+
+    const newMessage: Message = {
+      id: Date.now().toString(),
+      content: inputValue,
+      sender: 'user',
+      timestamp: new Date(),
+    };
+
+    setMessages([...messages, newMessage]);
+    setInputValue('');
+
+    // Simulate AI response
+    setTimeout(() => {
+      const aiResponse: Message = {
+        id: (Date.now() + 1).toString(),
+        content: 'I see you are working on the code. How can I assist you with this file?',
+        sender: 'ai',
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, aiResponse]);
+    }, 1000);
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+    <div className={`app-container ${theme}`}>
+      {/* LEFT PANEL SYSTEM (Explorer + Editor) - 60% */}
+      <div className="main-editor-area">
+        
+        {/* Activity Bar (Optional, simplified for now just to hold settings/bottom) */}
+        <div className="activity-bar">
+           <div className="activity-top">
+             <div className={`activity-icon ${showExplorer ? 'active' : ''}`} onClick={() => setShowExplorer(!showExplorer)}>
+               <VscLayoutSidebarLeft size={24} />
+             </div>
+           </div>
+           <div className="activity-bottom">
+             <div className="activity-icon" onClick={toggleTheme}>
+               {theme === 'vs-dark' ? <MdLightMode size={24} /> : <MdDarkMode size={24} />}
+             </div>
+             <div className="activity-icon">
+               <VscSettingsGear size={24} />
+             </div>
+           </div>
+        </div>
+
+        {/* File Explorer Sidebar */}
+        {showExplorer && (
+          <div className="sidebar-pane">
+            <FileExplorer />
+          </div>
+        )}
+
+        {/* Editor Content Area */}
+        <div className="editor-pane">
+          <div className="editor-tabs-container">
+            <EditorTabs />
+          </div>
+          <div className="monaco-container">
+            <MonacoEditor theme={theme} />
+          </div>
+        </div>
+
       </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
+
+      {/* RIGHT PANEL (Chat) - 40% */}
+      <div className="chat-panel">
+        <div className="chat-header">
+          <div className="chat-header-left">
+             <BiCodeBlock size={20} style={{ marginRight: 8 }} />
+             <span className="chat-title">AI Assistant</span>
+          </div>
+          <div className="chat-header-right">
+            <VscLayoutSidebarRightOff size={16} />
+          </div>
+        </div>
+
+        <div className="chat-messages">
+          {messages.map((message) => (
+            <ChatMessage key={message.id} message={message} />
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
+
+        <div className="chat-input-container">
+          <textarea
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder="Ask me anything..."
+            className="chat-input"
+            rows={1}
+            style={{ minHeight: '40px' }}
+          />
+          <button
+            onClick={handleSendMessage}
+            className="send-button"
+            disabled={!inputValue.trim()}
+          >
+            <IoSend size={16} />
+          </button>
+        </div>
       </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    </div>
+  );
 }
 
-export default App
+export default App;
