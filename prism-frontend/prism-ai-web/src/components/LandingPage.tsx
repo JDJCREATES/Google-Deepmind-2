@@ -2,12 +2,20 @@ import { useState } from 'react';
 import { RiShip2Fill } from 'react-icons/ri';
 import { IoArrowForward } from 'react-icons/io5';
 import { useFileSystem } from '../store/fileSystem';
+import { useAuthStore } from '../store/authStore';
+import AuthModal from './AuthModal';
 
 export default function LandingPage() {
   const { openProjectFolder } = useFileSystem();
+  const { isAuthenticated } = useAuthStore();
   const [prompt, setPrompt] = useState('');
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
   const handleStart = () => {
+    if (!isAuthenticated) {
+      setShowAuthModal(true);
+      return;
+    }
     openProjectFolder(); 
   };
 
@@ -15,6 +23,11 @@ export default function LandingPage() {
     if (e.key === 'Enter') {
       handleStart();
     }
+  };
+
+  const handleAuthSuccess = () => {
+    setShowAuthModal(false);
+    openProjectFolder();
   };
 
   return (
@@ -44,11 +57,17 @@ export default function LandingPage() {
         </div>
 
         <div className="landing-actions">
-           <button className="text-btn" onClick={openProjectFolder}>
+           <button className="text-btn" onClick={handleStart}>
              Open Existing Project
            </button>
         </div>
       </div>
+
+      <AuthModal 
+        isOpen={showAuthModal} 
+        onClose={() => setShowAuthModal(false)}
+        onSuccess={handleAuthSuccess}
+      />
     </div>
   );
 }
