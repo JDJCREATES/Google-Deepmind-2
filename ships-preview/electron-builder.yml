@@ -1,0 +1,9 @@
+appId: com.ships.builder
+productName: ShipS* Builder
+directories:
+  output: dist_electron
+files:
+  - dist/**/*
+  - package.json
+win:
+  target: nsis
