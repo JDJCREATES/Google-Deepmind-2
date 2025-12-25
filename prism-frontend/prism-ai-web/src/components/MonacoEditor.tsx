@@ -1,59 +1,67 @@
+import { useEffect, useRef } from 'react';
 import Editor, { type OnMount } from '@monaco-editor/react';
-import { editor } from 'monaco-editor';
+import { useFileSystem } from '../store/fileSystem';
 
 interface MonacoEditorProps {
-  value?: string;
-  defaultValue?: string;
-  language?: string;
-  theme?: 'vs-dark' | 'light' | 'vs';
+  theme?: 'vs-dark' | 'light';
   height?: string | number;
   width?: string | number;
-  onChange?: (value: string | undefined) => void;
-  onMount?: OnMount;
-  options?: editor.IStandaloneEditorConstructionOptions;
-  readOnly?: boolean;
 }
 
 export default function MonacoEditor({
-  value,
-  defaultValue = '// Start coding...',
-  language = 'typescript',
   theme = 'vs-dark',
-  height = '400px',
+  height = '100%',
   width = '100%',
-  onChange,
-  onMount,
-  options = {},
-  readOnly = false,
 }: MonacoEditorProps) {
+  const { activeFile, getFile, updateFileContent } = useFileSystem();
+  const editorRef = useRef<any>(null);
+
+  const file = activeFile ? getFile(activeFile) : null;
+
+  const handleEditorDidMount: OnMount = (editor, monaco) => {
+    editorRef.current = editor;
+  };
+
   const handleEditorChange = (value: string | undefined) => {
-    if (onChange) {
-      onChange(value);
+    if (activeFile && value !== undefined) {
+      updateFileContent(activeFile, value);
     }
   };
 
-  const editorOptions: editor.IStandaloneEditorConstructionOptions = {
-    minimap: { enabled: true },
-    fontSize: 14,
-    lineNumbers: 'on',
-    roundedSelection: true,
-    scrollBeyondLastLine: false,
-    readOnly,
-    automaticLayout: true,
-    ...options,
-  };
+  // Determine language capabilities based on file extension
+  // Monaco usually handles this automatically if 'path' is provided correctly
+  
+  if (!file) {
+    return (
+      <div className="empty-editor-state">
+        <div className="empty-state-content">
+          <p>Select a file to start editing</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <Editor
       height={height}
       width={width}
-      language={language}
+      path={file.path} // THIS IS KEY for multi-file support & intellisense
+      defaultLanguage={undefined} // Let Monaco infer from path
+      value={file.content}
       theme={theme}
-      value={value}
-      defaultValue={defaultValue}
       onChange={handleEditorChange}
-      onMount={onMount}
-      options={editorOptions}
+      onMount={handleEditorDidMount}
+      options={{
+        minimap: { enabled: true },
+        fontSize: 14,
+        lineNumbers: 'on',
+        roundedSelection: true,
+        scrollBeyondLastLine: false,
+        automaticLayout: true,
+        tabSize: 2,
+        wordWrap: 'on',
+        padding: { top: 16 }
+      }}
     />
   );
 }
