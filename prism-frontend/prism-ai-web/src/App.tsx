@@ -3,6 +3,7 @@ import ChatMessage, { type Message } from './components/ChatMessage';
 import MonacoEditor from './components/MonacoEditor';
 import FileExplorer from './components/FileExplorer';
 import EditorTabs from './components/EditorTabs';
+import { useFileSystem } from './store/fileSystem';
 import { IoSend } from 'react-icons/io5';
 import { MdLightMode, MdDarkMode } from 'react-icons/md';
 import { VscSettingsGear, VscLayoutSidebarLeft, VscLayoutSidebarRightOff } from 'react-icons/vsc';
@@ -66,6 +67,22 @@ function App() {
       handleSendMessage();
     }
   };
+
+  const { saveFile, activeFile } = useFileSystem();
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      if (activeFile) {
+        saveFile(activeFile);
+      }
+    }
+  };
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeFile]);
 
   return (
     <div className={`app-container ${theme}`}>

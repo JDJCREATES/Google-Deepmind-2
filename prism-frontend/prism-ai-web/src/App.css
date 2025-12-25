@@ -97,6 +97,37 @@ body {
   flex-direction: column;
 }
 
+.file-explorer.empty {
+  align-items: center;
+}
+
+.empty-explorer-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 15px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: 20px;
+  text-align: center;
+}
+
+.open-folder-btn {
+  background-color: var(--primary-color);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 2px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.open-folder-btn:hover {
+  filter: brightness(1.1);
+}
+
 .explorer-header {
   padding: 10px 20px;
   font-size: 11px;

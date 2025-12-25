@@ -1,102 +1,71 @@
 import { create } from 'zustand';
+import { 
+  openDirectory, 
+  readFileContent, 
+  writeFileContent,
+  type FileSystemDirectoryHandle, 
+  type FileSystemFileHandle 
+} from '../utils/fileSystemAccess';
 
 export interface FileNode {
   id: string;
   name: string;
   type: 'file' | 'folder';
   children?: FileNode[];
-  content?: string;
+  content?: string; // Loaded lazily or kept in memory for editor
   path: string;
+  handle?: FileSystemFileHandle | FileSystemDirectoryHandle;
+  isLoaded?: boolean; // For folders
 }
 
 interface FileSystemState {
+  rootHandle: FileSystemDirectoryHandle | null;
   files: FileNode[];
   activeFile: string | null;
   openFiles: string[];
-  setFiles: (files: FileNode[]) => void;
+  
+  // Actions
+  openProjectFolder: () => Promise<void>;
   setActiveFile: (id: string | null) => void;
-  openFile: (id: string) => void;
+  openFile: (id: string) => Promise<void>;
   closeFile: (id: string) => void;
+  saveFile: (id: string) => Promise<void>;
   updateFileContent: (id: string, content: string) => void;
   getFile: (id: string) => FileNode | null;
 }
 
-const initialFiles: FileNode[] = [
-  {
-    id: 'root',
-    name: 'src',
-    type: 'folder',
-    path: '/src',
-    children: [
-      {
-        id: '1',
-        name: 'main.tsx',
-        type: 'file',
-        path: '/src/main.tsx',
-        content: `import React from 'react';
-import ReactDOM from 'react-dom/client';
-import App from './App';
-import './index.css';
+// Recursive helper to build tree from directory handle
+const buildFileTree = async (
+  dirHandle: FileSystemDirectoryHandle, 
+  path: string
+): Promise<FileNode[]> => {
+  const nodes: FileNode[] = [];
+  
+  // iterate over the handle
+  // @ts-ignore - native iteration
+  for await (const entry of dirHandle.values()) {
+    const entryPath = `${path}/${entry.name}`;
+    const node: FileNode = {
+      id: entryPath, // Use path as unique ID
+      name: entry.name,
+      type: entry.kind === 'directory' ? 'folder' : 'file',
+      path: entryPath,
+      handle: entry as FileSystemFileHandle | FileSystemDirectoryHandle
+    };
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);`
-      },
-      {
-        id: '2',
-        name: 'App.tsx',
-        type: 'file',
-        path: '/src/App.tsx',
-        content: `import { useState } from 'react';
-import './App.css';
+    if (entry.kind === 'directory') {
+      node.children = await buildFileTree(entry as FileSystemDirectoryHandle, entryPath);
+    }
 
-function App() {
-  const [count, setCount] = useState(0);
-
-  return (
-    <div className="App">
-      <h1>Hello World</h1>
-      <button onClick={() => setCount(count + 1)}>
-        count is {count}
-      </button>
-    </div>
-  );
-}
-
-export default App;`
-      },
-      {
-        id: '3',
-        name: 'components',
-        type: 'folder',
-        path: '/src/components',
-        children: [
-          {
-            id: '4',
-            name: 'Button.tsx',
-            type: 'file',
-            path: '/src/components/Button.tsx',
-            content: `export const Button = ({ children, onClick }) => (
-  <button onClick={onClick}>{children}</button>
-);`
-          }
-        ]
-      },
-      {
-        id: '5',
-        name: 'styles.css',
-        type: 'file',
-        path: '/src/styles.css',
-        content: `.App {
-  text-align: center;
-  padding: 20px;
-}`
-      }
-    ]
+    nodes.push(node);
   }
-];
+
+  // Sort: folders first, then files
+  return nodes.sort((a, b) => {
+    if (a.type === b.type) return a.name.localeCompare(b.name);
+    return a.type === 'folder' ? -1 : 1;
+  });
+};
 
 // Helper to find file by ID recursively
 const findFileById = (nodes: FileNode[], id: string): FileNode | null => {
@@ -110,7 +79,7 @@ const findFileById = (nodes: FileNode[], id: string): FileNode | null => {
   return null;
 };
 
-// Helper to update file content
+// Helper to update file content in tree (immutable)
 const updateFileInTree = (nodes: FileNode[], id: string, newContent: string): FileNode[] => {
   return nodes.map(node => {
     if (node.id === id) return { ...node, content: newContent };
@@ -120,16 +89,50 @@ const updateFileInTree = (nodes: FileNode[], id: string, newContent: string): Fi
 };
 
 export const useFileSystem = create<FileSystemState>((set, get) => ({
-  files: initialFiles,
+  rootHandle: null,
+  files: [], // Start empty
   activeFile: null,
   openFiles: [],
 
-  setFiles: (files) => set({ files }),
+  openProjectFolder: async () => {
+    try {
+      const handle = await openDirectory();
+      const files = await buildFileTree(handle, handle.name);
+      
+      set({ 
+        rootHandle: handle,
+        files: [{
+          id: handle.name,
+          name: handle.name,
+          type: 'folder',
+          path: handle.name,
+          handle: handle,
+          children: files
+        }]
+      });
+    } catch (error) {
+      console.error('Failed to open directory:', error);
+      // User likely cancelled
+    }
+  },
   
   setActiveFile: (id) => set({ activeFile: id }),
   
-  openFile: (id) => {
-    const { openFiles } = get();
+  openFile: async (id) => {
+    const { openFiles, files, updateFileContent } = get();
+    
+    // Check if content is loaded
+    const fileNode = findFileById(files, id);
+    if (fileNode?.type === 'file' && fileNode.handle && fileNode.content === undefined) {
+      // Load content from disk
+      try {
+        const content = await readFileContent(fileNode.handle as FileSystemFileHandle);
+        updateFileContent(id, content);
+      } catch (err) {
+        console.error("Failed to read file", err);
+      }
+    }
+
     if (!openFiles.includes(id)) {
       set({ openFiles: [...openFiles, id], activeFile: id });
     } else {
@@ -143,7 +146,6 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     let newActiveFile = activeFile;
     
     if (activeFile === id) {
-      // If we closed the active file, switch to the last opened file or null
       newActiveFile = newOpenFiles.length > 0 ? newOpenFiles[newOpenFiles.length - 1] : null;
     }
     
@@ -154,6 +156,19 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     const { files } = get();
     const newFiles = updateFileInTree(files, id, content);
     set({ files: newFiles });
+  },
+  
+  saveFile: async (id) => {
+    const { getFile } = get();
+    const file = getFile(id);
+    if (file && file.handle && file.content !== undefined) {
+      try {
+        await writeFileContent(file.handle as FileSystemFileHandle, file.content);
+        console.log(`File ${id} saved successfully`);
+      } catch (err) {
+        console.error("Failed to save file", err);
+      }
+    }
   },
 
   getFile: (id) => {
