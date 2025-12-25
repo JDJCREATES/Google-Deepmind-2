@@ -1,5 +1,5 @@
 :root {
-  --primary-color: #007acc;
+  --primary-color: #FF5E57; /* Reddish Coral (Sunset Red) */
   --bg-activity-bar: #333333;
   --bg-sidebar: #252526;
   --bg-editor: #1e1e1e;
@@ -12,6 +12,104 @@
   --selection-bg: #37373d;
   --tab-inactive-fg: #969696;
   --tab-active-fg: #ffffff;
+}
+
+/* Landing Page Styles */
+.landing-container {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-editor);
+  color: var(--text-primary);
+}
+
+.landing-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  max-width: 600px;
+  width: 100%;
+  padding: 0 20px;
+}
+
+.brand-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-title {
+  font-size: 32px;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+}
+
+.landing-subtitle {
+  font-size: 20px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.landing-input-wrapper {
+  display: flex;
+  width: 100%;
+  background-color: #2d2d2d;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 8px 8px 8px 16px;
+  transition: border-color 0.2s;
+}
+
+.landing-input-wrapper:focus-within {
+  border-color: var(--primary-color);
+}
+
+.landing-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: white;
+  font-size: 16px;
+  outline: none;
+}
+
+.landing-submit-btn {
+  background-color: var(--primary-color);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.landing-submit-btn:hover {
+  transform: scale(1.05);
+}
+
+.landing-actions {
+  margin-top: 10px;
+}
+
+.text-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.text-btn:hover {
+  color: var(--primary-color);
+  text-decoration: underline;
 }
 
 .light {

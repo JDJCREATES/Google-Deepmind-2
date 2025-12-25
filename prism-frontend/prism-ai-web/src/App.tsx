@@ -3,6 +3,7 @@ import ChatMessage, { type Message } from './components/ChatMessage';
 import MonacoEditor from './components/MonacoEditor';
 import FileExplorer from './components/FileExplorer';
 import EditorTabs from './components/EditorTabs';
+import LandingPage from './components/LandingPage';
 import { useFileSystem } from './store/fileSystem';
 import { IoSend } from 'react-icons/io5';
 import { MdLightMode, MdDarkMode } from 'react-icons/md';
@@ -68,7 +69,7 @@ function App() {
     }
   };
 
-  const { saveFile, activeFile } = useFileSystem();
+  const { saveFile, activeFile, rootHandle } = useFileSystem();
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -83,6 +84,11 @@ function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeFile]);
+
+  // Show Landing Page if no project is opened
+  if (!rootHandle) {
+    return <LandingPage />;
+  }
 
   return (
     <div className={`app-container ${theme}`}>
