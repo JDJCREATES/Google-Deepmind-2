@@ -54,6 +54,16 @@
   margin: 0;
 }
 
+.landing-phrase {
+  font-size: 16px; 
+  color: var(--text-secondary);
+  margin: 0;
+  opacity: 0.8;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
 .landing-input-wrapper {
   display: flex;
   width: 100%;
