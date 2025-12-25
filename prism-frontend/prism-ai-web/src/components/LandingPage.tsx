@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { RiShip2Fill } from 'react-icons/ri';
-import { IoArrowForward } from 'react-icons/io5';
+import { PiShippingContainerFill } from "react-icons/pi";
 import { useFileSystem } from '../store/fileSystem';
 import { useAuthStore } from '../store/authStore';
 import AuthModal from './AuthModal';
@@ -52,7 +52,7 @@ export default function LandingPage() {
             onKeyPress={handleKeyPress}
           />
           <button className="landing-submit-btn" onClick={handleStart}>
-            <IoArrowForward size={20} />
+            <PiShippingContainerFill size={24} color="white" />
           </button>
         </div>
 

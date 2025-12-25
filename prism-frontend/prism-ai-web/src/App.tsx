@@ -5,9 +5,9 @@ import FileExplorer from './components/FileExplorer';
 import EditorTabs from './components/EditorTabs';
 import LandingPage from './components/LandingPage';
 import { useFileSystem } from './store/fileSystem';
-import { IoSend } from 'react-icons/io5';
 import { MdLightMode, MdDarkMode } from 'react-icons/md';
-import { VscSettingsGear, VscLayoutSidebarLeft, VscLayoutSidebarRightOff } from 'react-icons/vsc';
+import { PiShippingContainerFill } from "react-icons/pi";
+import { VscFiles, VscSearch, VscSettingsGear, VscAccount } from 'react-icons/vsc';
 import { BiCodeBlock } from 'react-icons/bi';
 import './App.css';
 
@@ -160,13 +160,13 @@ function App() {
             rows={1}
             style={{ minHeight: '40px' }}
           />
-          <button
-            onClick={handleSendMessage}
-            className="send-button"
-            disabled={!inputValue.trim()}
-          >
-            <IoSend size={16} />
-          </button>
+            <button
+              className="send-button"
+              onClick={handleSendMessage}
+              disabled={!inputValue.trim()}
+            >
+              <PiShippingContainerFill size={16} />
+            </button>
         </div>
       </div>
     </div>

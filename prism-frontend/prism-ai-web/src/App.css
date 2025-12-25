@@ -84,6 +84,7 @@
   border-radius: 6px;
   width: 36px;
   height: 36px;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -198,7 +199,7 @@
   background-color: var(--primary-color);
   color: white;
   border: none;
-  padding: 12px;
+  padding: 0;
   border-radius: 8px;
   font-size: 14px;
   font-weight: 600;
