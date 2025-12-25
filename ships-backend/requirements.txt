@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+python-jose[cryptography]
+bcrypt
+pydantic
+python-multipart
+langgraph
+xgboost
+scikit-learn
+pandas
+numpy
