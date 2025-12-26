@@ -5,6 +5,7 @@ Contains specialized agents for specific tasks:
 - Planner: Converts intent to actionable plan artifacts
 - Coder: Converts tasks to code changes
 - Validator: The gate - pass/fail before execution
+- Fixer: Repairs validation failures with minimal changes
 """
 
 from app.agents.sub_agents.planner import (
@@ -39,6 +40,15 @@ from app.agents.sub_agents.validator import (
     Violation,
 )
 
+from app.agents.sub_agents.fixer import (
+    Fixer,
+    FixPlan,
+    FixPatch,
+    FixReport,
+    FixerOutput,
+    ReplanRequest,
+)
+
 __all__ = [
     # Planner
     "Planner",
@@ -68,4 +78,12 @@ __all__ = [
     "FailureLayer",
     "RecommendedAction",
     "Violation",
+    
+    # Fixer
+    "Fixer",
+    "FixPlan",
+    "FixPatch",
+    "FixReport",
+    "FixerOutput",
+    "ReplanRequest",
 ]
