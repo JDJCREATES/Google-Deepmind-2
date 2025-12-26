@@ -7,7 +7,7 @@ import LandingPage from './components/LandingPage';
 import { useFileSystem } from './store/fileSystem';
 import { MdLightMode, MdDarkMode } from 'react-icons/md';
 import { PiShippingContainerFill } from "react-icons/pi";
-import { VscFiles, VscSearch, VscSettingsGear, VscAccount } from 'react-icons/vsc';
+import { VscFiles, VscSearch, VscSettingsGear, VscAccount, VscLayoutSidebarLeft, VscLayoutSidebarRightOff } from 'react-icons/vsc';
 import { BiCodeBlock } from 'react-icons/bi';
 import './App.css';
 
@@ -165,7 +165,7 @@ function App() {
               onClick={handleSendMessage}
               disabled={!inputValue.trim()}
             >
-              <PiShippingContainerFill size={16} />
+              <PiShippingContainerFill size={24} />
             </button>
         </div>
       </div>

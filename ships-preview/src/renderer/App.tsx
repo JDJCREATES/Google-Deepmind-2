@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { PiShippingContainerFill, PiLinkBold } from "react-icons/pi";
+import { PiLinkBold } from "react-icons/pi";
+import { RiShip2Fill } from "react-icons/ri";
 
 function App() {
   const [projectUrl, setProjectUrl] = useState<string | null>(null);
@@ -62,9 +63,9 @@ function App() {
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 40, WebkitAppRegion: 'drag' } as any} />
 
       <div className="brand-content" style={{ textAlign: 'center', animation: 'fadeIn 0.5s ease', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 15, marginBottom: 10 }}>
-            <PiShippingContainerFill 
-                size={56} 
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+            <RiShip2Fill 
+                size={48} 
                 color="#FF5E57" 
                 style={{ filter: 'drop-shadow(0 0 20px rgba(255, 94, 87, 0.3))' }} 
             />

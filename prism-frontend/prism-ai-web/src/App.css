@@ -570,16 +570,25 @@ body {
   background-color: var(--primary-color);
   color: white;
   border: none;
-  border-radius: 2px;
-  width: 32px;
+  border-radius: 6px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: transform 0.1s;
 }
 
 .send-button:hover {
-    filter: brightness(1.1);
+  transform: scale(1.05);
+}
+
+.send-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .message {
