@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
+    "mermaid": "^11.12.2",
     "monaco-editor": "^0.55.1",
     "onsenui": "^2.12.8",
     "react": "^19.2.0",

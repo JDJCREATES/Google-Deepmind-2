@@ -1,0 +1,39 @@
+/* Mermaid Viewer Styles */
+
+.mermaid-viewer {
+  height: 100%;
+  width: 100%;
+  overflow: auto;
+  background: var(--background, #1e1e1e);
+  padding: 24px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.mermaid-svg-container {
+  max-width: 100%;
+}
+
+.mermaid-svg-container svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-error {
+  color: var(--error-color, #f44336);
+  text-align: center;
+  max-width: 600px;
+}
+
+.mermaid-error pre {
+  margin-top: 16px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  color: var(--text-secondary, #aaa);
+  font-family: monospace;
+  font-size: 12px;
+  text-align: left;
+  white-space: pre-wrap;
+}

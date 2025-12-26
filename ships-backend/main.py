@@ -90,6 +90,10 @@ app.include_router(auth_router, tags=["Authentication"])
 app.include_router(preview_router)
 app.include_router(agent_router)
 
+# Import and include Artifacts Router
+from app.api.artifacts import router as artifacts_router
+app.include_router(artifacts_router)
+
 @app.get("/")
 def read_root():
     return {"message": "ShipS* Backend is Running"}

@@ -4,16 +4,40 @@ import MonacoEditor from './components/MonacoEditor';
 import FileExplorer from './components/FileExplorer';
 import EditorTabs from './components/EditorTabs';
 import LandingPage from './components/LandingPage';
+import ArtifactPanel from './components/artifacts/ArtifactPanel';
+import ArtifactViewer from './components/artifacts/ArtifactViewer';
 import { useFileSystem } from './store/fileSystem';
+import { useArtifactStore } from './store/artifactStore';
 import { MdLightMode, MdDarkMode } from 'react-icons/md';
 import { PiShippingContainerFill } from "react-icons/pi";
-import { VscFiles, VscSearch, VscSettingsGear, VscAccount, VscLayoutSidebarLeft, VscLayoutSidebarRightOff } from 'react-icons/vsc';
-import { BiCodeBlock } from 'react-icons/bi';
+import { 
+  VscFiles, 
+  VscSearch, 
+  VscSettingsGear, 
+  VscLayoutSidebarRightOff 
+} from 'react-icons/vsc';
+import { BiCodeBlock, BiCube } from 'react-icons/bi';
 import './App.css';
+
+type SidebarView = 'files' | 'artifacts' | 'search';
 
 function App() {
   const [theme, setTheme] = useState<'vs-dark' | 'light'>('vs-dark');
   const [showExplorer, setShowExplorer] = useState(true);
+  const [activeSidebarView, setActiveSidebarView] = useState<SidebarView>('files');
+  const { currentProjectId } = useArtifactStore();
+  
+  // Toggle sidebar or switch view
+  const handleSidebarClick = (view: SidebarView) => {
+    if (activeSidebarView === view) {
+      // Toggle visibility if clicking same icon
+      setShowExplorer(!showExplorer);
+    } else {
+      // Switch view and ensure visible
+      setActiveSidebarView(view);
+      setShowExplorer(true);
+    }
+  };
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -98,8 +122,26 @@ function App() {
         {/* Activity Bar (Optional, simplified for now just to hold settings/bottom) */}
         <div className="activity-bar">
            <div className="activity-top">
-             <div className={`activity-icon ${showExplorer ? 'active' : ''}`} onClick={() => setShowExplorer(!showExplorer)}>
-               <VscLayoutSidebarLeft size={24} />
+             <div 
+               className={`activity-icon ${activeSidebarView === 'files' && showExplorer ? 'active' : ''}`} 
+               onClick={() => handleSidebarClick('files')}
+               title="File Explorer"
+             >
+               <VscFiles size={24} />
+             </div>
+             <div 
+               className={`activity-icon ${activeSidebarView === 'artifacts' && showExplorer ? 'active' : ''}`} 
+               onClick={() => handleSidebarClick('artifacts')}
+               title="Artifacts"
+             >
+               <BiCube size={24} />
+             </div>
+             <div 
+               className={`activity-icon ${activeSidebarView === 'search' && showExplorer ? 'active' : ''}`} 
+               onClick={() => handleSidebarClick('search')}
+               title="Search"
+             >
+               <VscSearch size={24} />
              </div>
            </div>
            <div className="activity-bottom">
@@ -115,18 +157,26 @@ function App() {
         {/* File Explorer Sidebar */}
         {showExplorer && (
           <div className="sidebar-pane">
-            <FileExplorer />
+            {activeSidebarView === 'files' && <FileExplorer />}
+            {activeSidebarView === 'artifacts' && <ArtifactPanel projectId={currentProjectId || ''} />}
+            {activeSidebarView === 'search' && <div className="p-4 text-center text-gray-500">Search not implemented</div>}
           </div>
         )}
 
-        {/* Editor Content Area */}
+        {/* Editor Content Area - Swaps between Monaco and Artifact Viewer */}
         <div className="editor-pane">
-          <div className="editor-tabs-container">
-            <EditorTabs />
-          </div>
-          <div className="monaco-container">
-            <MonacoEditor theme={theme} />
-          </div>
+          {activeSidebarView === 'artifacts' ? (
+            <ArtifactViewer />
+          ) : (
+            <>
+              <div className="editor-tabs-container">
+                <EditorTabs />
+              </div>
+              <div className="monaco-container">
+                <MonacoEditor theme={theme} />
+              </div>
+            </>
+          )}
         </div>
 
       </div>

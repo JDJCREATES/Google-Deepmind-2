@@ -1,0 +1,7 @@
+/* Text Viewer Styles */
+
+.text-viewer {
+  height: 100%;
+  width: 100%;
+  background: var(--background, #1e1e1e);
+}
