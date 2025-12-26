@@ -6,9 +6,9 @@ import asyncio
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.agents.orchestrator import MasterOrchestrator
-from app.agents.planner import PlannerAgent
-from app.agents.coder import CoderAgent
-from app.agents.fixer import FixerAgent
+from app.agents.sub_agents.planner.planner import PlannerAgent
+from app.agents.sub_agents.coder.coder import CoderAgent
+from app.agents.sub_agents.fixer.fixer import FixerAgent
 from app.core.llm_factory import MODEL_FLASH, MODEL_PRO
 
 def verify_agent(agent_class, expected_model_name):

@@ -1,4 +1,4 @@
-from app.agents.base_agent import BaseAgent
+from app.agents.base.base_agent import BaseAgent
 from app.agents.state import AgentState
 
 class PlannerAgent(BaseAgent):
