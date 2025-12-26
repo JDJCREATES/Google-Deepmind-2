@@ -23,9 +23,11 @@ interface FileSystemState {
   files: FileNode[];
   activeFile: string | null;
   openFiles: string[];
+  isRestoringProject: boolean;
   
   // Actions
   openProjectFolder: () => Promise<void>;
+  restoreLastProject: () => Promise<boolean>;
   setActiveFile: (id: string | null) => void;
   openFile: (id: string) => Promise<void>;
   closeFile: (id: string) => void;
@@ -88,16 +90,119 @@ const updateFileInTree = (nodes: FileNode[], id: string, newContent: string): Fi
   });
 };
 
+// ============================================================================
+// SECURE PERSISTENCE USING INDEXEDDB
+// ============================================================================
+
+const DB_NAME = 'ships-project-storage';
+const STORE_NAME = 'directory-handles';
+const HANDLE_KEY = 'last-project-handle';
+
+/**
+ * Store directory handle in IndexedDB (secure, persists across sessions)
+ */
+const storeDirectoryHandle = async (handle: FileSystemDirectoryHandle): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      
+      store.put(handle, HANDLE_KEY);
+      
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    };
+    
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+  });
+};
+
+/**
+ * Retrieve directory handle from IndexedDB
+ */
+const getStoredDirectoryHandle = async (): Promise<FileSystemDirectoryHandle | null> => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        resolve(null);
+        return;
+      }
+      
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const getRequest = store.get(HANDLE_KEY);
+      
+      getRequest.onsuccess = () => resolve(getRequest.result || null);
+      getRequest.onerror = () => reject(getRequest.error);
+    };
+    
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+  });
+};
+
+/**
+ * Verify we still have permission to access a stored handle
+ */
+const verifyHandlePermission = async (handle: FileSystemDirectoryHandle): Promise<boolean> => {
+  try {
+    // @ts-ignore - queryPermission is available but not in all type definitions
+    const permission = await handle.queryPermission({ mode: 'readwrite' });
+    
+    if (permission === 'granted') {
+      return true;
+    }
+    
+    // Try to request permission
+    // @ts-ignore - requestPermission is available but not in all type definitions
+    const requestResult = await handle.requestPermission({ mode: 'readwrite' });
+    return requestResult === 'granted';
+  } catch (error) {
+    // If permissions API not available, try to access directly
+    try {
+      // @ts-ignore
+      for await (const _ of handle.values()) {
+        break; // Just test access
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+};
+
 export const useFileSystem = create<FileSystemState>((set, get) => ({
   rootHandle: null,
   files: [], // Start empty
   activeFile: null,
   openFiles: [],
+  isRestoringProject: false,
 
   openProjectFolder: async () => {
     try {
       const handle = await openDirectory();
       const files = await buildFileTree(handle, handle.name);
+      
+      // Store for next time
+      await storeDirectoryHandle(handle);
       
       set({ 
         rootHandle: handle,
@@ -113,6 +218,51 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     } catch (error) {
       console.error('Failed to open directory:', error);
       // User likely cancelled
+    }
+  },
+  
+  restoreLastProject: async () => {
+    try {
+      set({ isRestoringProject: true });
+      
+      const storedHandle = await getStoredDirectoryHandle();
+      
+      if (!storedHandle) {
+        set({ isRestoringProject: false });
+        return false;
+      }
+      
+      // Verify we still have permission
+      const hasPermission = await verifyHandlePermission(storedHandle);
+      
+      if (!hasPermission) {
+        console.log('No permission for stored directory');
+        set({ isRestoringProject: false });
+        return false;
+      }
+      
+      // Rebuild the file tree
+      const files = await buildFileTree(storedHandle, storedHandle.name);
+      
+      set({ 
+        rootHandle: storedHandle,
+        files: [{
+          id: storedHandle.name,
+          name: storedHandle.name,
+          type: 'folder',
+          path: storedHandle.name,
+          handle: storedHandle,
+          children: files
+        }],
+        isRestoringProject: false
+      });
+      
+      console.log('✅ Restored last project:', storedHandle.name);
+      return true;
+    } catch (error) {
+      console.error('Failed to restore last project:', error);
+      set({ isRestoringProject: false });
+      return false;
     }
   },
   
