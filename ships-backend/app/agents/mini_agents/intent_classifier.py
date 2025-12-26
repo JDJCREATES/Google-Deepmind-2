@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.base.base_agent import BaseAgent
-from app.agents.state import AgentState
+from app.graphs.state import AgentState
 from app.artifacts import ArtifactManager
 
 

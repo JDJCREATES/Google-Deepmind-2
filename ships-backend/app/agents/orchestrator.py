@@ -14,7 +14,7 @@ from typing import Optional, Literal
 from enum import Enum
 
 from app.agents.base.base_agent import BaseAgent
-from app.agents.state import AgentState
+from app.graphs.state import AgentState
 from app.artifacts import (
     ArtifactManager,
     AgentType,

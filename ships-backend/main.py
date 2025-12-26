@@ -61,7 +61,7 @@ class PromptRequest(BaseModel):
 
 from fastapi.responses import StreamingResponse
 import json
-from app.agents.agent_graph import stream_pipeline
+from app.graphs.agent_graph import stream_pipeline
 
 @agent_router.post("/run")
 async def run_agent(request: Request, body: PromptRequest):

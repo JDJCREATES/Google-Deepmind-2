@@ -19,7 +19,7 @@ import time
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 from app.core.llm_factory import LLMFactory
-from app.agents.state import AgentState
+from app.graphs.state import AgentState
 from app.artifacts import (
     ArtifactManager,
     PatternRegistry,
