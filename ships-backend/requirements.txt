@@ -9,3 +9,6 @@ xgboost
 scikit-learn
 pandas
 numpy
+google-generativeai
+langchain-google-genai
+langchain-core
