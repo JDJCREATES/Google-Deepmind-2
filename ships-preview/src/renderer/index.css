@@ -7,6 +7,107 @@ body {
   overflow: hidden;
 }
 
+.title-bar {
+  height: 35px;
+  background-color: #252526;
+  display: flex;
+  align-items: center;
+  padding: 0 15px;
+  -webkit-app-region: drag; /* Critical for moving frameless window */
+  border-bottom: 1px solid #3e3e42;
+  user-select: none;
+}
+
+.app-content {
+  height: calc(100vh - 35px);
+  display: flex;
+  flex-direction: column;
+  background-color: #1e1e1e;
+}
+
 * {
   box-sizing: border-box;
+}
+
+.control-btn {
+    background-color: #FF5E57;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: filter 0.2s;
+}
+
+.control-btn:hover { filter: brightness(1.1); }
+.control-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.control-btn.secondary {
+    background-color: #3e3e42;
+    color: #eee;
+}
+
+.metric-card {
+    background-color: #252526;
+    padding: 12px;
+    border-radius: 6px;
+    border: 1px solid #3e3e42;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.metric-card .label {
+    font-size: 11px;
+    color: #888;
+    text-transform: uppercase;
+}
+
+.metric-card .value {
+    font-size: 16px;
+    color: #eee;
+    font-weight: 600;
+}
+
+.terminal-window {
+    flex: 1;
+    background-color: #000;
+    border-radius: 6px;
+    border: 1px solid #333;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.terminal-header {
+    background-color: #1e1e1e;
+    padding: 6px 12px;
+    font-size: 11px;
+    color: #888;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-bottom: 1px solid #333;
+}
+
+.terminal-body {
+    flex: 1;
+    padding: 12px;
+    overflow-y: auto;
+    color: #cccccc;
+}
+
+.pulse-cursor {
+    animation: flash 1s infinite;
+    display: inline-block;
+}
+
+@keyframes flash {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
 }
