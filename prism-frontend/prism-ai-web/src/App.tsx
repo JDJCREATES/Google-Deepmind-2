@@ -10,6 +10,7 @@ import { useFileSystem } from './store/fileSystem';
 import { useArtifactStore } from './store/artifactStore';
 import { MdLightMode, MdDarkMode } from 'react-icons/md';
 import { PiShippingContainerFill } from "react-icons/pi";
+import { RiShip2Fill } from 'react-icons/ri';
 import { 
   VscFiles, 
   VscSearch, 
@@ -17,6 +18,7 @@ import {
   VscLayoutSidebarRightOff 
 } from 'react-icons/vsc';
 import { BiBox } from 'react-icons/bi';
+import { agentService, type AgentChunk } from './services/agentService';
 import './App.css';
 
 type SidebarView = 'files' | 'artifacts' | 'search';
@@ -38,6 +40,9 @@ function App() {
       setShowExplorer(true);
     }
   };
+
+  const [isAgentRunning, setIsAgentRunning] = useState(false);
+
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -61,29 +66,68 @@ function App() {
     setTheme(theme === 'vs-dark' ? 'light' : 'vs-dark');
   };
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!inputValue.trim()) return;
 
-    const newMessage: Message = {
+    const userMessage: Message = {
       id: Date.now().toString(),
       content: inputValue,
       sender: 'user',
       timestamp: new Date(),
     };
 
-    setMessages([...messages, newMessage]);
+    setMessages(prev => [...prev, userMessage]);
     setInputValue('');
+    setIsAgentRunning(true);
 
-    // Simulate AI response
-    setTimeout(() => {
-      const aiResponse: Message = {
-        id: (Date.now() + 1).toString(),
-        content: 'I see you are working on the code. How can I assist you with this file?',
-        sender: 'ai',
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, aiResponse]);
-    }, 1000);
+    // Create a placeholder AI message
+    const aiMessageId = (Date.now() + 1).toString();
+    const initialAiMessage: Message = {
+      id: aiMessageId,
+      content: '', // Start empty, will stream in
+      sender: 'ai',
+      timestamp: new Date(),
+    };
+    
+    setMessages(prev => [...prev, initialAiMessage]);
+
+    await agentService.runAgent(
+      userMessage.content,
+      (chunk: AgentChunk) => {
+        if (chunk.type === 'message' && chunk.content) {
+          setMessages(prev => prev.map(msg => {
+            if (msg.id === aiMessageId) {
+              return { 
+                ...msg, 
+                content: msg.content + (msg.content ? '\n' : '') + chunk.content // Check if we should append or replace? logic depends on backend
+              };
+            }
+            return msg;
+          }));
+        } else if (chunk.type === 'phase') {
+           // Optional: Show phase toast or status indicator
+           console.log("Agent Phase:", chunk.phase);
+        } else if (chunk.type === 'error') {
+           setMessages(prev => prev.map(msg => {
+            if (msg.id === aiMessageId) {
+              return { ...msg, content: msg.content + `\n🛑 Error: ${chunk.content}` };
+            }
+            return msg;
+          }));
+        }
+      },
+      (error: any) => {
+        setIsAgentRunning(false);
+         setMessages(prev => prev.map(msg => {
+            if (msg.id === aiMessageId) {
+              return { ...msg, content: msg.content + `\n⚠️ Network Error: ${error.message}` };
+            }
+            return msg;
+          }));
+      }
+    );
+    
+    setIsAgentRunning(false);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -185,7 +229,7 @@ function App() {
       <div className="chat-panel">
         <div className="chat-header">
           <div className="chat-header-left">
-             <PiShippingContainerFill size={20} style={{ marginRight: 8 }} />
+             <RiShip2Fill size={20} style={{ marginRight: 8, color: 'var(--primary-color, #ff5e57)' }} />
              <span className="chat-title">ShipS*</span>
           </div>
           <div className="chat-header-right">
@@ -213,7 +257,7 @@ function App() {
             <button
               className="send-button"
               onClick={handleSendMessage}
-              disabled={!inputValue.trim()}
+              disabled={!inputValue.trim() || isAgentRunning}
             >
               <PiShippingContainerFill size={24} />
             </button>

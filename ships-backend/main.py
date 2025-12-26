@@ -59,31 +59,52 @@ agent_router = APIRouter(prefix="/agent", tags=["agent"])
 class PromptRequest(BaseModel):
     prompt: str
 
+from fastapi.responses import StreamingResponse
+import json
+from app.agents.agent_graph import stream_pipeline
+
 @agent_router.post("/run")
 async def run_agent(request: Request, body: PromptRequest):
-    # Manual Auth Check because Depends(get_current_user) throws 401 if missing, 
-    # but we want to allow anonymous (if quota remains).
-    
+    # Manual Auth Check
     auth_header = request.headers.get("Authorization")
     user_id = None
-    if auth_header:
-        try:
-            # Re-use auth logic manually or make get_current_user optional
-            # For fast implementation, let's just assume if header exists we try valid
-            # In real app, refactor get_current_user to return None instead of raising 401
-            pass 
-        except:
-            pass
+    # (Auth logic skipped for brevity as per existing implementation)
             
-    # For now, simplistic IP check until we refactor Auth to be optional
-    client_ip = request.client.host
-    
     # Check limit
+    client_ip = request.client.host
     if not usage_tracker.can_run_prompt(client_ip, user_id):
         raise HTTPException(status_code=402, detail="Free limit exceeded. Please login to continue.")
 
     usage_tracker.record_usage(client_ip, user_id)
-    return {"message": "Agent executed", "prompt": body.prompt}
+
+    async def response_generator():
+        try:
+            async for event in stream_pipeline(body.prompt):
+                # Format event for frontend
+                # event is a dict like {'node_name': {state_updates}}
+                for node_name, state_update in event.items():
+                    messages = state_update.get("messages", [])
+                    # Extract the latest message content
+                    latest_msg = messages[-1] if messages else None
+                    if latest_msg:
+                        content = latest_msg.content if hasattr(latest_msg, "content") else str(latest_msg)
+                        chunk = {
+                            "type": "message",
+                            "node": node_name,
+                            "content": content
+                        }
+                        yield json.dumps(chunk) + "\n"
+                        
+                    # Also yield phase updates if preset
+                    if "phase" in state_update:
+                        yield json.dumps({
+                            "type": "phase",
+                            "phase": state_update["phase"]
+                        }) + "\n"
+        except Exception as e:
+            yield json.dumps({"type": "error", "content": str(e)}) + "\n"
+
+    return StreamingResponse(response_generator(), media_type="application/x-ndjson")
 
 # Include Routers
 app.include_router(auth_router, tags=["Authentication"])

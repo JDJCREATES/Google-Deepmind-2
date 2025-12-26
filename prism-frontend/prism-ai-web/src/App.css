@@ -622,3 +622,9 @@ body {
   opacity: 0.6;
   text-align: right;
 }
+
+.no-bubble {
+  background-color: transparent !important;
+  padding: 0 !important;
+  color: var(--text-primary);
+}

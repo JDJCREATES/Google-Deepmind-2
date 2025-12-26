@@ -12,8 +12,18 @@ interface ChatMessageProps {
 export default function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.sender === 'user';
   
+  if (!isUser) {
+    return (
+      <div className="message message-ai">
+        <div className="message-content no-bubble">
+          {message.content}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={`message ${isUser ? 'message-user' : 'message-ai'}`}>
+    <div className="message message-user">
       <div className="message-bubble">
         <div className="message-content">{message.content}</div>
         <div className="message-time">

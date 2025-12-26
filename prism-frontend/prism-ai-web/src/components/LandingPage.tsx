@@ -25,7 +25,12 @@ export default function LandingPage() {
     }
   }, [attemptedRestore, restoreLastProject]);
 
-  // ... useEffect for phrase ...
+  useEffect(() => {
+    if (phrases && phrases.length > 0) {
+      const randomIndex = Math.floor(Math.random() * phrases.length);
+      setDailyPhrase(phrases[randomIndex]);
+    }
+  }, []);
 
   const handleStart = () => {
     // Freemium: Allow start even if not authenticated.
