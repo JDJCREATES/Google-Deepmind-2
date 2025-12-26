@@ -372,12 +372,43 @@ body {
 }
 
 .explorer-header {
-  padding: 10px 20px;
+  height: 35px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 0 16px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 1px;
   color: var(--text-secondary);
   text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.explorer-toolbar {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.explorer-toolbar-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  width: 24px;
+  height: 24px;
+}
+
+.explorer-toolbar-btn:hover {
+  background-color: var(--hover-bg);
+  color: var(--text-primary);
 }
 
 .explorer-content {

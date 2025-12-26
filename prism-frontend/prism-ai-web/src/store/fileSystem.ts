@@ -24,16 +24,21 @@ interface FileSystemState {
   activeFile: string | null;
   openFiles: string[];
   isRestoringProject: boolean;
+  selectedNodeId: string | null;
   
   // Actions
   openProjectFolder: () => Promise<void>;
   restoreLastProject: () => Promise<boolean>;
   setActiveFile: (id: string | null) => void;
+  setSelectedNode: (id: string | null) => void; // For explorer selection
   openFile: (id: string) => Promise<void>;
   closeFile: (id: string) => void;
   saveFile: (id: string) => Promise<void>;
   updateFileContent: (id: string, content: string) => void;
   getFile: (id: string) => FileNode | null;
+  
+  createNode: (name: string, type: 'file' | 'folder') => Promise<void>;
+  deleteNode: (id: string) => Promise<void>;
 }
 
 // Recursive helper to build tree from directory handle
@@ -87,6 +92,36 @@ const updateFileInTree = (nodes: FileNode[], id: string, newContent: string): Fi
     if (node.id === id) return { ...node, content: newContent };
     if (node.children) return { ...node, children: updateFileInTree(node.children, id, newContent) };
     return node;
+  });
+};
+
+// Helper to add node to tree
+const addNodeToTree = (nodes: FileNode[], parentId: string, newNode: FileNode): FileNode[] => {
+  return nodes.map(node => {
+     if (node.id === parentId) {
+        // Parent found, add child
+        const children = node.children ? [...node.children, newNode] : [newNode];
+        // Sort
+        children.sort((a, b) => {
+          if (a.type === b.type) return a.name.localeCompare(b.name);
+          return a.type === 'folder' ? -1 : 1;
+        });
+        return { ...node, children };
+     }
+     if (node.children) {
+        return { ...node, children: addNodeToTree(node.children, parentId, newNode) };
+     }
+     return node;
+  });
+};
+
+// Helper to remove node from tree
+const removeNodeFromTree = (nodes: FileNode[], id: string): FileNode[] => {
+  return nodes.filter(node => node.id !== id).map(node => {
+     if (node.children) {
+        return { ...node, children: removeNodeFromTree(node.children, id) };
+     }
+     return node;
   });
 };
 
@@ -195,6 +230,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   activeFile: null,
   openFiles: [],
   isRestoringProject: false,
+  selectedNodeId: null,
 
   openProjectFolder: async () => {
     try {
@@ -213,7 +249,8 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
           path: handle.name,
           handle: handle,
           children: files
-        }]
+        }],
+        selectedNodeId: handle.name
       });
     } catch (error) {
       console.error('Failed to open directory:', error);
@@ -229,6 +266,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
       
       if (!storedHandle) {
         set({ isRestoringProject: false });
+        // Try to clear loading state in case of failure
         return false;
       }
       
@@ -254,7 +292,8 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
           handle: storedHandle,
           children: files
         }],
-        isRestoringProject: false
+        isRestoringProject: false,
+        selectedNodeId: storedHandle.name
       });
       
       console.log('✅ Restored last project:', storedHandle.name);
@@ -267,6 +306,7 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   },
   
   setActiveFile: (id) => set({ activeFile: id }),
+  setSelectedNode: (id) => set({ selectedNodeId: id }),
   
   openFile: async (id) => {
     const { openFiles, files, updateFileContent } = get();
@@ -288,6 +328,8 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     } else {
       set({ activeFile: id });
     }
+    // Also select it in explorer
+    set({ selectedNodeId: id });
   },
   
   closeFile: (id) => {
@@ -324,5 +366,103 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
   getFile: (id) => {
     const { files } = get();
     return findFileById(files, id);
+  },
+
+  createNode: async (name: string, type: 'file' | 'folder') => {
+      const { selectedNodeId, files } = get();
+      
+      let parentNode: FileNode | null = null;
+      let parentIdForSearch = selectedNodeId;
+      
+      // Determine parent
+      if (parentIdForSearch) {
+          const selected = findFileById(files, parentIdForSearch);
+          if (selected) {
+              if (selected.type === 'folder') {
+                  parentNode = selected;
+              } else {
+                  // Find parent of selected file
+                  // Using path manipulation since we don't have parent links
+                  const lastSlash = selected.id.lastIndexOf('/');
+                  if (lastSlash > 0) {
+                      const parentId = selected.id.substring(0, lastSlash);
+                      parentNode = findFileById(files, parentId);
+                  }
+              }
+          }
+      }
+
+      // Default to root if no parent found
+      if (!parentNode && files.length > 0) {
+          parentNode = files[0];
+      }
+      
+      if (!parentNode || !parentNode.handle || parentNode.type !== 'folder') {
+          console.error("Cannot create node: No valid parent folder found");
+          return;
+      }
+      
+      const parentHandle = parentNode.handle as FileSystemDirectoryHandle;
+      
+      try {
+          let newHandle;
+          if (type === 'file') {
+              newHandle = await parentHandle.getFileHandle(name, { create: true });
+          } else {
+              newHandle = await parentHandle.getDirectoryHandle(name, { create: true });
+          }
+          
+          const newNode: FileNode = {
+              id: `${parentNode.id}/${name}`,
+              name: name,
+              type: type,
+              path: `${parentNode.path}/${name}`,
+              handle: newHandle,
+              children: type === 'folder' ? [] : undefined
+          };
+          
+          const newFiles = addNodeToTree(files, parentNode.id, newNode);
+          set({ files: newFiles, selectedNodeId: newNode.id });
+          
+          if (type === 'file') {
+              get().openFile(newNode.id);
+          }
+      } catch (err) {
+          console.error("Failed to create node", err);
+          throw err;
+      }
+  },
+
+  deleteNode: async (id: string) => {
+      const { files } = get();
+      const node = findFileById(files, id);
+      if (!node) return;
+      
+      // Find parent to call removeEntry on handle
+      const lastSlash = id.lastIndexOf('/');
+      if (lastSlash <= 0) return; // Cannot delete root
+      
+      const parentId = id.substring(0, lastSlash);
+      const parentNode = findFileById(files, parentId);
+      
+      if (parentNode && parentNode.handle) {
+          try {
+              const parentHandle = parentNode.handle as FileSystemDirectoryHandle;
+              await parentHandle.removeEntry(node.name, { recursive: true });
+              
+              const newFiles = removeNodeFromTree(files, id);
+              
+              // Close file if open
+              const { openFiles } = get();
+              if (openFiles.includes(id)) {
+                  get().closeFile(id);
+              }
+              
+              set({ files: newFiles, selectedNodeId: parentId });
+          } catch (err) {
+               console.error("Failed to delete node", err);
+          }
+      }
   }
+
 }));
