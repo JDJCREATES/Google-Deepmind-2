@@ -6,12 +6,14 @@
  * @module components/artifacts/ArtifactViewer
  */
 
+
 import { useArtifactStore } from '../../store/artifactStore';
 import ErrorBoundary from '../common/ErrorBoundary';
 import ImageViewer from './viewers/ImageViewer';
 import TextViewer from './viewers/TextViewer';
 import MermaidViewer from './viewers/MermaidViewer';
 import JsonViewer from './viewers/JsonViewer';
+import { VscPreview, VscLoading } from 'react-icons/vsc';
 import './ArtifactViewer.css';
 
 export default function ArtifactViewer() {
@@ -37,7 +39,7 @@ export default function ArtifactViewer() {
     return (
       <div className="artifact-viewer-empty">
         <div className="empty-content">
-          <span className="empty-icon">👈</span>
+          <div className="empty-icon"><VscPreview size={48} /></div>
           <h3>Select an artifact</h3>
           <p>Choose an artifact from the panel to view details</p>
         </div>
@@ -48,7 +50,7 @@ export default function ArtifactViewer() {
   if (!artifact) {
     return (
       <div className="artifact-viewer-loading">
-        <div className="spinner" />
+        <div className="spinner"><VscLoading className="spin-icon" size={24} /></div>
         <p>Loading artifact...</p>
       </div>
     );

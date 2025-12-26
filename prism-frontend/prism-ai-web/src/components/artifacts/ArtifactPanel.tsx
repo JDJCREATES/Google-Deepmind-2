@@ -7,9 +7,31 @@
  * @module components/artifacts/ArtifactPanel
  */
 
-import { useEffect, useRef } from 'react';
+import { useRef, useEffect } from 'react';
 import { useArtifactStore } from '../../store/artifactStore';
 import ErrorBoundary from '../common/ErrorBoundary';
+import { 
+  VscJson, 
+  VscListOrdered, 
+  VscTypeHierarchy, 
+  VscChecklist, 
+  VscWarning, 
+  VscReport, 
+  VscTools, 
+  VscFileMedia, 
+  VscFile, 
+  VscNewFile,
+  VscCloudUpload,
+  VscRefresh,
+  VscPass,
+  VscCircleFilled,
+  VscArchive,
+  VscArrowRight,
+  VscEdit,
+  VscFileCode
+} from 'react-icons/vsc';
+import { BiCube } from 'react-icons/bi';
+import type { ArtifactType } from '../../types/artifacts';
 import './ArtifactPanel.css';
 
 /**
@@ -85,13 +107,16 @@ export default function ArtifactPanel({ projectId }: { projectId: string }) {
     return (
       <div className="artifact-panel error">
         <div className="error-message">
-          <h4>⚠️ Error Loading Artifacts</h4>
+          <div className="error-icon">
+            <VscWarning size={32} />
+          </div>
+          <h4>Error Loading Artifacts</h4>
           <p>{error}</p>
           <button className="retry-btn" onClick={() => {
             clearError();
             setProject(projectId);
           }}>
-            Retry
+            <VscRefresh /> Retry
           </button>
         </div>
       </div>
@@ -103,7 +128,9 @@ export default function ArtifactPanel({ projectId }: { projectId: string }) {
     return (
       <div className="artifact-panel empty">
         <div className="empty-state">
-          <span className="empty-icon">📋</span>
+          <span className="empty-icon">
+            <BiCube size={48} />
+          </span>
           <p>No artifacts yet</p>
           <small>Artifacts will appear here as they are created</small>
         </div>
@@ -121,7 +148,7 @@ export default function ArtifactPanel({ projectId }: { projectId: string }) {
              onClick={handleUploadClick}
              title="Upload Artifact"
            >
-             <span className="icon">📤</span>
+             <span className="icon"><VscCloudUpload size={16} /></span>
            </button>
            <input
              type="file"
@@ -134,7 +161,7 @@ export default function ArtifactPanel({ projectId }: { projectId: string }) {
           {groups.map((group) => (
             <div key={group.type} className="artifact-group">
               <div className="group-header">
-                <span className="group-icon">{group.icon}</span>
+                <span className="group-icon">{getGroupIcon(group.type as ArtifactType)}</span>
                 <span className="group-label">{group.label}</span>
                 <span className="group-count">{group.count}</span>
               </div>
@@ -168,20 +195,43 @@ export default function ArtifactPanel({ projectId }: { projectId: string }) {
 }
 
 /**
+ * Get icon for artifact type
+ */
+function getGroupIcon(type: ArtifactType) {
+  switch (type) {
+    case 'plan_manifest': return <VscListOrdered />;
+    case 'task_list': return <VscChecklist />;
+    case 'folder_map': return <VscTypeHierarchy />;
+    case 'api_contracts': return <VscJson />;
+    case 'dependency_plan': return <VscFileCode />;
+    case 'validation_checklist': return <VscPass />;
+    case 'risk_report': return <VscWarning />;
+    case 'validation_report': return <VscReport />;
+    case 'fix_plan': return <VscTools />;
+    case 'fix_patch': return <VscEdit />;
+    case 'fix_report': return <VscReport />;
+    case 'image': return <VscFileMedia />;
+    case 'text_document': return <VscFile />;
+    case 'generic_file': return <VscNewFile />;
+    default: return <VscFile />;
+  }
+}
+
+/**
  * Get status icon for artifact
  */
-function getStatusIcon(status: string): string {
+function getStatusIcon(status: string) {
   switch (status) {
     case 'draft':
-      return '📝';
+      return <VscEdit className="status-draft" />;
     case 'active':
-      return '✓';
+      return <VscPass className="status-active" />;
     case 'archived':
-      return '📦';
+      return <VscArchive className="status-archived" />;
     case 'superseded':
-      return '⏭';
+      return <VscArrowRight className="status-superseded" />;
     default:
-      return '📄';
+      return <VscCircleFilled className="status-default" />;
   }
 }
 

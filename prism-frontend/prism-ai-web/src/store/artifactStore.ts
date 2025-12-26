@@ -129,21 +129,21 @@ interface ArtifactState {
  * @returns Grouped artifacts
  */
 function groupArtifacts(artifacts: ArtifactMetadata[]): ArtifactGroup[] {
-  const typeLabels: Record<ArtifactType, { label: string; icon: string }> = {
-    plan_manifest: { label: 'Plans', icon: '📋' },
-    task_list: { label: 'Tasks', icon: '✓' },
-    folder_map: { label: 'Structure', icon: '📁' },
-    api_contracts: { label: 'API Contracts', icon: '🔌' },
-    dependency_plan: { label: 'Dependencies', icon: '📦' },
-    validation_checklist: { label: 'Validation', icon: '✔' },
-    risk_report: { label: 'Risks', icon: '⚠' },
-    validation_report: { label: 'Reports', icon: '📊' },
-    fix_plan: { label: 'Fix Plans', icon: '🔧' },
-    fix_patch: { label: 'Patches', icon: '🩹' },
-    fix_report: { label: 'Fix Reports', icon: '📝' },
-    image: { label: 'Images', icon: '🖼️' },
-    text_document: { label: 'Documents', icon: '📄' },
-    generic_file: { label: 'Files', icon: '📁' },
+  const typeLabels: Record<ArtifactType, { label: string }> = {
+    plan_manifest: { label: 'Plans' },
+    task_list: { label: 'Tasks' },
+    folder_map: { label: 'Structure' },
+    api_contracts: { label: 'API Contracts' },
+    dependency_plan: { label: 'Dependencies' },
+    validation_checklist: { label: 'Validation' },
+    risk_report: { label: 'Risks' },
+    validation_report: { label: 'Reports' },
+    fix_plan: { label: 'Fix Plans' },
+    fix_patch: { label: 'Patches' },
+    fix_report: { label: 'Fix Reports' },
+    image: { label: 'Images' },
+    text_document: { label: 'Documents' },
+    generic_file: { label: 'Files' },
   };
 
   const groups: Map<ArtifactType, ArtifactMetadata[]> = new Map();
@@ -158,7 +158,7 @@ function groupArtifacts(artifacts: ArtifactMetadata[]): ArtifactGroup[] {
   return Array.from(groups.entries()).map(([type, items]) => ({
     type,
     label: typeLabels[type].label,
-    icon: typeLabels[type].icon,
+    icon: '', // Icons handled in UI
     artifacts: items,
     count: items.length,
   }));

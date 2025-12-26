@@ -16,7 +16,7 @@ import {
   VscSettingsGear, 
   VscLayoutSidebarRightOff 
 } from 'react-icons/vsc';
-import { BiCodeBlock, BiCube } from 'react-icons/bi';
+import { BiCodeBlock, BiBox } from 'react-icons/bi';
 import './App.css';
 
 type SidebarView = 'files' | 'artifacts' | 'search';
@@ -134,7 +134,7 @@ function App() {
                onClick={() => handleSidebarClick('artifacts')}
                title="Artifacts"
              >
-               <BiCube size={24} />
+               <BiBox size={24} />
              </div>
              <div 
                className={`activity-icon ${activeSidebarView === 'search' && showExplorer ? 'active' : ''}`} 
@@ -185,8 +185,8 @@ function App() {
       <div className="chat-panel">
         <div className="chat-header">
           <div className="chat-header-left">
-             <BiCodeBlock size={20} style={{ marginRight: 8 }} />
-             <span className="chat-title">AI Assistant</span>
+             <PiShippingContainerFill size={20} style={{ marginRight: 8 }} />
+             <span className="chat-title">ShipS*</span>
           </div>
           <div className="chat-header-right">
             <VscLayoutSidebarRightOff size={16} />
