@@ -16,7 +16,7 @@ import {
   VscSettingsGear, 
   VscLayoutSidebarRightOff 
 } from 'react-icons/vsc';
-import { BiCodeBlock, BiBox } from 'react-icons/bi';
+import { BiBox } from 'react-icons/bi';
 import './App.css';
 
 type SidebarView = 'files' | 'artifacts' | 'search';
