@@ -8,38 +8,17 @@ import phrases from '../data/phrases.json';
 
 export default function LandingPage() {
   const { openProjectFolder } = useFileSystem();
-  const { isAuthenticated } = useAuthStore();
   const [prompt, setPrompt] = useState('');
-  const [showAuthModal, setShowAuthModal] = useState(false);
+  // Use global store for modal
+  const { isAuthenticated, openAuthModal, isAuthModalOpen, closeAuthModal } = useAuthStore();
+  
   const [dailyPhrase, setDailyPhrase] = useState('');
 
-  useEffect(() => {
-    // Daily Phrase Logic
-    const today = new Date().toISOString().split('T')[0];
-    const stored = localStorage.getItem('ships_daily_phrase');
-    
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed.date === today) {
-        setDailyPhrase(parsed.phrase);
-        return;
-      }
-    }
-
-    // Pick new random phrase
-    const randomPhrase = phrases[Math.floor(Math.random() * phrases.length)];
-    setDailyPhrase(randomPhrase);
-    localStorage.setItem('ships_daily_phrase', JSON.stringify({
-      date: today,
-      phrase: randomPhrase
-    }));
-  }, []);
+  // ... useEffect for phrase ...
 
   const handleStart = () => {
-    if (!isAuthenticated) {
-      setShowAuthModal(true);
-      return;
-    }
+    // Freemium: Allow start even if not authenticated.
+    // The backend limits usage to 1 prompt per IP.
     openProjectFolder(); 
   };
 
@@ -50,14 +29,21 @@ export default function LandingPage() {
   };
 
   const handleAuthSuccess = () => {
-    setShowAuthModal(false);
-    openProjectFolder();
+    closeAuthModal();
+    // Optional: openProjectFolder() if we want auto-start upon login
   };
 
   return (
     <div className="landing-container">
       <div className="landing-content">
         {dailyPhrase && <p className="landing-phrase">{dailyPhrase}</p>}
+        {/* ... */}
+        
+      <AuthModal 
+        isOpen={isAuthModalOpen} 
+        onClose={closeAuthModal}
+        onSuccess={handleAuthSuccess}
+      />
         <div className="brand-header">
           <RiShip2Fill className="brand-icon" size={48} color="var(--primary-color)" />
           <h1 className="brand-title">ShipS*</h1>
@@ -88,9 +74,10 @@ export default function LandingPage() {
         </div>
       </div>
 
+      {/* Auth Modal via Global Store */}
       <AuthModal 
-        isOpen={showAuthModal} 
-        onClose={() => setShowAuthModal(false)}
+        isOpen={isAuthModalOpen} 
+        onClose={closeAuthModal}
         onSuccess={handleAuthSuccess}
       />
     </div>

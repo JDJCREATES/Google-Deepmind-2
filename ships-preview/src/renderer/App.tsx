@@ -1,19 +1,36 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { PiShippingContainerFill, PiLinkBold } from "react-icons/pi";
 
 function App() {
   const [projectUrl, setProjectUrl] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
 
-  // TODO: integrate with backend or main process to get active project
+  // Poll Backend for Preview Status
+  useEffect(() => {
+    const checkStatus = async () => {
+        try {
+            const res = await fetch('http://localhost:8001/preview/status');
+            const data = await res.json();
+            
+            if (data.is_running && data.url) {
+                setProjectUrl(data.url);
+                setIsConnecting(false);
+            }
+        } catch (e) {
+            // Backend might be down or not started
+            console.log("Polling error:", e);
+        }
+    };
+
+    const interval = setInterval(checkStatus, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Manual connect triggers backend start (mock for now because we need project path)
   const handleConnect = async () => {
       setIsConnecting(true);
-      // Mock connection for now
-      setTimeout(() => {
-          // In real implementation, this would be the localhost url of the user's app
-          setIsConnecting(false);
-          // setProjectUrl('http://localhost:3000'); 
-      }, 2000);
+      // In a real scenario, we might prompt for path or ask backend to start "current"
+      // For now, we rely on the Polling to catch it when the Main App starts it.
   };
 
   if (projectUrl) {
