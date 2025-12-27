@@ -63,6 +63,12 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
     """Run the Planner agent."""
     logger.info("[PLANNER] 🎯 Starting planner node...")
     
+    # Extract project path and set context for tools
+    artifacts = state.get("artifacts", {})
+    project_path = artifacts.get("project_path", ".")
+    set_project_root(project_path)
+    logger.info(f"[PLANNER] 📁 Project root set to: {project_path}")
+
     planner = AgentFactory.create_planner()
     
     # Get the user message
@@ -106,28 +112,40 @@ async def coder_node(state: AgentGraphState) -> Dict[str, Any]:
     
     logger.info(f"[CODER] Input messages count: {len(messages)}")
     
+    # CONTEXT SANITIZATION:
+    # Filter out Planner's JSON output to prevent Coder from just continuing text generation.
+    # We only keep the ORIGINAL user request (first message) and then append the execution directive.
+    user_request = messages[0] if messages else HumanMessage(content="Start coding.")
+    
+    # If the first message is not HumanMessage (rare), find the proper one or use default
+    if not isinstance(user_request, HumanMessage) and len(messages) > 0:
+        for m in messages:
+            if isinstance(m, HumanMessage):
+                user_request = m
+                break
+    
+    logger.info(f"[CODER] Using User Request: {str(user_request.content)[:50]}...")
+
     # IMPORTANT: Add a context message to guide the coder to execute
     # NOTE: We do NOT send the actual project path to the LLM for security reasons
     # The path is handled at the tool level, not by the LLM
-    execution_prompt = HumanMessage(content="""
-EXECUTE NOW: The planning is complete. You must NOW create the actual files.
+    execution_prompt = HumanMessage(content=f"""
+ACTION REQUIRED: You are the Lead Developer. The planning phase is complete.
+Your task is to IMPLEMENT the request using the `write_file_to_disk` tool.
 
-Use the write_file_to_disk tool to create each file. Do not discuss or explain.
-Just call write_file_to_disk for each file that needs to be created.
+User Request: "{user_request.content}"
 
-Example tool call:
-write_file_to_disk(
-    file_path="index.html",
-    content="<!DOCTYPE html>..."
-)
+INSTRUCTIONS:
+1. Do NOT output a plan, JSON, or explanation.
+2. IMMEDIATELY call `write_file_to_disk` for every file needed.
+3. Create all necessary files (HTML, CSS, JS, etc.) to fulfill the request.
+4. If you need to assume details, do so and proceed.
 
-Note: The project location is handled automatically. Just provide the relative file_path.
-
-Start creating files NOW.
+START CODING NOW.
 """)
     
-    # Add the execution prompt to the messages
-    messages_with_context = list(messages) + [execution_prompt]
+    # Pass ONLY the user request and the execution prompt
+    messages_with_context = [execution_prompt]  # The prompt includes the user request now
     logger.info(f"[CODER] Added execution prompt. Total messages: {len(messages_with_context)}")
     
     result = await coder.ainvoke({"messages": messages_with_context})
