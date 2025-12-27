@@ -39,6 +39,7 @@ interface FileSystemState {
   
   createNode: (name: string, type: 'file' | 'folder') => Promise<void>;
   deleteNode: (id: string) => Promise<void>;
+  refreshFileTree: () => Promise<void>; // Refresh without opening picker
 }
 
 // Recursive helper to build tree from directory handle
@@ -255,6 +256,33 @@ export const useFileSystem = create<FileSystemState>((set, get) => ({
     } catch (error) {
       console.error('Failed to open directory:', error);
       // User likely cancelled
+    }
+  },
+  
+  refreshFileTree: async () => {
+    const { rootHandle } = get();
+    if (!rootHandle) {
+      console.log('No project open to refresh');
+      return;
+    }
+    
+    try {
+      console.log('Refreshing file tree...');
+      const files = await buildFileTree(rootHandle, rootHandle.name);
+      
+      set({ 
+        files: [{
+          id: rootHandle.name,
+          name: rootHandle.name,
+          type: 'folder',
+          path: rootHandle.name,
+          handle: rootHandle,
+          children: files
+        }]
+      });
+      console.log('✅ File tree refreshed');
+    } catch (error) {
+      console.error('Failed to refresh file tree:', error);
     }
   },
   

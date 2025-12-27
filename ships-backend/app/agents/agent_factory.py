@@ -46,11 +46,11 @@ CRITICAL RULES:
 - Identify all risks upfront
 
 IMPORTANT: You must valid JSON plan first only to verify internally, BUT THEN:
-YOU MUST WRITE THE FINAL PLAN TO DISK as `implementation_plan.md` and `task.md`.
+YOU MUST WRITE THE FINAL PLAN TO DISK in the `.ships/` subfolder:
 
-Use `write_file_to_disk` to save these files.
-- `implementation_plan.md`: The full detailed plan (Markdown)
-- `task.md`: The checklist of tasks (Markdown checkboxes)
+Use `write_file_to_disk` to save these files:
+- `.ships/implementation_plan.md`: The full detailed plan (Markdown)
+- `.ships/task.md`: The checklist of tasks (Markdown checkboxes)
 
 Do NOT output the full JSON in the chat. Just say "Plan created and saved to disk."
 """,
