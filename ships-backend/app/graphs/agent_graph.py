@@ -272,17 +272,22 @@ async def stream_pipeline(
     thread_id: str = "default"
 ):
     """
-    Stream the full agent pipeline.
+    Stream the full agent pipeline with token-by-token streaming.
     
-    Yields events as each agent processes.
+    Uses stream_mode="messages" for real-time LLM token streaming.
     
     Args:
         user_request: The user's request
         thread_id: Thread ID for state persistence
         
     Yields:
-        State updates from each node
+        Message chunks as the LLM generates tokens
     """
+    import logging
+    logger = logging.getLogger("ships.agent")
+    
+    logger.info(f"[AGENT] Starting pipeline for request: {user_request[:100]}...")
+    
     checkpointer = MemorySaver()
     graph = create_agent_graph(checkpointer)
     
@@ -299,5 +304,8 @@ async def stream_pipeline(
     
     config = {"configurable": {"thread_id": thread_id}}
     
-    async for event in graph.astream(initial_state, config=config, stream_mode="updates"):
+    # Use stream_mode="messages" for token-by-token streaming
+    # This yields (message_chunk, metadata) tuples as the LLM generates
+    async for event in graph.astream(initial_state, config=config, stream_mode="messages"):
+        logger.debug(f"[AGENT] Stream event type: {type(event)}")
         yield event
