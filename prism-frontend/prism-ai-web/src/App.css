@@ -372,12 +372,43 @@ body {
 }
 
 .explorer-header {
-  padding: 10px 20px;
+  height: 35px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 0 16px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 1px;
   color: var(--text-secondary);
   text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.explorer-toolbar {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.explorer-toolbar-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  width: 24px;
+  height: 24px;
+}
+
+.explorer-toolbar-btn:hover {
+  background-color: var(--hover-bg);
+  color: var(--text-primary);
 }
 
 .explorer-content {
@@ -570,16 +601,25 @@ body {
   background-color: var(--primary-color);
   color: white;
   border: none;
-  border-radius: 2px;
-  width: 32px;
+  border-radius: 6px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: transform 0.1s;
 }
 
 .send-button:hover {
-    filter: brightness(1.1);
+  transform: scale(1.05);
+}
+
+.send-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .message {
@@ -612,4 +652,10 @@ body {
   font-size: 10px;
   opacity: 0.6;
   text-align: right;
+}
+
+.no-bubble {
+  background-color: transparent !important;
+  padding: 0 !important;
+  color: var(--text-primary);
 }

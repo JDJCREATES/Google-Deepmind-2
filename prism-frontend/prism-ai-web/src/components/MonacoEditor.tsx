@@ -52,15 +52,36 @@ export default function MonacoEditor({
       onChange={handleEditorChange}
       onMount={handleEditorDidMount}
       options={{
-        minimap: { enabled: true },
+        minimap: { enabled: true, scale: 0.75, renderCharacters: false },
         fontSize: 14,
+        fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace",
+        fontLigatures: true,
         lineNumbers: 'on',
         roundedSelection: true,
         scrollBeyondLastLine: false,
         automaticLayout: true,
         tabSize: 2,
         wordWrap: 'on',
-        padding: { top: 16 }
+        padding: { top: 16, bottom: 16 },
+        cursorBlinking: 'smooth',
+        cursorSmoothCaretAnimation: 'on',
+        smoothScrolling: true,
+        mouseWheelZoom: true,
+        bracketPairColorization: { enabled: true },
+        guides: {
+            bracketPairs: true,
+            indentation: true,
+            highlightActiveBracketPair: true
+        },
+        suggest: {
+            preview: true,
+            showStatusBar: true
+        },
+        renderLineHighlight: 'all',
+        scrollbar: {
+            verticalScrollbarSize: 10,
+            horizontalScrollbarSize: 10
+        }
       }}
     />
   );

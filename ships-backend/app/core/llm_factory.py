@@ -3,8 +3,8 @@ from typing import Optional, Literal
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 # Model Constants
-MODEL_FLASH = "gemini-3.0-flash-preview"
-MODEL_PRO = "gemini-3.0-pro-preview-02-05"
+MODEL_FLASH = "gemini-3-flash-preview"
+MODEL_PRO = "gemini-3-pro-preview"
 
 class LLMFactory:
     """

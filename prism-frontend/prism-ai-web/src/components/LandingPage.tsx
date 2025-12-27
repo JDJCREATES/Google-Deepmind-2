@@ -7,14 +7,30 @@ import AuthModal from './AuthModal';
 import phrases from '../data/phrases.json';
 
 export default function LandingPage() {
-  const { openProjectFolder } = useFileSystem();
+  const { openProjectFolder, restoreLastProject, isRestoringProject } = useFileSystem();
   const [prompt, setPrompt] = useState('');
   // Use global store for modal
   const { isAuthenticated, openAuthModal, isAuthModalOpen, closeAuthModal } = useAuthStore();
   
   const [dailyPhrase, setDailyPhrase] = useState('');
+  const [attemptedRestore, setAttemptedRestore] = useState(false);
 
-  // ... useEffect for phrase ...
+  // Auto-restore last project on mount
+  useEffect(() => {
+    if (!attemptedRestore) {
+      setAttemptedRestore(true);
+      restoreLastProject().catch(err => {
+        console.log('Could not restore project:', err);
+      });
+    }
+  }, [attemptedRestore, restoreLastProject]);
+
+  useEffect(() => {
+    if (phrases && phrases.length > 0) {
+      const randomIndex = Math.floor(Math.random() * phrases.length);
+      setDailyPhrase(phrases[randomIndex]);
+    }
+  }, []);
 
   const handleStart = () => {
     // Freemium: Allow start even if not authenticated.
@@ -61,9 +77,18 @@ export default function LandingPage() {
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyPress={handleKeyPress}
+            disabled={isRestoringProject}
           />
-          <button className="landing-submit-btn" onClick={handleStart}>
-            <PiShippingContainerFill size={24} color="white" />
+          <button 
+            className="landing-submit-btn" 
+            onClick={handleStart}
+            disabled={isRestoringProject}
+          >
+            {isRestoringProject ? (
+              <span style={{ fontSize: '14px' }}>⏳</span>
+            ) : (
+              <PiShippingContainerFill size={24} color="white" />
+            )}
           </button>
         </div>
 
