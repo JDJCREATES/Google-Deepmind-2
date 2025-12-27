@@ -61,6 +61,7 @@ agent_router = APIRouter(prefix="/agent", tags=["agent"])
 
 class PromptRequest(BaseModel):
     prompt: str
+    project_path: Optional[str] = None  # Path to the user's project directory
 
 from fastapi.responses import StreamingResponse
 import json
@@ -72,11 +73,17 @@ async def run_agent(request: Request, body: PromptRequest):
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     logger = logging.getLogger("ships.agent")
     
+    # Determine project path: use provided, fall back to preview_manager's current project
+    effective_project_path = body.project_path or preview_manager.current_project_path
+    
     # Log the FULL raw input
     logger.info("=" * 60)
     logger.info("[API] 📥 RECEIVED USER INPUT:")
     logger.info(f"[API] Raw prompt (full): {body.prompt}")
     logger.info(f"[API] Prompt length: {len(body.prompt)} chars")
+    logger.info(f"[API] Project path (requested): {body.project_path or 'Not provided'}")
+    logger.info(f"[API] Project path (from preview): {preview_manager.current_project_path or 'Not set'}")
+    logger.info(f"[API] Project path (effective): {effective_project_path or 'Will use backend dir (.)'}")
     logger.info("=" * 60)
     
     # Manual Auth Check
@@ -99,7 +106,7 @@ async def run_agent(request: Request, body: PromptRequest):
             logger.info(f"[STREAM] Passing to stream_pipeline: '{body.prompt[:100]}...'")
             current_node = None
             
-            async for event in stream_pipeline(body.prompt):
+            async for event in stream_pipeline(body.prompt, project_path=effective_project_path):
                 # stream_mode="messages" yields tuples of (message_chunk, metadata)
                 # The message_chunk has a .content attribute with the actual text
                 

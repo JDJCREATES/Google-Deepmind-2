@@ -16,15 +16,33 @@ import logging
 
 logger = logging.getLogger("ships.coder")
 
+# ============================================================================
+# SECURE PROJECT PATH CONTEXT
+# This is set by the system before the coder runs, NEVER by the LLM
+# The LLM never sees or receives the actual filesystem path
+# ============================================================================
+_project_context = {
+    "project_root": "."  # Default to current directory
+}
+
+def set_project_root(path: str):
+    """Set the project root path (called by system, not LLM)"""
+    _project_context["project_root"] = path
+    logger.info(f"[CODER] 📁 Project root set to: {path}")
+
+def get_project_root() -> str:
+    """Get the current project root path"""
+    return _project_context["project_root"]
+
+
 
 @tool
 def write_file_to_disk(
     file_path: str,
-    content: str,
-    project_root: str = "."
+    content: str
 ) -> Dict[str, Any]:
     """
-    Actually write a file to disk in the project.
+    Write a file to disk in the current project.
     
     This is the primary tool for creating and modifying files.
     Creates parent directories if they don't exist.
@@ -32,38 +50,62 @@ def write_file_to_disk(
     Args:
         file_path: Relative path within the project (e.g., "src/components/Button.tsx")
         content: The full content to write to the file
-        project_root: Root directory of the project (defaults to current directory)
         
     Returns:
-        Dict with success status, absolute path, and bytes written
+        Dict with success status, relative path, and bytes written
     """
     try:
-        # Resolve the full path
-        full_path = Path(project_root) / file_path
+        # Get project root from secure context (NOT from LLM input)
+        project_root = get_project_root()
+        
+        # ====================================================================
+        # CRITICAL SAFETY: Refuse to write if no valid project path is set
+        # ====================================================================
+        if project_root == "." or not project_root:
+            logger.error("[CODER] ❌ BLOCKED: No project path set! Cannot write files to backend directory.")
+            return {
+                "success": False,
+                "error": "No project selected. Please open a project first via /preview/start",
+                "path": file_path
+            }
+        
+        resolved_root = Path(project_root).resolve()
+        resolved_path = (resolved_root / file_path).resolve()
+        
+        # ====================================================================
+        # CRITICAL SAFETY: Block writes to THIS backend's directory
+        # Uses the actual location of this script to detect the backend
+        # ====================================================================
+        backend_dir = Path(__file__).resolve().parent.parent.parent.parent  # ships-backend/
+        
+        if str(resolved_root).startswith(str(backend_dir)):
+            logger.error(f"[CODER] ❌ BLOCKED: Attempted write to backend directory!")
+            return {
+                "success": False,
+                "error": "Cannot write to the ShipS* backend. Please select a user project.",
+                "path": file_path
+            }
         
         # Security check - don't allow escaping project root
-        resolved_root = Path(project_root).resolve()
-        resolved_path = full_path.resolve()
-        
         if not str(resolved_path).startswith(str(resolved_root)):
             logger.error(f"[CODER] Security: Attempted path escape: {file_path}")
             return {
                 "success": False,
-                "error": "Path would escape project root",
-                "path": str(full_path)
+                "error": "Invalid file path",
+                "path": file_path
             }
         
         # Create parent directories
-        full_path.parent.mkdir(parents=True, exist_ok=True)
+        resolved_path.parent.mkdir(parents=True, exist_ok=True)
         
         # Write the file
-        full_path.write_text(content, encoding="utf-8")
+        resolved_path.write_text(content, encoding="utf-8")
         
-        logger.info(f"[CODER] ✅ Wrote file: {full_path} ({len(content)} bytes)")
+        logger.info(f"[CODER] ✅ Wrote file: {file_path} ({len(content)} bytes)")
         
+        # Return only relative path info (don't leak full paths)
         return {
             "success": True,
-            "path": str(full_path.resolve()),
             "relative_path": file_path,
             "bytes_written": len(content),
             "lines": content.count("\n") + 1

@@ -19,6 +19,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 
 from app.agents.agent_factory import AgentFactory
+from app.agents.tools.coder import set_project_root  # Secure project path context
 
 
 # ============================================================================
@@ -96,15 +97,31 @@ async def coder_node(state: AgentGraphState) -> Dict[str, Any]:
     coder = AgentFactory.create_coder()
     
     messages = state.get("messages", [])
+    artifacts = state.get("artifacts", {})
+    project_path = artifacts.get("project_path", ".")
+    
+    # SECURITY: Set project root in tool context BEFORE running coder
+    # The LLM never sees this path - it's injected directly into the tool
+    set_project_root(project_path)
+    
     logger.info(f"[CODER] Input messages count: {len(messages)}")
     
     # IMPORTANT: Add a context message to guide the coder to execute
-    # Without this, the coder might just acknowledge the plan without acting
+    # NOTE: We do NOT send the actual project path to the LLM for security reasons
+    # The path is handled at the tool level, not by the LLM
     execution_prompt = HumanMessage(content="""
 EXECUTE NOW: The planning is complete. You must NOW create the actual files.
 
 Use the write_file_to_disk tool to create each file. Do not discuss or explain.
 Just call write_file_to_disk for each file that needs to be created.
+
+Example tool call:
+write_file_to_disk(
+    file_path="index.html",
+    content="<!DOCTYPE html>..."
+)
+
+Note: The project location is handled automatically. Just provide the relative file_path.
 
 Start creating files NOW.
 """)
@@ -129,6 +146,11 @@ Start creating files NOW.
             logger.info(f"[CODER] 🔧 NEW Tool calls: {tool_names}")
             if 'write_file_to_disk' in tool_names:
                 logger.info("[CODER] ✅ Coder is writing files!")
+                # Log the actual tool call args to see if project_root is being used
+                for tc in msg.tool_calls:
+                    if tc.get('name') == 'write_file_to_disk':
+                        args = tc.get('args', {})
+                        logger.info(f"[CODER] 📝 File: {args.get('file_path')} → {args.get('project_root', '.')}")
         if hasattr(msg, 'content') and msg.content:
             content_preview = str(msg.content)[:200]
             logger.info(f"[CODER] 📝 NEW Content: {content_preview}...")
@@ -314,9 +336,11 @@ async def run_full_pipeline(
     return result
 
 
+
 async def stream_pipeline(
     user_request: str,
-    thread_id: str = "default"
+    thread_id: str = "default",
+    project_path: Optional[str] = None
 ):
     """
     Stream the full agent pipeline with token-by-token streaming.
@@ -326,6 +350,7 @@ async def stream_pipeline(
     Args:
         user_request: The user's request
         thread_id: Thread ID for state persistence
+        project_path: Optional path to user's project directory
         
     Yields:
         Message chunks as the LLM generates tokens
@@ -336,6 +361,7 @@ async def stream_pipeline(
     logger.info("=" * 60)
     logger.info(f"[PIPELINE] 📨 Received user_request: '{user_request}'")
     logger.info(f"[PIPELINE] Request length: {len(user_request)} chars")
+    logger.info(f"[PIPELINE] Project path: {project_path or 'Not set (using backend dir)'}")
     logger.info("=" * 60)
     
     checkpointer = MemorySaver()
@@ -349,7 +375,9 @@ async def stream_pipeline(
     initial_state = {
         "messages": [human_msg],
         "phase": "planning",
-        "artifacts": {},
+        "artifacts": {
+            "project_path": project_path or "."  # Store project path in artifacts for agents to access
+        },
         "current_task_index": 0,
         "validation_passed": False,
         "fix_attempts": 0,
@@ -367,3 +395,4 @@ async def stream_pipeline(
     async for event in graph.astream(initial_state, config=config, stream_mode="messages"):
         logger.debug(f"[AGENT] Stream event type: {type(event)}")
         yield event
+

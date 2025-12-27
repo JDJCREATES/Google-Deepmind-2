@@ -18,6 +18,7 @@ class PreviewManager:
         self.logs: List[str] = []
         self.current_url: Optional[str] = None
         self.is_running: bool = False
+        self.current_project_path: Optional[str] = None  # Track the current project path
         self._url_pattern = re.compile(r'http://localhost:\d+')
 
     def start_dev_server(self, project_path: str) -> Dict[str, Any]:
@@ -59,6 +60,7 @@ class PreviewManager:
                 creationflags=creation_flags
             )
             self.is_running = True
+            self.current_project_path = project_path  # Store the project path
             
             # Start a background thread to consume logs and detect URL
             threading.Thread(target=self._consume_logs, daemon=True).start()

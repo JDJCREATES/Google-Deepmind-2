@@ -91,8 +91,11 @@ function App() {
     
     setMessages(prev => [...prev, initialAiMessage]);
 
+    // Project path is handled securely on the backend via preview_manager
+    // Frontend doesn't need to send it - backend falls back to current project
     await agentService.runAgent(
       userMessage.content,
+      null, // Backend uses preview_manager.current_project_path as fallback
       (chunk: AgentChunk) => {
         if (chunk.type === 'message' && chunk.content) {
           setMessages(prev => prev.map(msg => {

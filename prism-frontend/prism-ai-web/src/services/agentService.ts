@@ -20,11 +20,13 @@ export const agentService = {
    * Run the agent with a prompt and stream responses.
    * 
    * @param prompt - User prompt
+   * @param projectPath - Optional path to the user's project directory
    * @param onChunk - Callback for each streaming chunk
    * @param onError - Callback for errors
    */
   async runAgent(
-    prompt: string, 
+    prompt: string,
+    projectPath: string | null,
     onChunk: (chunk: AgentChunk) => void,
     onError: (error: any) => void
   ): Promise<void> {
@@ -32,7 +34,10 @@ export const agentService = {
       const response = await fetch(`${API_BASE_URL}/agent/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ 
+          prompt,
+          project_path: projectPath 
+        }),
       });
 
       if (!response.ok) {
