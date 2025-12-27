@@ -1,12 +1,7 @@
 import './AdjustableGrid.css'
 
 export interface AdjustableGridProps {
-  gridWidth: number;
-  gridHeight: number;
-  cellData?: any[][];
-  renderCell?: (value: any, row: number, col: number) => React.ReactNode;
-  onCellClick?: (row: number, col: number) => void;
-  cellClassName?: string;
+  
 }
 
 const AdjustableGrid = ({

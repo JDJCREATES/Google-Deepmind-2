@@ -1,28 +1,39 @@
-import './MatrixGrid.css'
+import AdjustableGrid from './AdjustableGrid';
 
-export interface matrixProps = {
-  gridWidth: number,
-  gridHeight: number,
-  gridTitle: string,
-  
-  defaultCellColor: string,
-  currentCellColor: string,
-  
-  
+export interface MatrixGridProps {
+  gridWidth: number;
+  gridHeight: number;
+  gridTitle: string;
+  cellData?: any[][];
+  renderCell?: (value: any, row: number, col: number) => React.ReactNode;
+  onCellClick?: (row: number, col: number) => void;
+  cellClassName?: string;
 }
 
-
-const MatrixGrid = ({props: matrixProps }) => {
-  const cellCount = props.gridWidth x props.gridHeight;
-  
+const MatrixGrid = ({
+  gridWidth,
+  gridHeight,
+  gridTitle,
+  cellData,
+  renderCell,
+  onCellClick,
+  cellClassName
+}: MatrixGridProps) => {
   return (
     <>
       <section className="grid-container">
-        <div className="grid-title">
-          {props.gridTitle}
-        </div>
-        {}
+        <div className="grid-title">{gridTitle}</div>
+        <AdjustableGrid
+          gridWidth={gridWidth}
+          gridHeight={gridHeight}
+          cellData={cellData}
+          renderCell={renderCell}
+          onCellClick={onCellClick}
+          cellClassName={cellClassName}
+        />
       </section>
     </>
-  )
-}
+  );
+};
+
+export default MatrixGrid;
