@@ -216,6 +216,7 @@ async def run_agent(request: Request, body: PromptRequest):
                     continue
                     
             logger.info("[STREAM] Pipeline completed successfully")
+            yield json.dumps({"type": "complete", "content": "Pipeline completed successfully"}) + "\n"
             
         except Exception as e:
             logger.error(f"[STREAM] Pipeline error: {e}", exc_info=True)

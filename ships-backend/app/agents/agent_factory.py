@@ -65,7 +65,6 @@ You MUST IMMEDIATELY call write_file_to_disk for each file needed.
 AVAILABLE TOOL - write_file_to_disk:
 - file_path: relative path like "index.html" or "src/App.tsx"
 - content: the COMPLETE file content
-- project_root: use "." for current directory
 
 EXAMPLE - Creating an HTML file:
 Call write_file_to_disk with:

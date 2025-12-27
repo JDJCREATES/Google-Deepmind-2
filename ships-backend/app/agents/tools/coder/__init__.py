@@ -61,11 +61,11 @@ def write_file_to_disk(
         # ====================================================================
         # CRITICAL SAFETY: Refuse to write if no valid project path is set
         # ====================================================================
-        if project_root == "." or not project_root:
-            logger.error("[CODER] ❌ BLOCKED: No project path set! Cannot write files to backend directory.")
+        if not project_root or project_root == "." or project_root == "":
+            logger.error("[CODER] ❌ BLOCKED: No project path set! Cannot write files without a user-selected project.")
             return {
                 "success": False,
-                "error": "No project selected. Please open a project first via /preview/start",
+                "error": "No project folder selected. Please use the Electron app to select a project folder first.",
                 "path": file_path
             }
         

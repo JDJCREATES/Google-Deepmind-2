@@ -65,7 +65,7 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
     
     # Extract project path and set context for tools
     artifacts = state.get("artifacts", {})
-    project_path = artifacts.get("project_path", ".")
+    project_path = artifacts.get("project_path")  # None if not set - safety check will catch
     set_project_root(project_path)
     logger.info(f"[PLANNER] 📁 Project root set to: {project_path}")
 
@@ -104,7 +104,7 @@ async def coder_node(state: AgentGraphState) -> Dict[str, Any]:
     
     messages = state.get("messages", [])
     artifacts = state.get("artifacts", {})
-    project_path = artifacts.get("project_path", ".")
+    project_path = artifacts.get("project_path")  # None if not set - safety check will catch
     
     # SECURITY: Set project root in tool context BEFORE running coder
     # The LLM never sees this path - it's injected directly into the tool
@@ -181,6 +181,13 @@ START CODING NOW.
 
 async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
     """Run the Validator agent."""
+    logger.info("[VALIDATOR] 🔍 Starting validator node...")
+    
+    # Set project context for any file operations
+    artifacts = state.get("artifacts", {})
+    project_path = artifacts.get("project_path")
+    set_project_root(project_path)
+    
     validator = AgentFactory.create_validator()
     
     messages = state.get("messages", [])
@@ -203,6 +210,13 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
 
 async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
     """Run the Fixer agent."""
+    logger.info("[FIXER] 🔧 Starting fixer node...")
+    
+    # Set project context for file operations
+    artifacts = state.get("artifacts", {})
+    project_path = artifacts.get("project_path")
+    set_project_root(project_path)
+    
     fixer = AgentFactory.create_fixer()
     
     fix_attempts = state.get("fix_attempts", 0) + 1
@@ -394,7 +408,7 @@ async def stream_pipeline(
         "messages": [human_msg],
         "phase": "planning",
         "artifacts": {
-            "project_path": project_path or "."  # Store project path in artifacts for agents to access
+            "project_path": project_path  # None if not set - agents will check and refuse
         },
         "current_task_index": 0,
         "validation_passed": False,
@@ -410,7 +424,7 @@ async def stream_pipeline(
     
     # Use stream_mode="messages" for token-by-token streaming
     # This yields (message_chunk, metadata) tuples as the LLM generates
-    async for event in graph.astream(initial_state, config=config, stream_mode="messages"):
+    async for event in graph.astream(initial_state, config=config, stream_mode="messages", subgraphs=True):
         logger.debug(f"[AGENT] Stream event type: {type(event)}")
         yield event
 

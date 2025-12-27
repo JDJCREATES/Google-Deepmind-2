@@ -12,3 +12,4 @@ numpy
 google-generativeai
 langchain-google-genai
 langchain-core
+python-dotenv

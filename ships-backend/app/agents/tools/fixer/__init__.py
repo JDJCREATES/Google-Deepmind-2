@@ -302,6 +302,9 @@ def run_preflight_checks(
     }
 
 
+# Import write_file_to_disk from coder tools
+from app.agents.tools.coder import write_file_to_disk
+
 # Export all tools for the Fixer agent
 FIXER_TOOLS = [
     triage_violations,
@@ -310,4 +313,5 @@ FIXER_TOOLS = [
     create_fix_patch,
     create_replan_request,
     run_preflight_checks,
+    write_file_to_disk,  # Fixer can now write fixes to disk
 ]
