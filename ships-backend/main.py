@@ -108,6 +108,12 @@ async def run_agent(request: Request, body: PromptRequest):
                     if isinstance(event, tuple) and len(event) >= 2:
                         message_chunk, metadata = event[0], event[1]
                         
+                        # FILTER: Skip HumanMessage types (these are internal prompts)
+                        msg_type = type(message_chunk).__name__
+                        if msg_type == 'HumanMessage' or msg_type == 'HumanMessageChunk':
+                            logger.debug(f"[STREAM] Skipping HumanMessage: {str(message_chunk)[:50]}...")
+                            continue
+                        
                         # Extract content from the message chunk
                         content = ""
                         if hasattr(message_chunk, 'content'):
@@ -119,6 +125,13 @@ async def run_agent(request: Request, body: PromptRequest):
                         else:
                             content = str(message_chunk)
                         
+                        # FILTER: Skip internal control messages
+                        if isinstance(content, str):
+                            skip_patterns = ['EXECUTE NOW', 'Start creating files NOW', 'Use the write_file_to_disk']
+                            if any(pattern in content for pattern in skip_patterns):
+                                logger.debug(f"[STREAM] Skipping internal message: {content[:50]}...")
+                                continue
+                        
                         # Get node name from metadata if available
                         node_name = metadata.get('langgraph_node', 'agent') if isinstance(metadata, dict) else 'agent'
                         
@@ -127,7 +140,7 @@ async def run_agent(request: Request, body: PromptRequest):
                             logger.info(f"[STREAM] Entered node: {node_name}")
                         
                         if content:
-                            logger.debug(f"[STREAM] Chunk from {node_name}: {content[:50]}...")
+                            logger.debug(f"[STREAM] Chunk from {node_name}: {str(content)[:50]}...")
                             chunk = {
                                 "type": "message",
                                 "node": node_name,
