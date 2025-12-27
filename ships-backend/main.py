@@ -9,6 +9,7 @@ from app.services.usage_tracker import usage_tracker
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
+import os
 
 app = FastAPI(title="ShipS* Backend")
 
@@ -18,8 +19,8 @@ origins = [
     "http://localhost:5174",
     "http://localhost:5175",
     "http://localhost:5176",
-    # Allow electron preview if needed, or specific origins
-    "*" 
+    "http://localhost:5177",  # Electron Dev Server
+    "ships://preview" # Electron Custom Protocol
 ]
 
 app.add_middleware(
@@ -51,7 +52,30 @@ async def get_status():
     return {
         "is_running": preview_manager.is_running,
         "logs": preview_manager.logs[-50:],
-        "url": preview_manager.current_url
+        "url": preview_manager.current_url,
+        "project_path": preview_manager.current_project_path
+    }
+
+@preview_router.post("/set-path")
+async def set_project_path(project: ProjectPath):
+    """Set the project path without starting a dev server. 
+    This tells the agent where to write files."""
+    if not project.path or not os.path.isdir(project.path):
+        return {"status": "error", "message": f"Path does not exist: {project.path}"}
+    
+    preview_manager.current_project_path = project.path
+    return {
+        "status": "success", 
+        "message": f"Project path set to: {project.path}",
+        "project_path": project.path
+    }
+
+@preview_router.get("/path")
+async def get_project_path():
+    """Get the current project path."""
+    return {
+        "project_path": preview_manager.current_project_path,
+        "is_set": preview_manager.current_project_path is not None
     }
 
 # ---------------------------------------------------------

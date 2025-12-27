@@ -235,6 +235,27 @@ function App() {
              <RiShip2Fill size={20} style={{ marginRight: 8, color: 'var(--primary-color, #ff5e57)' }} />
              <span className="chat-title">ShipS*</span>
           </div>
+          <div className="chat-header-center">
+            <button 
+              className="preview-btn"
+              onClick={() => {
+                // Try to open the Electron app via custom protocol
+                window.location.href = 'ships://preview';
+              }}
+              style={{
+                background: 'var(--primary-color, #ff5e57)',
+                color: 'white',
+                border: 'none',
+                padding: '6px 16px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '13px',
+                fontWeight: 500
+              }}
+            >
+              Preview
+            </button>
+          </div>
           <div className="chat-header-right">
             <VscLayoutSidebarRightOff size={16} />
           </div>
