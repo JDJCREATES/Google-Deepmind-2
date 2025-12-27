@@ -10,6 +10,72 @@ from langchain_core.tools import tool
 import difflib
 import hashlib
 import re
+import os
+from pathlib import Path
+import logging
+
+logger = logging.getLogger("ships.coder")
+
+
+@tool
+def write_file_to_disk(
+    file_path: str,
+    content: str,
+    project_root: str = "."
+) -> Dict[str, Any]:
+    """
+    Actually write a file to disk in the project.
+    
+    This is the primary tool for creating and modifying files.
+    Creates parent directories if they don't exist.
+    
+    Args:
+        file_path: Relative path within the project (e.g., "src/components/Button.tsx")
+        content: The full content to write to the file
+        project_root: Root directory of the project (defaults to current directory)
+        
+    Returns:
+        Dict with success status, absolute path, and bytes written
+    """
+    try:
+        # Resolve the full path
+        full_path = Path(project_root) / file_path
+        
+        # Security check - don't allow escaping project root
+        resolved_root = Path(project_root).resolve()
+        resolved_path = full_path.resolve()
+        
+        if not str(resolved_path).startswith(str(resolved_root)):
+            logger.error(f"[CODER] Security: Attempted path escape: {file_path}")
+            return {
+                "success": False,
+                "error": "Path would escape project root",
+                "path": str(full_path)
+            }
+        
+        # Create parent directories
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Write the file
+        full_path.write_text(content, encoding="utf-8")
+        
+        logger.info(f"[CODER] ✅ Wrote file: {full_path} ({len(content)} bytes)")
+        
+        return {
+            "success": True,
+            "path": str(full_path.resolve()),
+            "relative_path": file_path,
+            "bytes_written": len(content),
+            "lines": content.count("\n") + 1
+        }
+        
+    except Exception as e:
+        logger.error(f"[CODER] ❌ Failed to write {file_path}: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "path": file_path
+        }
 
 
 @tool
@@ -336,7 +402,9 @@ def check_imports(
 
 
 # Export all tools for the Coder agent
+# write_file_to_disk is FIRST because it's the primary tool for creating files
 CODER_TOOLS = [
+    write_file_to_disk,  # PRIMARY TOOL - actually writes files to disk
     analyze_task,
     generate_file_diff,
     detect_language,

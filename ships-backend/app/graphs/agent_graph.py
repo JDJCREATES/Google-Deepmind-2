@@ -55,17 +55,32 @@ class AgentGraphState(TypedDict):
 # NODE FUNCTIONS
 # ============================================================================
 
+import logging
+logger = logging.getLogger("ships.agent")
+
 async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
     """Run the Planner agent."""
+    logger.info("[PLANNER] 🎯 Starting planner node...")
+    
     planner = AgentFactory.create_planner()
     
     # Get the user message
     messages = state.get("messages", [])
+    logger.info(f"[PLANNER] Input messages count: {len(messages)}")
     
     result = await planner.ainvoke({"messages": messages})
     
     # Extract artifacts from tool calls
     new_messages = result.get("messages", [])
+    logger.info(f"[PLANNER] Output messages count: {len(new_messages)}")
+    
+    # Log tool calls if any
+    for msg in new_messages:
+        if hasattr(msg, 'tool_calls') and msg.tool_calls:
+            logger.info(f"[PLANNER] 🔧 Tool calls: {[tc.get('name', 'unknown') for tc in msg.tool_calls]}")
+        if hasattr(msg, 'content') and msg.content:
+            content_preview = str(msg.content)[:200]
+            logger.info(f"[PLANNER] 📝 Content preview: {content_preview}...")
     
     return {
         "messages": new_messages,
@@ -76,6 +91,8 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
 
 async def coder_node(state: AgentGraphState) -> Dict[str, Any]:
     """Run the Coder agent."""
+    logger.info("[CODER] 💻 Starting coder node...")
+    
     coder = AgentFactory.create_coder()
     
     # Add context about current task
@@ -83,11 +100,23 @@ async def coder_node(state: AgentGraphState) -> Dict[str, Any]:
     task_index = state.get("current_task_index", 0)
     
     messages = state.get("messages", [])
+    logger.info(f"[CODER] Input messages count: {len(messages)}")
     
     result = await coder.ainvoke({"messages": messages})
     
+    new_messages = result.get("messages", [])
+    logger.info(f"[CODER] Output messages count: {len(new_messages)}")
+    
+    # Log tool calls if any
+    for msg in new_messages:
+        if hasattr(msg, 'tool_calls') and msg.tool_calls:
+            logger.info(f"[CODER] 🔧 Tool calls: {[tc.get('name', 'unknown') for tc in msg.tool_calls]}")
+        if hasattr(msg, 'content') and msg.content:
+            content_preview = str(msg.content)[:200]
+            logger.info(f"[CODER] 📝 Content preview: {content_preview}...")
+    
     return {
-        "messages": result.get("messages", []),
+        "messages": new_messages,
         "phase": "validating"
     }
 
@@ -286,13 +315,21 @@ async def stream_pipeline(
     import logging
     logger = logging.getLogger("ships.agent")
     
-    logger.info(f"[AGENT] Starting pipeline for request: {user_request[:100]}...")
+    logger.info("=" * 60)
+    logger.info(f"[PIPELINE] 📨 Received user_request: '{user_request}'")
+    logger.info(f"[PIPELINE] Request length: {len(user_request)} chars")
+    logger.info("=" * 60)
     
     checkpointer = MemorySaver()
     graph = create_agent_graph(checkpointer)
     
+    # Create the initial message
+    human_msg = HumanMessage(content=user_request)
+    logger.info(f"[PIPELINE] 📝 Created HumanMessage: {human_msg}")
+    logger.info(f"[PIPELINE] HumanMessage.content: '{human_msg.content}'")
+    
     initial_state = {
-        "messages": [HumanMessage(content=user_request)],
+        "messages": [human_msg],
         "phase": "planning",
         "artifacts": {},
         "current_task_index": 0,
@@ -301,6 +338,9 @@ async def stream_pipeline(
         "max_fix_attempts": 3,
         "result": None
     }
+    
+    logger.info(f"[PIPELINE] 🎬 Starting graph with initial_state keys: {list(initial_state.keys())}")
+    logger.info(f"[PIPELINE] Initial messages count: {len(initial_state['messages'])}")
     
     config = {"configurable": {"thread_id": thread_id}}
     

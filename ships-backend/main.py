@@ -72,7 +72,12 @@ async def run_agent(request: Request, body: PromptRequest):
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     logger = logging.getLogger("ships.agent")
     
-    logger.info(f"[API] Received agent request: {body.prompt[:100]}...")
+    # Log the FULL raw input
+    logger.info("=" * 60)
+    logger.info("[API] 📥 RECEIVED USER INPUT:")
+    logger.info(f"[API] Raw prompt (full): {body.prompt}")
+    logger.info(f"[API] Prompt length: {len(body.prompt)} chars")
+    logger.info("=" * 60)
     
     # Manual Auth Check
     auth_header = request.headers.get("Authorization")
@@ -90,7 +95,8 @@ async def run_agent(request: Request, body: PromptRequest):
 
     async def response_generator():
         try:
-            logger.info("[STREAM] Starting agent pipeline stream...")
+            logger.info("[STREAM] 🚀 Starting agent pipeline stream...")
+            logger.info(f"[STREAM] Passing to stream_pipeline: '{body.prompt[:100]}...'")
             current_node = None
             
             async for event in stream_pipeline(body.prompt):
