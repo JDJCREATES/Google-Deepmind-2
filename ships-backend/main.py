@@ -121,6 +121,16 @@ async def run_agent(request: Request, body: PromptRequest):
         logger.warning(f"[API] Usage limit exceeded for IP: {client_ip}")
         raise HTTPException(status_code=402, detail="Free limit exceeded. Please login to continue.")
 
+    # ========================================================================
+    # CRITICAL: Reject if no project folder is selected
+    # ========================================================================
+    if not effective_project_path:
+        logger.error("[API] ❌ REJECTED: No project folder selected!")
+        raise HTTPException(
+            status_code=400, 
+            detail="No project folder selected. Please use the Electron app to select a project folder first."
+        )
+    
     usage_tracker.record_usage(client_ip, user_id)
     logger.info(f"[API] Usage recorded for IP: {client_ip}")
 
@@ -225,12 +235,36 @@ async def run_agent(request: Request, body: PromptRequest):
                             current_node = node_name
                             logger.info(f"[STREAM] Entered node: {node_name}")
                         
+                        # ============================================================
+                        # CRITICAL: Convert content to displayable string
+                        # ============================================================
+                        display_content = content
+                        
+                        # Handle list content (e.g., [{'type': 'text', 'text': '...'}])
+                        if isinstance(content, list):
+                            text_parts = []
+                            for item in content:
+                                if isinstance(item, dict) and 'text' in item:
+                                    text_parts.append(item['text'])
+                                elif isinstance(item, str):
+                                    text_parts.append(item)
+                            display_content = "".join(text_parts) if text_parts else None
+                        
+                        # Handle dict content (shouldn't display as object)
+                        elif isinstance(content, dict):
+                            # Try to get text from common fields
+                            display_content = content.get('text') or content.get('content') or None
+                        
+                        # Skip if nothing to display
+                        if not display_content:
+                            continue
+                        
                         # Stream the content to frontend
-                        logger.debug(f"[STREAM] Chunk from {node_name}: {str(content)[:50]}...")
+                        logger.debug(f"[STREAM] Chunk from {node_name}: {str(display_content)[:50]}...")
                         chunk = {
                             "type": "message",
                             "node": node_name,
-                            "content": content
+                            "content": str(display_content)  # Ensure string
                         }
                         yield json.dumps(chunk) + "\n"
                     
