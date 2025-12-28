@@ -277,7 +277,7 @@ def assess_risks(
     }
 
 
-# Import write_file_to_disk from coder tools
+# Import write_file_to_disk from coder tools (now modular)
 from app.agents.tools.coder import write_file_to_disk
 
 # Export all tools for the Planner agent

@@ -175,6 +175,29 @@ async def run_agent(request: Request, body: PromptRequest):
                         if msg_type in ['HumanMessage', 'HumanMessageChunk']:
                             continue
                         
+                        # SPECIAL: Stream ToolMessage results to frontend
+                        if msg_type in ['ToolMessage', 'ToolMessageChunk']:
+                            try:
+                                tool_name = getattr(message_chunk, 'name', 'tool')
+                                tool_content = message_chunk.content if hasattr(message_chunk, 'content') else str(message_chunk)
+                                # Parse JSON if possible
+                                import json as json_mod
+                                try:
+                                    parsed = json_mod.loads(tool_content) if isinstance(tool_content, str) else tool_content
+                                    if isinstance(parsed, dict) and parsed.get('success'):
+                                        yield json.dumps({
+                                            "type": "tool_result",
+                                            "tool": tool_name,
+                                            "success": True,
+                                            "file": parsed.get('relative_path') or parsed.get('path', ''),
+                                            "preview": str(tool_content)[:100]
+                                        }) + "\n"
+                                except:
+                                    pass
+                            except Exception as e:
+                                logger.debug(f"[STREAM] ToolMessage parse error: {e}")
+                            continue
+                        
                         # Extract content from the message chunk
                         content = ""
                         if hasattr(message_chunk, 'content'):
