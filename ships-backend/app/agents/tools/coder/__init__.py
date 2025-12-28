@@ -8,6 +8,7 @@ Modules:
 - context: Secure project path management
 - file_operations: Read, write, list files
 - code_analysis: Diffs, language detection, risk assessment
+- terminal_operations: Run commands (npm, git, etc.)
 """
 
 # Re-export context functions for use by other modules
@@ -37,6 +38,12 @@ from .code_analysis import (
     CODE_ANALYSIS_TOOLS,
 )
 
+from .terminal_operations import (
+    run_terminal_command,
+    get_allowed_terminal_commands,
+    TERMINAL_TOOLS,
+)
+
 # Combined export of all tools for the Coder agent
 # File operations are listed FIRST as they are the primary tools
 CODER_TOOLS = [
@@ -44,6 +51,9 @@ CODER_TOOLS = [
     write_file_to_disk,
     read_file_from_disk,
     list_directory,
+    # Terminal operations (for npm, git, etc.)
+    run_terminal_command,
+    get_allowed_terminal_commands,
     # Code analysis
     analyze_task,
     generate_file_diff,
@@ -64,6 +74,9 @@ __all__ = [
     "write_file_to_disk",
     "read_file_from_disk", 
     "list_directory",
+    # Terminal operations
+    "run_terminal_command",
+    "get_allowed_terminal_commands",
     # Code analysis
     "detect_language",
     "generate_file_diff",
@@ -76,4 +89,5 @@ __all__ = [
     "CODER_TOOLS",
     "FILE_OPERATION_TOOLS",
     "CODE_ANALYSIS_TOOLS",
+    "TERMINAL_TOOLS",
 ]
