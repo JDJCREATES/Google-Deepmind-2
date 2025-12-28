@@ -121,6 +121,16 @@ async def run_agent(request: Request, body: PromptRequest):
         logger.warning(f"[API] Usage limit exceeded for IP: {client_ip}")
         raise HTTPException(status_code=402, detail="Free limit exceeded. Please login to continue.")
 
+    # ========================================================================
+    # CRITICAL: Reject if no project folder is selected
+    # ========================================================================
+    if not effective_project_path:
+        logger.error("[API] ❌ REJECTED: No project folder selected!")
+        raise HTTPException(
+            status_code=400, 
+            detail="No project folder selected. Please use the Electron app to select a project folder first."
+        )
+    
     usage_tracker.record_usage(client_ip, user_id)
     logger.info(f"[API] Usage recorded for IP: {client_ip}")
 
@@ -131,18 +141,71 @@ async def run_agent(request: Request, body: PromptRequest):
             current_node = None
             
             async for event in stream_pipeline(body.prompt, project_path=effective_project_path):
-                # stream_mode="messages" yields tuples of (message_chunk, metadata)
-                # The message_chunk has a .content attribute with the actual text
+                # With subgraphs=True + stream_mode="messages", events are:
+                # (namespace_tuple, (message_chunk, metadata))
+                # namespace_tuple can be () for main graph or ('node:task_id',) for subgraphs
                 
                 try:
-                    # Handle tuple format from stream_mode="messages"
+                    # Handle subgraphs=True format: (namespace, (message_chunk, metadata))
                     if isinstance(event, tuple) and len(event) >= 2:
-                        message_chunk, metadata = event[0], event[1]
+                        first_element = event[0]
+                        second_element = event[1]
                         
-                        # FILTER: Skip HumanMessage types (these are internal prompts)
+                        # Check if this is the subgraphs format (namespace, data)
+                        # namespace is always a tuple (empty or with node info)
+                        if isinstance(first_element, tuple):
+                            # This is subgraphs format: (namespace, (message_chunk, metadata))
+                            namespace = first_element
+                            inner_data = second_element
+                            
+                            # Extract node name from namespace or inner metadata
+                            if namespace and len(namespace) > 0:
+                                # namespace looks like ('planner:uuid',) - extract node name
+                                node_info = namespace[0] if namespace else ""
+                                node_name = node_info.split(':')[0] if ':' in str(node_info) else str(node_info)
+                            else:
+                                node_name = "agent"
+                            
+                            # inner_data should be (message_chunk, metadata)
+                            if isinstance(inner_data, tuple) and len(inner_data) >= 2:
+                                message_chunk = inner_data[0]
+                                metadata = inner_data[1]
+                            else:
+                                # Fallback: treat inner_data as the message
+                                message_chunk = inner_data
+                                metadata = {}
+                        else:
+                            # Original format without subgraphs: (message_chunk, metadata)
+                            message_chunk = first_element
+                            metadata = second_element
+                            node_name = metadata.get('langgraph_node', 'agent') if isinstance(metadata, dict) else 'agent'
+                        
+                        # FILTER: Skip HumanMessage types (internal prompts)
                         msg_type = type(message_chunk).__name__
-                        if msg_type == 'HumanMessage' or msg_type == 'HumanMessageChunk':
-                            logger.debug(f"[STREAM] Skipping HumanMessage: {str(message_chunk)[:50]}...")
+                        if msg_type in ['HumanMessage', 'HumanMessageChunk']:
+                            continue
+                        
+                        # SPECIAL: Stream ToolMessage results to frontend
+                        if msg_type in ['ToolMessage', 'ToolMessageChunk']:
+                            try:
+                                tool_name = getattr(message_chunk, 'name', 'tool')
+                                tool_content = message_chunk.content if hasattr(message_chunk, 'content') else str(message_chunk)
+                                # Parse JSON if possible
+                                import json as json_mod
+                                try:
+                                    parsed = json_mod.loads(tool_content) if isinstance(tool_content, str) else tool_content
+                                    if isinstance(parsed, dict) and parsed.get('success'):
+                                        yield json.dumps({
+                                            "type": "tool_result",
+                                            "tool": tool_name,
+                                            "success": True,
+                                            "file": parsed.get('relative_path') or parsed.get('path', ''),
+                                            "preview": str(tool_content)[:100]
+                                        }) + "\n"
+                                except:
+                                    pass
+                            except Exception as e:
+                                logger.debug(f"[STREAM] ToolMessage parse error: {e}")
                             continue
                         
                         # Extract content from the message chunk
@@ -154,32 +217,58 @@ async def run_agent(request: Request, body: PromptRequest):
                         elif isinstance(message_chunk, str):
                             content = message_chunk
                         else:
-                            content = str(message_chunk)
+                            # Skip if not extractable
+                            continue
                         
+                        # Skip empty content
+                        if not content:
+                            continue
+                            
                         # FILTER: Skip internal control messages
                         if isinstance(content, str):
-                            skip_patterns = ['EXECUTE NOW', 'Start creating files NOW', 'Use the write_file_to_disk']
+                            skip_patterns = ['EXECUTE NOW', 'Start creating files NOW', 'Use the write_file_to_disk', 'ACTION REQUIRED']
                             if any(pattern in content for pattern in skip_patterns):
-                                logger.debug(f"[STREAM] Skipping internal message: {content[:50]}...")
                                 continue
                         
-                        # Get node name from metadata if available
-                        node_name = metadata.get('langgraph_node', 'agent') if isinstance(metadata, dict) else 'agent'
-                        
+                        # Track node changes
                         if node_name != current_node:
                             current_node = node_name
                             logger.info(f"[STREAM] Entered node: {node_name}")
                         
-                        if content:
-                            logger.debug(f"[STREAM] Chunk from {node_name}: {str(content)[:50]}...")
-                            chunk = {
-                                "type": "message",
-                                "node": node_name,
-                                "content": content
-                            }
-                            yield json.dumps(chunk) + "\n"
+                        # ============================================================
+                        # CRITICAL: Convert content to displayable string
+                        # ============================================================
+                        display_content = content
+                        
+                        # Handle list content (e.g., [{'type': 'text', 'text': '...'}])
+                        if isinstance(content, list):
+                            text_parts = []
+                            for item in content:
+                                if isinstance(item, dict) and 'text' in item:
+                                    text_parts.append(item['text'])
+                                elif isinstance(item, str):
+                                    text_parts.append(item)
+                            display_content = "".join(text_parts) if text_parts else None
+                        
+                        # Handle dict content (shouldn't display as object)
+                        elif isinstance(content, dict):
+                            # Try to get text from common fields
+                            display_content = content.get('text') or content.get('content') or None
+                        
+                        # Skip if nothing to display
+                        if not display_content:
+                            continue
+                        
+                        # Stream the content to frontend
+                        logger.debug(f"[STREAM] Chunk from {node_name}: {str(display_content)[:50]}...")
+                        chunk = {
+                            "type": "message",
+                            "node": node_name,
+                            "content": str(display_content)  # Ensure string
+                        }
+                        yield json.dumps(chunk) + "\n"
                     
-                    # Handle dict format (fallback for other stream modes)
+                    # Handle dict format (other stream modes)
                     elif isinstance(event, dict):
                         for node_name, state_update in event.items():
                             if node_name != current_node:
@@ -190,7 +279,6 @@ async def run_agent(request: Request, body: PromptRequest):
                             latest_msg = messages[-1] if messages else None
                             if latest_msg:
                                 content = latest_msg.content if hasattr(latest_msg, "content") else str(latest_msg)
-                                logger.debug(f"[STREAM] Message from {node_name}: {content[:50]}...")
                                 chunk = {
                                     "type": "message",
                                     "node": node_name,
@@ -204,18 +292,13 @@ async def run_agent(request: Request, body: PromptRequest):
                                     "type": "phase",
                                     "phase": state_update["phase"]
                                 }) + "\n"
-                    else:
-                        # Unknown format - log and try to extract something useful
-                        logger.warning(f"[STREAM] Unknown event format: {type(event)}")
-                        content = str(event) if event else ""
-                        if content and content != "None":
-                            yield json.dumps({"type": "message", "node": "agent", "content": content}) + "\n"
                             
                 except Exception as parse_error:
                     logger.error(f"[STREAM] Error parsing event: {parse_error}", exc_info=True)
                     continue
                     
             logger.info("[STREAM] Pipeline completed successfully")
+            yield json.dumps({"type": "complete", "content": "Pipeline completed successfully"}) + "\n"
             
         except Exception as e:
             logger.error(f"[STREAM] Pipeline error: {e}", exc_info=True)

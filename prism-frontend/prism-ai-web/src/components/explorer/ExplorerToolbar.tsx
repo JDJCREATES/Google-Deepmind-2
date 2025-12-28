@@ -3,7 +3,7 @@ import { useFileSystem } from '../../store/fileSystem';
 import { useState } from 'react';
 
 export default function ExplorerToolbar() {
-  const { createNode, openProjectFolder, rootHandle } = useFileSystem();
+  const { createNode, refreshFileTree, rootHandle } = useFileSystem();
   const [isCreating, setIsCreating] = useState(false);
 
   const handleCreate = async (type: 'file' | 'folder') => {
@@ -24,9 +24,8 @@ export default function ExplorerToolbar() {
   };
 
   const handleRefresh = async () => {
-      // Re-open/refresh logic could be refined but re-opening works for now
-      // ideally we add a proper refresh action to store
-      await openProjectFolder();
+      // Use the new refreshFileTree action (doesn't open picker)
+      await refreshFileTree();
   };
 
   return (

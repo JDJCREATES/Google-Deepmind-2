@@ -178,6 +178,18 @@ Produce a JSON object with the following structure:
         framework = self.tools.detect_framework(context)
         context["framework"] = framework
         
+        # ================================================================
+        # SCAFFOLDING DETECTION: Check if project needs setup
+        # ================================================================
+        project_path = environment.get("project_path") if environment else None
+        user_request = intent.get("description", "")
+        
+        scaffolding_result = self.tools.analyze_project_for_scaffolding(
+            project_path, 
+            user_request
+        )
+        context["scaffolding"] = scaffolding_result
+        
         # Step 1: Use LLM for high-level planning
         llm_plan = await self._generate_llm_plan(intent, context)
         
@@ -185,6 +197,36 @@ Produce a JSON object with the following structure:
         # Scoper: Task decomposition
         scope_result = self.scoper.process(context)
         task_list = scope_result["task_list"]
+        
+        # ================================================================
+        # INJECT SCAFFOLDING TASK: Add as Task 0 if needed
+        # ================================================================
+        if scaffolding_result.get("scaffolding_task"):
+            scaffolding_task_dict = scaffolding_result["scaffolding_task"]
+            from app.agents.sub_agents.planner.models import Task, TaskComplexity, TaskPriority
+            
+            scaffold_task = Task(
+                id=scaffolding_task_dict.get("id", "task_scaffold_0"),
+                title=scaffolding_task_dict.get("title", "Setup Project"),
+                description=scaffolding_task_dict.get("description", ""),
+                complexity=TaskComplexity.SMALL,
+                priority=TaskPriority.CRITICAL,
+                order=0,
+                estimated_minutes=5,
+            )
+            
+            # Store terminal commands in metadata for coder to use
+            scaffold_task.metadata = {
+                "terminal_commands": scaffolding_task_dict.get("terminal_commands", []),
+                "is_scaffolding_task": True,
+            }
+            
+            # Insert at beginning of task list
+            task_list.tasks.insert(0, scaffold_task)
+            
+            # Reorder all other tasks
+            for i, task in enumerate(task_list.tasks[1:], start=1):
+                task.order = i
         
         # Enrich task list with LLM insights
         self._enrich_task_list(task_list, llm_plan)

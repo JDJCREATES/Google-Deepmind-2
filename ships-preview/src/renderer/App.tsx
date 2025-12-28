@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { PiFolderOpenBold } from "react-icons/pi";
 import { RiShip2Fill } from "react-icons/ri";
+import { VscRefresh } from "react-icons/vsc";
 
 // Add types for exposed Electron API
 declare global {
@@ -19,14 +20,17 @@ function App() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [currentPath, setCurrentPath] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>('');
+  const [backendConnected, setBackendConnected] = useState(false);
+  const connectionTimeoutRef = useRef<number | null>(null);
 
-  // 1. On Mount: Check for last project
+  // 1. On Mount: Check for last project and try to reconnect
   useEffect(() => {
     const initProject = async () => {
       try {
         const result = await window.electron.getLastProject();
         if (result.exists && result.path) {
           console.log("Restoring last project:", result.path);
+          setCurrentPath(result.path);
           await setBackendPath(result.path);
         }
       } catch (e) {
@@ -36,62 +40,97 @@ function App() {
     initProject();
   }, []);
 
-  // Helper: Set path on backend
+  // Helper: Set path on backend with timeout
   const setBackendPath = async (path: string) => {
     try {
-      setStatusMessage(`Setting project: ${path}`);
+      setStatusMessage(`Connecting to backend...`);
+      setIsConnecting(true);
+      
+      // Set a timeout - don't wait forever
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      
       const res = await fetch('http://localhost:8001/preview/set-path', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path })
+        body: JSON.stringify({ path }),
+        signal: controller.signal
       });
+      clearTimeout(timeout);
+      
       const data = await res.json();
       
       if (data.status === 'success') {
         setCurrentPath(path);
-        setStatusMessage('Project linked. Waiting for preview...');
-        setIsConnecting(true); // Start polling
+        setBackendConnected(true);
+        setIsConnecting(false);  // Re-enable button immediately
+        setStatusMessage('✓ Project linked to backend');
+        
+        // Start polling for preview URL
+        startPreviewPolling();
       } else {
         setStatusMessage(`Error: ${data.message}`);
+        setIsConnecting(false);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("Backend error:", e);
-      setStatusMessage('Error: Could not connect to backend API');
+      if (e.name === 'AbortError') {
+        setStatusMessage('⚠ Backend not responding. Is it running?');
+      } else {
+        setStatusMessage('⚠ Could not connect to backend');
+      }
+      setBackendConnected(false);
+      setIsConnecting(false);
     }
+  };
+
+  // Poll for preview URL
+  const startPreviewPolling = () => {
+    // Clear any existing timeout
+    if (connectionTimeoutRef.current) {
+      clearTimeout(connectionTimeoutRef.current);
+    }
+    
+    // Set a 30-second timeout for polling
+    connectionTimeoutRef.current = window.setTimeout(() => {
+      if (isConnecting && !projectUrl) {
+        setStatusMessage('⚠ Preview server not starting. You can still code!');
+        setIsConnecting(false);
+      }
+    }, 30000);
   };
 
   // 2. Poll Backend for Preview Status
   useEffect(() => {
-    if (!isConnecting && !projectUrl) return;
+    if (!backendConnected) return;
 
     const checkStatus = async () => {
         try {
             const res = await fetch('http://localhost:8001/preview/status');
             const data = await res.json();
             
-            // Should also check if data.project_path matches currentPath if we wanted to be strict
             if (data.is_running && data.url) {
                 setProjectUrl(data.url);
                 setIsConnecting(false);
                 setStatusMessage('');
+                if (connectionTimeoutRef.current) {
+                  clearTimeout(connectionTimeoutRef.current);
+                }
             }
         } catch (e) {
-            // Backend might be down or not started
             console.log("Polling error:", e);
         }
     };
 
     const interval = setInterval(checkStatus, 2000);
     return () => clearInterval(interval);
-  }, [isConnecting, projectUrl]);
-
+  }, [backendConnected]);
 
   // 3. User selects folder
   const handleSelectProject = async () => {
       try {
-          // Check if electron is available
           if (!window.electron) {
-              alert("Error: Electron API not available. Preload script might have failed.");
+              alert("Error: Electron API not available.");
               return;
           }
 
@@ -105,6 +144,13 @@ function App() {
           console.error("Selection error:", e);
           alert("Failed to select project: " + e.message);
       }
+  };
+
+  // 4. Reconnect to backend with stored path
+  const handleReconnect = async () => {
+    if (currentPath) {
+      await setBackendPath(currentPath);
+    }
   };
 
   if (projectUrl) {
@@ -154,7 +200,7 @@ function App() {
             </h1>
         </div>
         <p style={{ color: '#888', fontSize: '16px', marginTop: 0, marginBottom: 30 }}>
-            {currentPath ? `Current Project: ${currentPath}` : 'Select a project to start preview'}
+            {currentPath ? `📂 ${currentPath}` : 'Select a project to start preview'}
         </p>
 
         {statusMessage && (
@@ -162,45 +208,66 @@ function App() {
                 marginBottom: 20, 
                 padding: '8px 12px', 
                 borderRadius: 4, 
-                background: 'rgba(255, 255, 255, 0.1)', 
+                background: statusMessage.includes('⚠') ? 'rgba(255, 94, 87, 0.2)' : 'rgba(255, 255, 255, 0.1)', 
                 fontSize: '13px',
-                color: '#aaa'
+                color: statusMessage.includes('⚠') ? '#ff9999' : '#aaa'
             }}>
                 {statusMessage}
             </div>
         )}
 
-        <button 
-            onClick={handleSelectProject}
-            disabled={isConnecting}
-            style={{
-                backgroundColor: '#FF5E57',
-                color: 'white',
-                border: 'none',
-                padding: '12px 24px',
-                borderRadius: '8px',
-                fontSize: '16px',
-                fontWeight: 600,
-                cursor: isConnecting ? 'wait' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                margin: '0 auto',
-                transition: 'transform 0.2s, box-shadow 0.2s',
-                opacity: isConnecting ? 0.8 : 1,
-                boxShadow: '0 4px 12px rgba(255, 94, 87, 0.3)'
-            }}
-            onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-            onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-        >
-            <PiFolderOpenBold size={20} />
-            {currentPath ? 'Change Project' : 'Open Project Folder'}
-        </button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button 
+              onClick={handleSelectProject}
+              disabled={isConnecting}
+              style={{
+                  backgroundColor: '#FF5E57',
+                  color: 'white',
+                  border: 'none',
+                  padding: '12px 24px',
+                  borderRadius: '8px',
+                  fontSize: '16px',
+                  fontWeight: 600,
+                  cursor: isConnecting ? 'wait' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  transition: 'transform 0.2s, box-shadow 0.2s',
+                  opacity: isConnecting ? 0.8 : 1,
+                  boxShadow: '0 4px 12px rgba(255, 94, 87, 0.3)'
+              }}
+          >
+              <PiFolderOpenBold size={20} />
+              {currentPath ? 'Change Project' : 'Open Project Folder'}
+          </button>
+          
+          {/* Reconnect button - shown when we have a path but backend disconnected */}
+          {currentPath && !backendConnected && !isConnecting && (
+            <button 
+                onClick={handleReconnect}
+                style={{
+                    backgroundColor: 'transparent',
+                    color: '#FF5E57',
+                    border: '2px solid #FF5E57',
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    fontSize: '16px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    transition: 'all 0.2s',
+                }}
+            >
+                <VscRefresh size={18} />
+                Reconnect
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
 export default App;
-
-

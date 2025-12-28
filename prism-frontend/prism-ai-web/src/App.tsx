@@ -46,7 +46,7 @@ function App() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      content: 'Hello! I\'m your AI coding assistant. Open a file in the explorer to get started!',
+      content: 'Ready to Ship?',
       sender: 'ai',
       timestamp: new Date(),
     },

@@ -277,6 +277,9 @@ def assess_risks(
     }
 
 
+# Import write_file_to_disk from coder tools (now modular)
+from app.agents.tools.coder import write_file_to_disk
+
 # Export all tools for the Planner agent
 PLANNER_TOOLS = [
     extract_scope,
@@ -286,4 +289,5 @@ PLANNER_TOOLS = [
     define_api_contract,
     create_dependency_plan,
     assess_risks,
+    write_file_to_disk,  # Planner can now write artifacts to disk
 ]

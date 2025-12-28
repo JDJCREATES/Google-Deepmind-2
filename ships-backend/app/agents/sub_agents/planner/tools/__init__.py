@@ -174,3 +174,51 @@ class PlannerTools:
             confidence -= 0.2
         
         return max(0.0, min(1.0, confidence))
+    
+    @staticmethod
+    def analyze_project_for_scaffolding(
+        project_path: Optional[str], 
+        user_request: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Analyze project to determine if scaffolding is needed.
+        
+        Args:
+            project_path: Path to the project directory
+            user_request: The user's request (for framework hints)
+            
+        Returns:
+            Dict with:
+            - needs_scaffolding: bool
+            - scaffolding_task: Optional task dict
+            - analysis: Full analysis result
+        """
+        from app.agents.sub_agents.planner.project_analyzer import (
+            analyze_project, 
+            create_scaffolding_task
+        )
+        
+        if not project_path:
+            return {
+                "needs_scaffolding": False,
+                "scaffolding_task": None,
+                "analysis": None,
+                "error": "No project path provided"
+            }
+        
+        analysis = analyze_project(project_path, user_request)
+        scaffolding_task = create_scaffolding_task(analysis)
+        
+        return {
+            "needs_scaffolding": analysis.needs_scaffolding,
+            "scaffolding_task": scaffolding_task,
+            "analysis": {
+                "project_type": analysis.project_type.value,
+                "detected_framework": analysis.detected_framework,
+                "has_package_json": analysis.has_package_json,
+                "has_node_modules": analysis.has_node_modules,
+                "scaffold_command": analysis.scaffold_command,
+                "install_command": analysis.install_command,
+                "recommendation": analysis.recommendation,
+            }
+        }
