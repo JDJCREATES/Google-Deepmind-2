@@ -214,3 +214,77 @@ ipcMain.handle('run-build', async (_event, projectPath) => {
   // TODO: Implement build logic
   return { success: true, message: 'Build started' };
 });
+
+// ============================================================================
+// TERMINAL EXECUTION
+// ============================================================================
+
+import { 
+  executeCommand, 
+  executeCommandWithStream,
+  validateCommand,
+  ALLOWED_COMMANDS,
+  killAllProcesses 
+} from './terminal';
+
+/**
+ * Get list of allowed commands for the frontend.
+ */
+ipcMain.handle('get-allowed-commands', async () => {
+  return ALLOWED_COMMANDS.map(c => ({
+    prefix: c.prefix,
+    description: c.description,
+    requiresApproval: c.requiresApproval,
+  }));
+});
+
+/**
+ * Validate a command without executing it.
+ */
+ipcMain.handle('validate-command', async (_event, command: string, cwd: string) => {
+  return validateCommand(command, cwd);
+});
+
+/**
+ * Execute a terminal command in the project directory.
+ * Returns the full result after completion.
+ */
+ipcMain.handle('run-command', async (_event, command: string, cwd: string, timeout?: number) => {
+  console.log(`[TERMINAL] Running command: ${command}`);
+  console.log(`[TERMINAL] CWD: ${cwd}`);
+  
+  const result = await executeCommand({ command, cwd, timeout });
+  
+  console.log(`[TERMINAL] Exit code: ${result.exitCode}`);
+  if (!result.success) {
+    console.log(`[TERMINAL] Error: ${result.error || result.stderr}`);
+  }
+  
+  return result;
+});
+
+/**
+ * Execute a terminal command with streaming output.
+ * Sends events to the renderer as they happen.
+ */
+ipcMain.handle('run-command-stream', async (_event, command: string, cwd: string, timeout?: number) => {
+  console.log(`[TERMINAL] Streaming command: ${command}`);
+  
+  const result = await executeCommandWithStream(
+    { command, cwd, timeout },
+    (event) => {
+      // Send streaming events to renderer
+      if (mainWindow) {
+        mainWindow.webContents.send('terminal-output', event);
+      }
+    }
+  );
+  
+  return result;
+});
+
+// Cleanup on app quit
+app.on('before-quit', () => {
+  console.log('[TERMINAL] Killing all processes...');
+  killAllProcesses();
+});
