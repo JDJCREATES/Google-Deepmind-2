@@ -15,8 +15,10 @@ import {
   VscFiles, 
   VscSearch, 
   VscSettingsGear, 
-  VscLayoutSidebarRightOff 
+  VscLayoutSidebarRightOff,
+  VscTerminal 
 } from 'react-icons/vsc';
+import { Terminal, type TerminalLine } from './components/Terminal';
 import { BiBox } from 'react-icons/bi';
 import { agentService, type AgentChunk } from './services/agentService';
 import './App.css';
@@ -42,6 +44,11 @@ function App() {
   };
 
   const [isAgentRunning, setIsAgentRunning] = useState(false);
+  
+  // Terminal state
+  const [showTerminal, setShowTerminal] = useState(false);
+  const [terminalCollapsed, setTerminalCollapsed] = useState(false);
+  const [terminalLines, setTerminalLines] = useState<TerminalLine[]>([]);
 
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -108,16 +115,26 @@ function App() {
             return msg;
           }));
         } else if (chunk.type === 'tool_result') {
-          // Show tool results (file writes, terminal commands)
+          // Show tool results in both chat and terminal
           const toolMsg = chunk.success 
             ? `✅ ${chunk.tool}: ${chunk.file || 'completed'}` 
             : `❌ ${chunk.tool}: failed`;
+          
+          // Add to chat
           setMessages(prev => prev.map(msg => {
             if (msg.id === aiMessageId) {
               return { ...msg, content: msg.content + '\n' + toolMsg };
             }
             return msg;
           }));
+          
+          // Add to terminal
+          setShowTerminal(true);
+          setTerminalLines(prev => [...prev, {
+            type: chunk.tool === 'run_terminal_command' ? 'command' : 'system',
+            content: chunk.file || chunk.tool || 'command executed',
+            timestamp: Date.now()
+          }]);
         } else if (chunk.type === 'phase') {
            // Optional: Show phase toast or status indicator
            console.log("Agent Phase:", chunk.phase);
@@ -203,10 +220,17 @@ function App() {
              </div>
            </div>
            <div className="activity-bottom">
-             <div className="activity-icon" onClick={toggleTheme}>
+             <div 
+               className={`activity-icon ${showTerminal ? 'active' : ''}`} 
+               onClick={() => setShowTerminal(!showTerminal)}
+               title="Terminal"
+             >
+               <VscTerminal size={24} />
+             </div>
+             <div className="activity-icon" onClick={toggleTheme} title="Toggle Theme">
                {theme === 'vs-dark' ? <MdLightMode size={24} /> : <MdDarkMode size={24} />}
              </div>
-             <div className="activity-icon">
+             <div className="activity-icon" title="Settings">
                <VscSettingsGear size={24} />
              </div>
            </div>
@@ -215,9 +239,11 @@ function App() {
         {/* File Explorer Sidebar */}
         {showExplorer && (
           <div className="sidebar-pane">
-            {activeSidebarView === 'files' && <FileExplorer />}
-            {activeSidebarView === 'artifacts' && <ArtifactPanel projectId={currentProjectId || ''} />}
-            {activeSidebarView === 'search' && <div className="p-4 text-center text-gray-500">Search not implemented</div>}
+            <div className="sidebar-content">
+              {activeSidebarView === 'files' && <FileExplorer />}
+              {activeSidebarView === 'artifacts' && <ArtifactPanel projectId={currentProjectId || ''} />}
+              {activeSidebarView === 'search' && <div className="p-4 text-center text-gray-500">Search not implemented</div>}
+            </div>
           </div>
         )}
 
@@ -233,6 +259,15 @@ function App() {
               <div className="monaco-container">
                 <MonacoEditor theme={theme} />
               </div>
+              {/* Terminal at bottom of editor (IDE-style) */}
+              <Terminal
+                lines={terminalLines}
+                isVisible={showTerminal}
+                isCollapsed={terminalCollapsed}
+                onClose={() => setShowTerminal(false)}
+                onToggleCollapse={() => setTerminalCollapsed(!terminalCollapsed)}
+                inline={true}
+              />
             </>
           )}
         </div>
