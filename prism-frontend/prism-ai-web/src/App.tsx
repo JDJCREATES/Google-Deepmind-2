@@ -107,6 +107,17 @@ function App() {
             }
             return msg;
           }));
+        } else if (chunk.type === 'tool_result') {
+          // Show tool results (file writes, terminal commands)
+          const toolMsg = chunk.success 
+            ? `✅ ${chunk.tool}: ${chunk.file || 'completed'}` 
+            : `❌ ${chunk.tool}: failed`;
+          setMessages(prev => prev.map(msg => {
+            if (msg.id === aiMessageId) {
+              return { ...msg, content: msg.content + '\n' + toolMsg };
+            }
+            return msg;
+          }));
         } else if (chunk.type === 'phase') {
            // Optional: Show phase toast or status indicator
            console.log("Agent Phase:", chunk.phase);

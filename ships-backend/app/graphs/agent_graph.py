@@ -420,7 +420,16 @@ async def stream_pipeline(
     logger.info(f"[PIPELINE] 🎬 Starting graph with initial_state keys: {list(initial_state.keys())}")
     logger.info(f"[PIPELINE] Initial messages count: {len(initial_state['messages'])}")
     
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {
+        "configurable": {"thread_id": thread_id},
+        # LangSmith tracing config - provides readable run names in dashboard
+        "run_name": f"ShipS* Pipeline: {user_request[:50]}...",
+        "tags": ["ships", "multi-agent", "pipeline"],
+        "metadata": {
+            "project_path": project_path,
+            "request_length": len(user_request),
+        }
+    }
     
     # Use stream_mode="messages" for token-by-token streaming
     # This yields (message_chunk, metadata) tuples as the LLM generates
