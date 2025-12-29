@@ -340,6 +340,13 @@ body {
   flex-direction: column;
 }
 
+/* Sidebar content wrapper - allows terminal to stay at bottom */
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
 .file-explorer.empty {
   align-items: center;
 }

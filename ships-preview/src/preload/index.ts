@@ -51,4 +51,47 @@ contextBridge.exposeInMainWorld('electron', {
         // Return cleanup function
         return () => ipcRenderer.removeListener('terminal-output', listener);
     },
+    
+    // === PTY (Interactive Terminal) ===
+    /**
+     * Spawn a new PTY session in the project directory.
+     */
+    ptySpawn: (projectPath: string, options?: { cols?: number; rows?: number }) =>
+        ipcRenderer.invoke('pty-spawn', projectPath, options),
+    
+    /**
+     * Write data to a PTY session.
+     */
+    ptyWrite: (sessionId: string, data: string) =>
+        ipcRenderer.invoke('pty-write', sessionId, data),
+    
+    /**
+     * Resize a PTY session.
+     */
+    ptyResize: (sessionId: string, cols: number, rows: number) =>
+        ipcRenderer.invoke('pty-resize', sessionId, cols, rows),
+    
+    /**
+     * Kill a PTY session.
+     */
+    ptyKill: (sessionId: string) =>
+        ipcRenderer.invoke('pty-kill', sessionId),
+    
+    /**
+     * Listen for PTY data output.
+     */
+    onPTYData: (callback: (event: { sessionId: string; data: string }) => void) => {
+        const listener = (_: any, event: { sessionId: string; data: string }) => callback(event);
+        ipcRenderer.on('pty-data', listener);
+        return () => ipcRenderer.removeListener('pty-data', listener);
+    },
+    
+    /**
+     * Listen for PTY exit events.
+     */
+    onPTYExit: (callback: (event: { sessionId: string; exitCode: number }) => void) => {
+        const listener = (_: any, event: { sessionId: string; exitCode: number }) => callback(event);
+        ipcRenderer.on('pty-exit', listener);
+        return () => ipcRenderer.removeListener('pty-exit', listener);
+    },
 });

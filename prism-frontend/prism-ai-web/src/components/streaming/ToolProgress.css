@@ -1,0 +1,159 @@
+/* Tool Progress Styles */
+
+.tool-progress {
+  background: var(--bg-secondary, #1e1e1e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  margin: 8px 0;
+  overflow: hidden;
+}
+
+.tool-progress-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.tool-progress-header:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tool-progress-toggle {
+  color: var(--text-muted, #666);
+  margin-right: 8px;
+}
+
+.tool-progress-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.tool-progress-icon {
+  font-size: 14px;
+}
+
+.tool-progress-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary, #ccc);
+}
+
+.tool-progress-count {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.count-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.count-badge.success {
+  background: rgba(76, 175, 80, 0.2);
+  color: #4ec9b0;
+}
+
+.count-badge.error {
+  background: rgba(244, 67, 54, 0.2);
+  color: #f44747;
+}
+
+.count-badge.pending {
+  background: rgba(255, 193, 7, 0.2);
+  color: #ffc107;
+}
+
+.tool-progress-list {
+  border-top: 1px solid var(--border-color, #333);
+  padding: 8px 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.tool-progress-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-secondary, #999);
+}
+
+.tool-progress-item.success .tool-item-file {
+  color: var(--text-primary, #ccc);
+}
+
+.tool-progress-item.pending {
+  opacity: 0.7;
+}
+
+.tool-item-status {
+  width: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.status-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.status-icon.success {
+  color: #4ec9b0;
+}
+
+.status-icon.error {
+  color: #f44747;
+}
+
+.status-icon.pending {
+  color: #ffc107;
+}
+
+.status-icon.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.tool-item-icon {
+  width: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted, #666);
+}
+
+.tool-item-file {
+  flex: 1;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Scrollbar styling */
+.tool-progress-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.tool-progress-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tool-progress-list::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 3px;
+}

@@ -61,8 +61,15 @@ async def execute_command(request: CommandRequest) -> CommandResult:
             text=True,
             env={
                 **subprocess.run.__globals__.get("os", __import__("os")).environ,
-                "CI": "true",
-                "npm_config_yes": "true",
+                # Force non-interactive mode for various tools
+                "CI": "true",                    # General CI flag
+                "npm_config_yes": "true",        # npm yes to all
+                "YARN_ENABLE_IMMUTABLE_INSTALLS": "false",
+                "NPM_CONFIG_YES": "true",        # Uppercase variant
+                "TERM": "dumb",                  # Disable interactive terminal
+                "NO_COLOR": "1",                 # Disable color prompts
+                "FORCE_COLOR": "0",              # Disable color
+                "npm_config_loglevel": "error",  # Reduce noise
             }
         )
         

@@ -44,9 +44,18 @@ from .terminal_operations import (
     TERMINAL_TOOLS,
 )
 
+from .edit_operations import (
+    edit_file_content,
+    insert_at_line,
+    EDIT_TOOLS,
+)
+
 # Combined export of all tools for the Coder agent
-# File operations are listed FIRST as they are the primary tools
+# Edit tools listed FIRST as they are preferred for modifications
 CODER_TOOLS = [
+    # Edit operations (preferred for modifying existing files - saves tokens!)
+    edit_file_content,
+    insert_at_line,
     # Primary file operations
     write_file_to_disk,
     read_file_from_disk,
@@ -70,6 +79,9 @@ __all__ = [
     "get_project_root",
     "validate_project_path",
     "is_path_safe",
+    # Edit operations (preferred for modifications)
+    "edit_file_content",
+    "insert_at_line",
     # File operations
     "write_file_to_disk",
     "read_file_from_disk", 
@@ -90,4 +102,5 @@ __all__ = [
     "FILE_OPERATION_TOOLS",
     "CODE_ANALYSIS_TOOLS",
     "TERMINAL_TOOLS",
+    "EDIT_TOOLS",
 ]

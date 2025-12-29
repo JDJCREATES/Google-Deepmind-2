@@ -287,4 +287,80 @@ ipcMain.handle('run-command-stream', async (_event, command: string, cwd: string
 app.on('before-quit', () => {
   console.log('[TERMINAL] Killing all processes...');
   killAllProcesses();
+  killAllPTY();
 });
+
+// ============================================================================
+// PTY (Interactive Terminal)
+// ============================================================================
+
+import { 
+  spawnPTY, 
+  writeToPTY, 
+  resizePTY, 
+  killPTY, 
+  killAllPTY,
+  onPTYData,
+  onPTYExit 
+} from './terminal/pty-manager';
+
+// Store cleanup functions for PTY data listeners
+const ptyCleanupFunctions = new Map<string, () => void>();
+
+/**
+ * Spawn a new PTY session
+ */
+ipcMain.handle('pty-spawn', async (_event, projectPath: string, options?: { cols?: number; rows?: number }) => {
+  console.log(`[PTY] Spawning PTY in: ${projectPath}`);
+  const result = spawnPTY(projectPath, options);
+  
+  if ('sessionId' in result) {
+    // Set up data listener to forward output to renderer
+    const cleanup = onPTYData(result.sessionId, (data) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('pty-data', { sessionId: result.sessionId, data });
+      }
+    });
+    
+    if (cleanup) {
+      ptyCleanupFunctions.set(result.sessionId, cleanup);
+    }
+    
+    // Set up exit listener
+    onPTYExit(result.sessionId, (exitCode) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('pty-exit', { sessionId: result.sessionId, exitCode });
+      }
+      ptyCleanupFunctions.delete(result.sessionId);
+    });
+  }
+  
+  return result;
+});
+
+/**
+ * Write to PTY session
+ */
+ipcMain.handle('pty-write', async (_event, sessionId: string, data: string) => {
+  return writeToPTY(sessionId, data);
+});
+
+/**
+ * Resize PTY session
+ */
+ipcMain.handle('pty-resize', async (_event, sessionId: string, cols: number, rows: number) => {
+  return resizePTY(sessionId, cols, rows);
+});
+
+/**
+ * Kill PTY session
+ */
+ipcMain.handle('pty-kill', async (_event, sessionId: string) => {
+  const cleanup = ptyCleanupFunctions.get(sessionId);
+  if (cleanup) {
+    cleanup();
+    ptyCleanupFunctions.delete(sessionId);
+  }
+  return killPTY(sessionId);
+});
+
