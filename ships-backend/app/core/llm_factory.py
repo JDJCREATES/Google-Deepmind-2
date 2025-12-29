@@ -61,13 +61,13 @@ class LLMFactory:
             
         elif agent_type == "planner":
             # Complex planning requires deep reasoning
-            model_name = MODEL_PRO
+            model_name = MODEL_FLASH
             temperature = 0.7
             thinking_level = "high"
             
         elif agent_type in ["coder", "fixer"]:
             # Code generation/fixing needs careful reasoning
-            model_name = MODEL_PRO
+            model_name = MODEL_FLASH
             temperature = 0.2
             thinking_level = "high"
         
@@ -91,6 +91,7 @@ class LLMFactory:
             convert_system_message_to_human=True,
             # Gemini 3 thinking_level for built-in reasoning
             thinking_level=thinking_level,
+            max_retries=30, # Aggressive retries for Hackathon rate limits
         )
         
         return llm

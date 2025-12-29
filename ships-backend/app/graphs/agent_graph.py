@@ -118,6 +118,23 @@ USER REQUEST: {original_content}
 """)
         messages = [context_msg]
     
+    # RE-PLANNING INJECTION: If coming from failure, inject error context
+    error_log = state.get("error_log", [])
+    if error_log and len(error_log) > 0:
+        error_context = "\n".join(error_log[-3:]) # Last 3 errors
+        replan_msg = HumanMessage(content=f"""
+CRITICAL: PREVIOUS ATTEMPTS FAILED.
+The functionality was implemented but failed validation multiple times.
+Please UPDATE the plan to address these specific errors:
+
+{error_context}
+
+Refine the approach to fix these root causes.
+""")
+        # Append to messages (or prepend if you prefer, but append makes sense as "latest news")
+        messages.append(replan_msg)
+        logger.info(f"[PLANNER] ⚠️ Injected {len(error_log)} errors into context for re-planning")
+    
     result = await planner.ainvoke({"messages": messages})
     
     # Extract artifacts from tool calls
@@ -134,7 +151,7 @@ USER REQUEST: {original_content}
     
     return {
         "messages": new_messages,
-        "phase": "orchestrator", # Return to hub
+        "phase": "plan_ready",
         "artifacts": state.get("artifacts", {})
     }
 
@@ -228,7 +245,7 @@ User Request: "{user_request.content}"</task>""")
     
     return {
         "messages": new_messages,
-        "phase": "orchestrator",
+        "phase": "coding",
         "completed_files": current_completed
     }
 
@@ -254,11 +271,19 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
         "pass" in str(m.content).lower() and "fail" not in str(m.content).lower()
         for m in response if hasattr(m, 'content')
     )
+
+    # Update error log if failed
+    error_log = state.get("error_log", [])
+    if not validation_passed and response:
+        # Capture the last message as the error reason
+        last_msg = response[-1].content
+        error_log.append(f"Validation Attempt {state.get('fix_attempts', 0) + 1} Failed: {str(last_msg)[:500]}...")
     
     return {
         "messages": response,
         "validation_passed": validation_passed,
-        "phase": "orchestrator" # Return to hub
+        "phase": "validating",
+        "error_log": error_log
     }
 
 
@@ -278,8 +303,8 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
     
     if fix_attempts > max_attempts:
         return {
-            "phase": "error",
-            "result": {"error": "Max fix attempts exceeded"}
+            "phase": "fixing_failed",
+            "fix_attempts": fix_attempts
         }
     
     messages = state.get("messages", [])
@@ -296,7 +321,7 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
     return {
         "messages": response,
         "fix_attempts": fix_attempts,
-        "phase": "orchestrator"  # Return to hub
+        "phase": "fixing"
     }
 
 
@@ -314,6 +339,15 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
     fix_attempts = state.get("fix_attempts", 0)
     error_log = state.get("error_log", [])
     
+    # Check if plan exists (for context, not hard rule)
+    from pathlib import Path
+    artifacts = state.get("artifacts", {})
+    project_path = artifacts.get("project_path")
+    plan_exists = False
+    if project_path:
+        plan_path = Path(project_path) / ".ships" / "implementation_plan.md"
+        plan_exists = plan_path.exists()
+    
     # 2. Build Dynamic System Prompt
     system_prompt = f"""<role>You are the Master Orchestrator.</role>
 
@@ -322,15 +356,17 @@ CURRENT PHASE: {phase}
 FILES COMPLETED: {len(completed_files)}
 VALIDATION PASSED: {validation_passed}
 FIX ATTEMPTS: {fix_attempts}
-RECENT ERRORS: {error_log[-3:] if error_log else "None"}
+PLAN EXISTS: {plan_exists}
 </state>
 
 <rules>
-- If PHASE is "planning" or project empty -> call_planner
+- If PHASE is "planning" (and plan missing/stale) -> call_planner
+- If PHASE is "plan_ready" -> call_coder
 - If PHASE is "coding" (and files remain) -> call_coder
 - If PHASE is "validating" -> call_validator
 - If PHASE is "fixing" -> call_fixer
 - If Validation Passed -> finish
+- If PHASE is "fixing_failed" -> call_planner (to re-scope)
 - If Fixer failed > 3 times -> call_planner (to re-scope) or finish (if stuck)
 </rules>
 
@@ -349,7 +385,21 @@ Return ONE word: "call_planner", "call_coder", "call_validator", "call_fixer", o
     
     # Run agent
     result = await orchestrator.ainvoke({"messages": messages_with_context})
-    response = result["messages"][-1].content.lower()
+    last_message = result["messages"][-1]
+    
+    # Robust content extraction (handle string vs list from Gemini)
+    content = last_message.content
+    if isinstance(content, list):
+        # Join text parts if it's a list (common with Gemini tool use/multipart)
+        response = " ".join([str(c) for c in content if isinstance(c, (str, dict))])
+        # If dicts, we might need to extract 'text' key?
+        # Usually LangChain flattens it, but let's be safe:
+        if isinstance(content[0], dict) and "text" in content[0]:
+             response = " ".join([c.get("text", "") for c in content])
+    else:
+        response = str(content)
+        
+    response = response.lower()
     
     logger.info(f"[ORCHESTRATOR] 🧠 Decision: {response}")
     

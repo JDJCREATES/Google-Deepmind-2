@@ -277,7 +277,7 @@ def view_source_code(
         return f"Error reading file: {str(e)}"
 
 # Export tools
-CODER_TOOLS = [
+FILE_OPERATION_TOOLS = [
     write_file_to_disk,
     read_file_from_disk,
     list_directory,

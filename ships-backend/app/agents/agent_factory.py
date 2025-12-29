@@ -324,9 +324,9 @@ class AgentFactory:
         return cls.create_agent("fixer", checkpointer)
     
     @classmethod
-    def create_orchestrator(cls, checkpointer: Optional[MemorySaver] = None):
+    def create_orchestrator(cls, checkpointer: Optional[MemorySaver] = None, override_system_prompt: Optional[str] = None):
         """Create an Orchestrator agent."""
-        return cls.create_agent("orchestrator", checkpointer)
+        return cls.create_agent("orchestrator", checkpointer, override_system_prompt=override_system_prompt)
     
     @classmethod
     def create_all(cls, shared_checkpointer: bool = False) -> Dict[str, Any]:
