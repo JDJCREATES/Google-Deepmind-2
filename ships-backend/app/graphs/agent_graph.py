@@ -140,12 +140,13 @@ BEFORE writing ANY files, you MUST:
 1. Call `list_directory(".")` to check the project state
 2. Look for package.json, vite.config.js, node_modules
 3. If these DON'T exist OR if the request mentions "create", "new project", "vite", "next":
-   → You MUST use `run_terminal_command` to scaffold:
+   → You MUST use `run_terminal_command` to scaffold (NON-INTERACTIVE):
    
-   For Vite projects: `run_terminal_command("npx create-vite@latest . --template react")`
-   For Next.js: `run_terminal_command("npx create-next-app@latest . --typescript")`
+   For Vite projects: `run_terminal_command("npx -y create-vite@latest . --template react")`
+   For Next.js: `run_terminal_command("npx -y create-next-app@latest . --typescript --yes")`
    Then: `run_terminal_command("npm install")`
    
+   ⚠️ ALWAYS use -y or --yes to avoid interactive prompts!
    ONLY AFTER scaffolding, write your custom code files.
 
 4. If package.json EXISTS and scaffolding is NOT needed:

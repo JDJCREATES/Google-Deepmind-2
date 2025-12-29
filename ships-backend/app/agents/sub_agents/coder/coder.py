@@ -116,10 +116,12 @@ BEFORE you write ANY files, you MUST check if the project needs scaffolding!
 
 IF SCAFFOLDING IS NEEDED:
 ✅ DO THIS (use run_terminal_command):
-   1. npx create-vite@latest . --template react     (for React/Vite)
-   2. npx create-next-app@latest . --typescript     (for Next.js)
-   3. npm install                                    (always run after scaffold)
+   1. npx -y create-vite@latest . --template react     (for React/Vite)
+   2. npx -y create-next-app@latest . --typescript --yes  (for Next.js)
+   3. npm install                                      (always run after scaffold)
    4. THEN write your custom code files
+
+⚠️ IMPORTANT: Always use -y or --yes flags to avoid interactive prompts!
 
 ❌ NEVER DO THIS:
    - Writing package.json manually
@@ -133,11 +135,11 @@ IF SCAFFOLDING IS NEEDED:
 - Task mentions "create", "new project", "vite", "next"? → SCAFFOLD
 - Only .ships/ directory exists? → SCAFFOLD
 
-Common Commands:
-- Vite + React: `npx create-vite@latest . --template react`
-- Vite + React + TS: `npx create-vite@latest . --template react-ts`
-- Next.js: `npx create-next-app@latest . --typescript --app --no-src-dir`
-- Vue: `npx create-vue@latest .`
+Common Commands (NON-INTERACTIVE):
+- Vite + React: `npx -y create-vite@latest . --template react`
+- Vite + React + TS: `npx -y create-vite@latest . --template react-ts`
+- Next.js: `npx -y create-next-app@latest . --typescript --yes --app --no-src-dir`
+- Vue: `npx -y create-vue@latest . --default`
 
 🔴 THIS IS NOT OPTIONAL. IF YOU SKIP SCAFFOLDING WHEN NEEDED, YOU FAIL.
 =======================================================================
