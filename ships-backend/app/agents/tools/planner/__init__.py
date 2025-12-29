@@ -277,11 +277,17 @@ def assess_risks(
     }
 
 
-# Import write_file_to_disk from coder tools (now modular)
-from app.agents.tools.coder import write_file_to_disk
+# Import file tools from coder tools (modular)
+from app.agents.tools.coder import write_file_to_disk, list_directory
+from app.agents.tools.coder.terminal_operations import run_terminal_command
 
 # Export all tools for the Planner agent
 PLANNER_TOOLS = [
+    # Scaffolding tools (Planner sets up project BEFORE Coder runs)
+    list_directory,          # Check if project exists
+    run_terminal_command,    # npx create-vite, npm install, etc.
+    write_file_to_disk,      # Write plan artifacts
+    # Planning tools
     extract_scope,
     design_folder_structure,
     create_task,
@@ -289,5 +295,4 @@ PLANNER_TOOLS = [
     define_api_contract,
     create_dependency_plan,
     assess_risks,
-    write_file_to_disk,  # Planner can now write artifacts to disk
 ]

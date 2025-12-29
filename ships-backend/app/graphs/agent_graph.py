@@ -29,7 +29,7 @@ from app.agents.tools.coder import set_project_root  # Secure project path conte
 class AgentGraphState(TypedDict):
     """State shared across all agents in the graph."""
     
-    # Messages for conversation
+    # Messages for conversation (trimmed for token efficiency)
     messages: Annotated[List[BaseMessage], add]
     
     # Current phase
@@ -37,6 +37,10 @@ class AgentGraphState(TypedDict):
     
     # Artifacts produced by agents
     artifacts: Dict[str, Any]
+    
+    # Tool results stored separately from messages (token optimization)
+    # Only metadata/references go in messages, full results here
+    tool_results: Dict[str, Any]
     
     # Current task being worked on
     current_task_index: int
@@ -130,39 +134,22 @@ async def coder_node(state: AgentGraphState) -> Dict[str, Any]:
     # NOTE: We do NOT send the actual project path to the LLM for security reasons
     # The path is handled at the tool level, not by the LLM
     execution_prompt = HumanMessage(content=f"""
-ACTION REQUIRED: You are the Lead Developer. Implement this request:
+IMPLEMENT NOW: "{user_request.content}"
 
-"{user_request.content}"
+The Planner has already scaffolded the project (if needed).
+Your job is to write the CUSTOM CODE.
 
-📋 FOLLOW THE PLAN:
-The Planner saved implementation_plan.md with folder structure and file list.
-Read it first: `read_file_from_disk(".ships/implementation_plan.md")`
-Then follow it exactly - create folders and files in the specified order.
+WORKFLOW:
+1. Read `.ships/implementation_plan.md` to see what files to create
+2. Write each file using `write_file_to_disk(path, content)`
+3. Respond with summary of files created
 
-🚨 SCAFFOLDING RULES (if creating new project):
-1. Check project state: `list_directory(".")`
-2. If no package.json exists, scaffold IN THE CURRENT DIRECTORY:
-   - Vite+React: `run_terminal_command("npx -y create-vite@latest . --template react-ts")`
-   - Next.js: `run_terminal_command("npx -y create-next-app@latest . --typescript --yes")`
-   - Then: `run_terminal_command("npm install")`
-   
-   ⚠️ CRITICAL: Always scaffold with `.` (current dir), NEVER create a subfolder!
-   ⚠️ ALWAYS use -y or --yes flags to avoid prompts!
+RULES:
+- Write COMPLETE, working code - no placeholders
+- Create ALL files listed in the plan
+- Use edit_file_content to modify existing files
 
-3. If package.json already exists, skip scaffolding.
-
-🔧 EFFICIENT FILE OPERATIONS:
-- For NEW files: Use `write_file_to_disk`
-- For MODIFYING existing files: Use `edit_file_content` (token efficient)
-- Don't read a file and then write the whole thing - use edit_file_content instead
-
-🚫 AVOID:
-- Duplicate scaffolding attempts
-- Creating project in subfolder then moving files
-- Redundant list_directory calls on same path
-- Writing entire file when only changing a few lines
-
-START: First read the implementation plan, then scaffold if needed, then write files.
+STOP when all files are created.
 """)
     
     # Pass ONLY the user request and the execution prompt
@@ -435,7 +422,8 @@ async def stream_pipeline(
         "validation_passed": False,
         "fix_attempts": 0,
         "max_fix_attempts": 3,
-        "result": None
+        "result": None,
+        "tool_results": {}  # Store tool outputs here, not in messages
     }
     
     logger.info(f"[PIPELINE] 🎬 Starting graph with initial_state keys: {list(initial_state.keys())}")
