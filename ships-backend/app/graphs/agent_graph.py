@@ -130,32 +130,39 @@ async def coder_node(state: AgentGraphState) -> Dict[str, Any]:
     # NOTE: We do NOT send the actual project path to the LLM for security reasons
     # The path is handled at the tool level, not by the LLM
     execution_prompt = HumanMessage(content=f"""
-ACTION REQUIRED: You are the Lead Developer. The planning phase is complete.
-Your task is to IMPLEMENT the request.
+ACTION REQUIRED: You are the Lead Developer. Implement this request:
 
-User Request: "{user_request.content}"
+"{user_request.content}"
 
-🚨 MANDATORY FIRST STEP - SCAFFOLDING CHECK:
-BEFORE writing ANY files, you MUST:
-1. Call `list_directory(".")` to check the project state
-2. Look for package.json, vite.config.js, node_modules
-3. If these DON'T exist OR if the request mentions "create", "new project", "vite", "next":
-   → You MUST use `run_terminal_command` to scaffold (NON-INTERACTIVE):
+📋 FOLLOW THE PLAN:
+The Planner saved implementation_plan.md with folder structure and file list.
+Read it first: `read_file_from_disk(".ships/implementation_plan.md")`
+Then follow it exactly - create folders and files in the specified order.
+
+🚨 SCAFFOLDING RULES (if creating new project):
+1. Check project state: `list_directory(".")`
+2. If no package.json exists, scaffold IN THE CURRENT DIRECTORY:
+   - Vite+React: `run_terminal_command("npx -y create-vite@latest . --template react-ts")`
+   - Next.js: `run_terminal_command("npx -y create-next-app@latest . --typescript --yes")`
+   - Then: `run_terminal_command("npm install")`
    
-   For Vite projects: `run_terminal_command("npx -y create-vite@latest . --template react")`
-   For Next.js: `run_terminal_command("npx -y create-next-app@latest . --typescript --yes")`
-   Then: `run_terminal_command("npm install")`
-   
-   ⚠️ ALWAYS use -y or --yes to avoid interactive prompts!
-   ONLY AFTER scaffolding, write your custom code files.
+   ⚠️ CRITICAL: Always scaffold with `.` (current dir), NEVER create a subfolder!
+   ⚠️ ALWAYS use -y or --yes flags to avoid prompts!
 
-4. If package.json EXISTS and scaffolding is NOT needed:
-   → Proceed to write your custom code files directly.
+3. If package.json already exists, skip scaffolding.
 
-🔴 DO NOT manually write package.json, vite.config.js, or index.html if you need to scaffold!
-🔴 USE THE SCAFFOLDING TOOLS INSTEAD!
+🔧 EFFICIENT FILE OPERATIONS:
+- For NEW files: Use `write_file_to_disk`
+- For MODIFYING existing files: Use `edit_file_content` (token efficient)
+- Don't read a file and then write the whole thing - use edit_file_content instead
 
-START NOW - First call list_directory, then decide.
+🚫 AVOID:
+- Duplicate scaffolding attempts
+- Creating project in subfolder then moving files
+- Redundant list_directory calls on same path
+- Writing entire file when only changing a few lines
+
+START: First read the implementation plan, then scaffold if needed, then write files.
 """)
     
     # Pass ONLY the user request and the execution prompt
@@ -443,7 +450,7 @@ async def stream_pipeline(
             "project_path": project_path,
             "request_length": len(user_request),
         },
-        "recursion_limit": 100,  # Increased from default 25 for complex scaffolding
+        "recursion_limit": 100,  # Agent needs iterations for multi-step tasks
     }
     
     # Use stream_mode="messages" for token-by-token streaming

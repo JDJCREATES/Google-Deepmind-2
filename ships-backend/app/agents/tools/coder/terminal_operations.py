@@ -110,10 +110,13 @@ def run_terminal_command(command: str, timeout: int = 300) -> Dict[str, Any]:
                 
                 logger.info(f"[TERMINAL] {'✅' if result.success else '❌'} PTY completed in {result.duration_ms}ms (handled {result.prompts_handled} prompts)")
                 
+                # Truncate output to save tokens
+                output_preview = result.output[:300] + "\n...[output truncated]..." if len(result.output) > 300 else result.output
+                
                 return {
                     "success": result.success,
                     "exit_code": result.exit_code,
-                    "output": result.output,
+                    "output": output_preview,
                     "prompts_handled": result.prompts_handled,
                     "error": result.error,
                     "timed_out": result.timed_out,

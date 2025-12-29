@@ -101,11 +101,17 @@ def read_file_from_disk(file_path: str) -> Dict[str, Any]:
         
         logger.info(f"[CODER] 📖 Read file: {file_path} ({len(content)} bytes)")
         
+        # Return truncated preview to save tokens - full content is on disk
+        # LLM can use edit_file_content for targeted changes without full read
+        preview = content[:500] + "\n...[truncated]..." if len(content) > 500 else content
+        
         return {
             "success": True,
-            "content": content,
-            "lines": content.count("\n") + 1,
-            "bytes": len(content)
+            "content": preview,
+            "full_lines": content.count("\n") + 1,
+            "bytes": len(content),
+            "truncated": len(content) > 500,
+            "note": "Use edit_file_content for targeted changes instead of read+write"
         }
         
     except Exception as e:

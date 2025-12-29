@@ -49,10 +49,11 @@ def edit_file_content(
             })
         
         # Security: Validate path
-        if not is_path_safe(path, project_root):
+        is_safe, error = is_path_safe(path)
+        if not is_safe:
             return json.dumps({
                 "success": False,
-                "error": f"Path '{path}' is outside project root or contains dangerous patterns."
+                "error": error or f"Path '{path}' is outside project root or contains dangerous patterns."
             })
         
         from pathlib import Path
@@ -198,10 +199,11 @@ def insert_at_line(
                 "error": "Project root not set."
             })
         
-        if not is_path_safe(path, project_root):
+        is_safe, error = is_path_safe(path)
+        if not is_safe:
             return json.dumps({
                 "success": False,
-                "error": f"Path '{path}' is outside project root."
+                "error": error or f"Path '{path}' is outside project root."
             })
         
         from pathlib import Path

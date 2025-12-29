@@ -9,10 +9,12 @@ Each agent is created with:
 - Agent-specific tools
 - System prompt as first message
 - Optional checkpointing for state persistence
+- Message trimming to control token usage
 """
 
 from typing import Optional, Dict, Any, List, Literal
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.messages import trim_messages
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -23,6 +25,47 @@ from app.agents.tools import (
     VALIDATOR_TOOLS,
     FIXER_TOOLS,
 )
+
+
+# Token limits for message trimming (per agent type)
+TOKEN_LIMITS = {
+    "planner": 30000,   # Planning needs context
+    "coder": 20000,     # Coding can be more focused
+    "validator": 10000, # Validation is quick
+    "fixer": 20000,     # Fixing needs context of errors
+}
+
+
+def create_message_trimmer(max_tokens: int = 20000):
+    """
+    Create a pre_model_hook that trims messages to stay under token limit.
+    
+    Args:
+        max_tokens: Maximum tokens to keep in message history
+        
+    Returns:
+        A callable pre_model_hook function
+    """
+    def pre_model_hook(state):
+        """Trim messages before each LLM call to control tokens."""
+        messages = state.get("messages", [])
+        
+        # Use trim_messages to keep most recent, staying under limit
+        # Token approximation: ~4 characters = 1 token
+        trimmed = trim_messages(
+            messages,
+            strategy="last",
+            max_tokens=max_tokens,
+            token_counter=lambda msgs: sum(len(str(m.content)) // 4 for m in msgs),
+            start_on="human",   # Keep starting from a human message
+            include_system=True,
+        )
+        
+        # Return trimmed messages under llm_input_messages key
+        # This sends trimmed to LLM without modifying state
+        return {"llm_input_messages": trimmed}
+    
+    return pre_model_hook
 
 
 # System prompts for each agent type
@@ -173,12 +216,16 @@ class AgentFactory:
         # Get system prompt
         prompt = AGENT_PROMPTS.get(agent_type, "You are a helpful assistant.")
         
-        # Create the modern ReAct agent
+        # Get token limit for this agent type
+        max_tokens = TOKEN_LIMITS.get(agent_type, 20000)
+        
+        # Create the modern ReAct agent with message trimming
         agent = create_react_agent(
             model=llm,
             tools=tools,
             prompt=prompt,
-            checkpointer=checkpointer
+            checkpointer=checkpointer,
+            pre_model_hook=create_message_trimmer(max_tokens),  # Trim messages for token efficiency
         )
         
         return agent
