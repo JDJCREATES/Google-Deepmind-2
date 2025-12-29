@@ -56,6 +56,8 @@ function App() {
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
   // Terminal output from agent commands
   const [terminalOutput, setTerminalOutput] = useState<string>('');
+  // Preview URL from completed agent (for auto-launching preview)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   // Get project path from Electron (if available)
   const [electronProjectPath, setElectronProjectPath] = useState<string | null>(null);
   
@@ -276,6 +278,22 @@ function App() {
             }
             return msg;
           }));
+        }
+        
+        // Handle pipeline completion with preview URL
+        else if (chunk.type === 'complete') {
+          setAgentPhase('done');
+          
+          // If we have a preview URL, store it and trigger Electron preview
+          if (chunk.preview_url) {
+            setPreviewUrl(chunk.preview_url);
+            console.log('[App] Preview ready at:', chunk.preview_url);
+            
+            // Tell Electron to open the preview (if available)
+            if (window.electronAPI?.openPreview) {
+              window.electronAPI.openPreview(chunk.preview_url);
+            }
+          }
         }
         
         // Handle errors

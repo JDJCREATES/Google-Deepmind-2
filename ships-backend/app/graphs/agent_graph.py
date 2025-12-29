@@ -310,6 +310,71 @@ def route_after_fix(state: AgentGraphState) -> Literal["planner", "validator", "
 
 
 # ============================================================================
+# COMPLETION NODE - Auto-launch preview
+# ============================================================================
+
+async def complete_node(state: AgentGraphState) -> Dict[str, Any]:
+    """
+    Run when pipeline completes successfully.
+    Starts the dev server via preview_manager so ships-preview can display it.
+    """
+    logger.info("[COMPLETE] 🎉 Pipeline completed successfully!")
+    
+    artifacts = state.get("artifacts", {})
+    project_path = artifacts.get("project_path")
+    
+    if not project_path:
+        logger.warning("[COMPLETE] No project path set, cannot launch preview")
+        return {
+            "phase": "complete",
+            "result": {"success": True, "preview_url": None}
+        }
+    
+    from pathlib import Path
+    from app.services.preview_manager import preview_manager
+    
+    # Detect project type
+    package_json = Path(project_path) / "package.json"
+    index_html = Path(project_path) / "index.html"
+    
+    preview_url = None
+    
+    if package_json.exists():
+        # React/Vite project - start dev server via preview_manager
+        # This sets current_url which ships-preview polls via /preview/status
+        logger.info("[COMPLETE] 🚀 Starting dev server via preview_manager...")
+        result = preview_manager.start_dev_server(project_path)
+        
+        if result.get("status") == "starting":
+            # Wait briefly for URL to be detected
+            import asyncio
+            for _ in range(10):  # Wait up to 5 seconds
+                await asyncio.sleep(0.5)
+                if preview_manager.current_url:
+                    preview_url = preview_manager.current_url
+                    break
+            
+            if not preview_url:
+                preview_url = "http://localhost:5173"  # Default Vite port
+                
+            logger.info(f"[COMPLETE] 🌐 Dev server started at: {preview_url}")
+    
+    elif index_html.exists():
+        # Static HTML project
+        preview_url = f"file://{index_html}"
+        logger.info(f"[COMPLETE] 📄 Static HTML at: {preview_url}")
+    
+    return {
+        "phase": "complete",
+        "result": {
+            "success": True,
+            "preview_url": preview_url,
+            "project_path": project_path
+        }
+    }
+
+
+# ============================================================================
 # GRAPH BUILDER
 # ============================================================================
 
@@ -334,6 +399,7 @@ def create_agent_graph(checkpointer: Optional[MemorySaver] = None) -> StateGraph
     graph.add_node("coder", coder_node)
     graph.add_node("validator", validator_node)
     graph.add_node("fixer", fixer_node)
+    graph.add_node("complete", complete_node)  # Auto-launch preview
     
     # Add edges
     graph.add_edge(START, "planner")
@@ -346,9 +412,12 @@ def create_agent_graph(checkpointer: Optional[MemorySaver] = None) -> StateGraph
         route_after_validation,
         {
             "fixer": "fixer",
-            "complete": END
+            "complete": "complete"  # Route to complete_node, not END
         }
     )
+    
+    # Complete node goes to END after launching preview
+    graph.add_edge("complete", END)
     
     # Conditional routing after fix
     graph.add_conditional_edges(

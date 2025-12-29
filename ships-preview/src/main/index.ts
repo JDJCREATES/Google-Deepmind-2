@@ -364,3 +364,21 @@ ipcMain.handle('pty-kill', async (_event, sessionId: string) => {
   return killPTY(sessionId);
 });
 
+// ============================================================================
+// PREVIEW
+// ============================================================================
+
+/**
+ * Open a preview URL - sends it to the renderer to display in preview panel
+ */
+ipcMain.handle('open-preview', async (_event, url: string) => {
+  console.log(`[PREVIEW] Opening preview: ${url}`);
+  
+  // Send to renderer to display in preview panel/webview
+  if (mainWindow) {
+    mainWindow.webContents.send('preview-url', url);
+    return { success: true, url };
+  }
+  
+  return { success: false, error: 'No main window' };
+});

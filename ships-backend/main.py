@@ -330,7 +330,27 @@ async def run_agent(request: Request, body: PromptRequest):
                     continue
                     
             logger.info("[STREAM] Pipeline completed successfully")
-            yield json.dumps({"type": "complete", "content": "Pipeline completed successfully"}) + "\n"
+            
+            # Try to get preview_url from the final state
+            # This is set by complete_node when it starts the dev server
+            preview_url = None
+            try:
+                # Get final state from the graph
+                final_state = await graph.aget_state(config)
+                if final_state and hasattr(final_state, 'values'):
+                    result = final_state.values.get('result', {})
+                    if result:
+                        preview_url = result.get('preview_url')
+                        logger.info(f"[STREAM] Preview URL from state: {preview_url}")
+            except Exception as e:
+                logger.debug(f"[STREAM] Could not get preview from state: {e}")
+            
+            # Emit completion with preview_url for Electron to display
+            yield json.dumps({
+                "type": "complete", 
+                "content": "Pipeline completed successfully",
+                "preview_url": preview_url
+            }) + "\n"
             
         except Exception as e:
             logger.error(f"[STREAM] Pipeline error: {e}", exc_info=True)
