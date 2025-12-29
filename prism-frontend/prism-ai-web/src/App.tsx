@@ -57,17 +57,83 @@ function App() {
   // Get project path from Electron (if available)
   const [electronProjectPath, setElectronProjectPath] = useState<string | null>(null);
   
-  // Fetch project path from Electron on mount
-  useEffect(() => {
-    const fetchProjectPath = async () => {
-      if (window.electron?.getLastProject) {
+  // LocalStorage key for project path backup
+  const PROJECT_PATH_KEY = 'ships_project_path';
+  
+  // Sync project path with backend
+  const syncProjectPathWithBackend = async (path: string) => {
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+      await fetch(`${API_URL}/preview/set-path`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path })
+      });
+      console.log('[App] Synced project path with backend:', path);
+      // Save to localStorage as backup
+      localStorage.setItem(PROJECT_PATH_KEY, path);
+    } catch (error) {
+      console.warn('[App] Failed to sync project path with backend:', error);
+    }
+  };
+  
+  // Get project path from multiple sources with fallback chain
+  const getProjectPath = async (): Promise<string | null> => {
+    // 1. Try Electron first (most reliable when connected)
+    if (window.electron?.getLastProject) {
+      try {
         const result = await window.electron.getLastProject();
         if (result.path) {
-          setElectronProjectPath(result.path);
+          return result.path;
         }
+      } catch (e) {
+        console.warn('[App] Electron connection unavailable');
+      }
+    }
+    
+    // 2. Fallback to localStorage backup
+    const savedPath = localStorage.getItem(PROJECT_PATH_KEY);
+    if (savedPath) {
+      console.log('[App] Using cached project path from localStorage:', savedPath);
+      return savedPath;
+    }
+    
+    // 3. Try fetching from backend (if backend remembers)
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+      const response = await fetch(`${API_URL}/preview/path`);
+      const data = await response.json();
+      if (data.project_path) {
+        console.log('[App] Got project path from backend:', data.project_path);
+        return data.project_path;
+      }
+    } catch (e) {
+      console.warn('[App] Failed to fetch project path from backend');
+    }
+    
+    return null;
+  };
+  
+  // Fetch project path from multiple sources on mount and sync with backend
+  useEffect(() => {
+    const fetchAndSync = async () => {
+      const path = await getProjectPath();
+      if (path) {
+        setElectronProjectPath(path);
+        await syncProjectPathWithBackend(path);
       }
     };
-    fetchProjectPath();
+    fetchAndSync();
+    
+    // Periodic re-sync every 30 seconds to handle disconnects/restarts
+    const syncInterval = setInterval(async () => {
+      const path = await getProjectPath();
+      if (path) {
+        await syncProjectPathWithBackend(path);
+      }
+    }, 30000);
+    
+    return () => clearInterval(syncInterval);
   }, []);
 
   const [messages, setMessages] = useState<Message[]>([
