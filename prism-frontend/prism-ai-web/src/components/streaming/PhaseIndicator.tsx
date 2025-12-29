@@ -8,7 +8,7 @@
 import { FiCheck } from 'react-icons/fi';
 import './PhaseIndicator.css';
 
-export type AgentPhase = 'idle' | 'planning' | 'coding' | 'validating' | 'done' | 'error';
+export type AgentPhase = 'idle' | 'planning' | 'coding' | 'validating' | 'fixing' | 'done' | 'error';
 
 interface PhaseIndicatorProps {
   phase: AgentPhase;

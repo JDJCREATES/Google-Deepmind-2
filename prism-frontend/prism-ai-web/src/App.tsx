@@ -22,6 +22,7 @@ import { XTerminal } from './components/terminal/XTerminal';
 import { BiBox } from 'react-icons/bi';
 import { agentService, type AgentChunk } from './services/agentService';
 import { ToolProgress, type ToolEvent, PhaseIndicator, type AgentPhase } from './components/streaming';
+import { ActivityIndicator } from './components/streaming/ActivityIndicator';
 import './App.css';
 
 type SidebarView = 'files' | 'artifacts' | 'search';
@@ -54,6 +55,9 @@ function App() {
   // Streaming state
   const [agentPhase, setAgentPhase] = useState<AgentPhase>('idle');
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
+  const [currentActivity, setCurrentActivity] = useState<string>('');
+  const [activityType, setActivityType] = useState<any>('thinking');
+  
   // Terminal output from agent commands
   const [terminalOutput, setTerminalOutput] = useState<string>('');
   // Preview URL from completed agent (for auto-launching preview)
@@ -180,6 +184,8 @@ function App() {
     // Reset streaming state for new request
     setAgentPhase('planning');
     setToolEvents([]);
+    setCurrentActivity('Initializing...');
+    setActivityType('thinking');
 
     // Create a placeholder AI message
     const aiMessageId = (Date.now() + 1).toString();
@@ -203,10 +209,32 @@ function App() {
         // Handle phase changes
         if (chunk.type === 'phase' && chunk.phase) {
           setAgentPhase(chunk.phase);
+          if (chunk.phase === 'planning') setCurrentActivity('Planning approach...');
+          else if (chunk.phase === 'coding') setCurrentActivity('Writing code...');
+          else if (chunk.phase === 'validating') setCurrentActivity('Verifying changes...');
+          else if (chunk.phase === 'fixing') setCurrentActivity('Fixing issues...');
         }
         
         // Handle tool start (show spinner)
         else if (chunk.type === 'tool_start') {
+          const toolName = chunk.tool || 'unknown';
+          let activityText = `Running ${toolName}...`;
+          let type: any = 'working';
+          
+          if (toolName === 'write_file_to_disk') {
+             activityText = `Writing ${chunk.file || 'file'}...`;
+             type = 'writing';
+          } else if (toolName === 'run_terminal_command') {
+             activityText = `Running command...`;
+             type = 'command';
+          } else if (toolName === 'read_file_from_disk') {
+             activityText = `Reading ${chunk.file || 'file'}...`;
+             type = 'reading';
+          }
+          
+          setCurrentActivity(activityText);
+          setActivityType(type);
+
           setToolEvents(prev => [...prev, {
             id: `${Date.now()}-${chunk.tool}`,
             type: 'tool_start',
@@ -218,6 +246,10 @@ function App() {
         
         // Handle tool result (show checkmark/X)
         else if (chunk.type === 'tool_result') {
+          // Reset activity to generic thinking after tool is done
+          setCurrentActivity('Thinking...');
+          setActivityType('thinking');
+
           setToolEvents(prev => [...prev, {
             id: `${Date.now()}-${chunk.tool}-result`,
             type: 'tool_result',
@@ -321,6 +353,7 @@ function App() {
     
     setIsAgentRunning(false);
     setAgentPhase('done');
+    setCurrentActivity(''); // Clear activity indicator when done
     
     // Refresh file explorer if files were created
     if (filesCreated) {
@@ -479,14 +512,25 @@ function App() {
           {isAgentRunning && agentPhase !== 'idle' && (
             <PhaseIndicator phase={agentPhase} />
           )}
-          
+
           {messages.map((message) => (
             <ChatMessage key={message.id} message={message} />
           ))}
+
+          {/* Real-time Activity Indicator */}
+          <div className="activity-section">
+             <ActivityIndicator 
+                activity={currentActivity} 
+                type={activityType} 
+             />
+          </div>
           
-          {/* Tool progress card when there are tool events */}
+          {/* Tool progress card (History) */}
           {toolEvents.length > 0 && (
-            <ToolProgress events={toolEvents} />
+            <ToolProgress 
+              events={toolEvents} 
+              isCollapsed={agentPhase === 'done' || agentPhase === 'idle'}
+            />
           )}
           
           <div ref={messagesEndRef} />

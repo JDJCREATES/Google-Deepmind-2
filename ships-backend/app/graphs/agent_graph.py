@@ -180,50 +180,128 @@ async def coder_node(state: AgentGraphState) -> Dict[str, Any]:
     # ========================================================================
     # DYNAMIC PROMPT CONSTRUCTION (State-Driven)
     # ========================================================================
-    # Instead of reading the plan manually every time, we inject the state
+    # Helper: Normalize paths to relative path string (no leading ./, forward slashes)
+    from pathlib import Path
     
-    # 1. Get progress
+    def normalize_path(p: str, root: Optional[str]) -> str:
+        if not p: return ""
+        try:
+            # Handle Windows backslashes
+            p = str(p).replace("\\", "/")
+            if root:
+                root = str(root).replace("\\", "/")
+                # Try to make relative
+                if p.startswith(root):
+                    p = p[len(root):]
+            # Strip leading slashes/dots
+            p = p.lstrip("./\\")
+            return p
+        except:
+            return p
+
+    def get_project_tree(root_str: str, max_depth: int = 5) -> str:
+        """Scan project structure recursively for context."""
+        tree = []
+        root = Path(root_str)
+        
+        def _scan(dir_path: Path, prefix: str = "", level: int = 0):
+            if level > max_depth: return
+            try:
+                # Sort dirs first, then files
+                items = sorted(dir_path.iterdir(), key=lambda x: (not x.is_dir(), x.name))
+            except Exception:
+                return
+
+            for item in items:
+                # Skip heavy/hidden folders
+                if item.name.startswith('.') or item.name in ['node_modules', 'dist', 'build', 'coverage', '__pycache__']:
+                    continue
+                
+                if item.is_dir():
+                    tree.append(f"{prefix}📂 {item.name}/")
+                    _scan(item, prefix + "  ", level + 1)
+                else:
+                    tree.append(f"{prefix}📄 {item.name}")
+
+        try:
+            if root.exists():
+                _scan(root)
+        except Exception as e:
+            return f"Error scanning tree: {e}"
+            
+        return "\n".join(tree) if tree else "Project Empty"
+
+    # 1. Get progress (Normalize everything)
     completed_files = state.get("completed_files", [])
-    files_list = "\n".join([f"- {f}" for f in completed_files]) if completed_files else "- None"
+    safe_completed = [normalize_path(f, project_path) for f in completed_files]
+    unique_completed = sorted(list(set(safe_completed))) # Deduplicate
+    files_list = "\n".join([f"- {f}" for f in unique_completed]) if unique_completed else "- None"
     
-    # 2. Build Dynamic System Prompt
+    # 2. Get REAL Project Structure (The Source of Truth)
+    real_file_tree = "Project path not set."
+    if project_path:
+        real_file_tree = get_project_tree(project_path)
+    
+    # 3. Read Plan Content (Optimization: Prevent repetitive tool calls)
+    plan_content = "Plan not found."
+    if project_path:
+        plan_path = Path(project_path) / ".ships" / "implementation_plan.md"
+        if plan_path.exists():
+            try:
+                plan_content = plan_path.read_text(encoding="utf-8")
+            except Exception as e:
+                plan_content = f"Error reading plan: {e}"
+
+    # 4. Build Dynamic System Prompt
     system_prompt = f"""<role>You are the Coder. You write complete, working code files.</role>
 
 <context>
-FILES ALREADY CREATED:
+CURRENT PROJECT PATH: {project_path}
+
+FILES ALREADY CREATED (Session State):
 {files_list}
 
-CURRENT PROJECT PATH: {project_path}
+ACTUAL FILE STRUCTURE (Disk State):
+{real_file_tree}
 </context>
 
+<implementation_plan>
+{plan_content}
+</implementation_plan>
+
 <task>
-1. Read .ships/implementation_plan.md (if you haven't already cached it).
-2. Compare with FILES ALREADY CREATED.
-3. Pick the NEXT file to implement.
+1. Analyze the <implementation_plan> and <context>.
+2. CRITICAL: Check "ACTUAL FILE STRUCTURE" to see if file already exists (maybe in a different folder?).
+   - If `src/components/Board.tsx` is needed, looking at `src/components/Board/Board.tsx` -> IT EXISTS. Skip it.
+   - Do NOT create duplicate files in different locations.
+3. Pick the NEXT file to implement that is NOT in "FILES ALREADY CREATED" or on disk.
 4. Write it using write_file_to_disk.
-5. Repeat until ALL files are done.
+5. Continue until ALL files in plan are implemented.
+6. When ALL files are done, output "Implementation complete."
 </task>
 
 <constraints>
+- Do NOT read the plan file with tools (it is provided above).
 - Write COMPLETE code, no TODOs.
 - Listen to "FILES ALREADY CREATED" - do NOT overwrite them unless asked.
-- Stop when "Implementation complete".
+- Tries to batch multiple file writes in one turn if they are small.
 </constraints>
 
 <output_format>
 "Created: [file]" or "Implementation complete."
 </output_format>"""
 
-    # 3. Create Coder with Dynamic Prompt
+    # 5. Create Coder with Dynamic Prompt
     coder = AgentFactory.create_agent("coder", override_system_prompt=system_prompt)
     
-    # 4. Construct Execution Prompt (Minimal Context)
+    # 6. Construct Execution Prompt (Minimal Context)
     messages_with_context = [
         HumanMessage(content=f"""<task>Continue implementation.
+Plan and Context are provided in system prompt.
 User Request: "{user_request.content}"</task>""")
     ]
     
-    logger.info(f"[CODER] Generated dynamic prompt with {len(completed_files)} files completed")
+    logger.info(f"[CODER] Generated dynamic prompt with {len(unique_completed)} files completed")
     
     result = await coder.ainvoke({"messages": messages_with_context})
     
@@ -238,10 +316,16 @@ User Request: "{user_request.content}"</task>""")
                 if tc.get('name') == 'write_file_to_disk':
                     path = tc['args'].get('file_path')
                     if path:
-                        new_completed.append(path)
+                        # Normalize BEFORE storing
+                        norm_path = normalize_path(path, project_path)
+                        if norm_path:
+                            new_completed.append(norm_path)
     
     # Update local state variable to pass back
-    current_completed = list(state.get("completed_files", [])) + new_completed
+    # Use SET to prevent duplicates in state
+    current_set = set(state.get("completed_files", []))
+    current_set.update(new_completed)
+    current_completed = list(current_set)
     
     return {
         "messages": new_messages,
