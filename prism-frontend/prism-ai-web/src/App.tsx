@@ -21,6 +21,7 @@ import {
 import { XTerminal } from './components/terminal/XTerminal';
 import { BiBox } from 'react-icons/bi';
 import { agentService, type AgentChunk } from './services/agentService';
+import { ToolProgress, type ToolEvent, PhaseIndicator, type AgentPhase } from './components/streaming';
 import './App.css';
 
 type SidebarView = 'files' | 'artifacts' | 'search';
@@ -30,6 +31,7 @@ function App() {
   const [showExplorer, setShowExplorer] = useState(true);
   const [activeSidebarView, setActiveSidebarView] = useState<SidebarView>('files');
   const { currentProjectId } = useArtifactStore();
+  const { refreshFileTree } = useFileSystem();
   
   // Toggle sidebar or switch view
   const handleSidebarClick = (view: SidebarView) => {
@@ -48,6 +50,10 @@ function App() {
   // Terminal state
   const [showTerminal, setShowTerminal] = useState(false);
   const [terminalCollapsed, setTerminalCollapsed] = useState(false);
+  
+  // Streaming state
+  const [agentPhase, setAgentPhase] = useState<AgentPhase>('idle');
+  const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
   // Get project path from Electron (if available)
   const [electronProjectPath, setElectronProjectPath] = useState<string | null>(null);
   
@@ -100,6 +106,10 @@ function App() {
     setMessages(prev => [...prev, userMessage]);
     setInputValue('');
     setIsAgentRunning(true);
+    
+    // Reset streaming state for new request
+    setAgentPhase('planning');
+    setToolEvents([]);
 
     // Create a placeholder AI message
     const aiMessageId = (Date.now() + 1).toString();
@@ -112,45 +122,88 @@ function App() {
     
     setMessages(prev => [...prev, initialAiMessage]);
 
+    // Track files created for explorer refresh
+    let filesCreated = false;
+
     // Project path is handled securely on the backend via preview_manager
-    // Frontend doesn't need to send it - backend falls back to current project
     await agentService.runAgent(
       userMessage.content,
       null, // Backend uses preview_manager.current_project_path as fallback
       (chunk: AgentChunk) => {
-        if (chunk.type === 'message' && chunk.content) {
-          setMessages(prev => prev.map(msg => {
-            if (msg.id === aiMessageId) {
-              return { 
-                ...msg, 
-                content: msg.content + (msg.content ? '\n' : '') + chunk.content // Check if we should append or replace? logic depends on backend
-              };
-            }
-            return msg;
-          }));
-        } else if (chunk.type === 'tool_result') {
-          // Show tool results in both chat and terminal
-          const toolMsg = chunk.success 
-            ? `✅ ${chunk.tool}: ${chunk.file || 'completed'}` 
-            : `❌ ${chunk.tool}: failed`;
+        // Handle phase changes
+        if (chunk.type === 'phase' && chunk.phase) {
+          setAgentPhase(chunk.phase);
+        }
+        
+        // Handle tool start (show spinner)
+        else if (chunk.type === 'tool_start') {
+          setToolEvents(prev => [...prev, {
+            id: `${Date.now()}-${chunk.tool}`,
+            type: 'tool_start',
+            tool: chunk.tool || 'unknown',
+            file: chunk.file,
+            timestamp: Date.now()
+          }]);
+        }
+        
+        // Handle tool result (show checkmark/X)
+        else if (chunk.type === 'tool_result') {
+          setToolEvents(prev => [...prev, {
+            id: `${Date.now()}-${chunk.tool}-result`,
+            type: 'tool_result',
+            tool: chunk.tool || 'unknown',
+            file: chunk.file,
+            success: chunk.success,
+            timestamp: Date.now()
+          }]);
           
-          // Add to chat
-          setMessages(prev => prev.map(msg => {
-            if (msg.id === aiMessageId) {
-              return { ...msg, content: msg.content + '\n' + toolMsg };
-            }
-            return msg;
-          }));
+          // Track if files were created for refresh
+          if (chunk.tool === 'write_file_to_disk' || chunk.tool === 'edit_file_content') {
+            filesCreated = true;
+          }
           
           // Auto-show terminal when agent runs commands
           if (chunk.tool === 'run_terminal_command') {
             setShowTerminal(true);
           }
-        } else if (chunk.type === 'phase') {
-           // Optional: Show phase toast or status indicator
-           console.log("Agent Phase:", chunk.phase);
-        } else if (chunk.type === 'error') {
-           setMessages(prev => prev.map(msg => {
+        }
+        
+        // Handle files created event (explorer refresh)
+        else if (chunk.type === 'files_created') {
+          filesCreated = true;
+        }
+        
+        // Handle AI text messages (filter noise)
+        else if (chunk.type === 'message' && chunk.content) {
+          // Filter out internal control messages
+          const content = chunk.content;
+          const skipPatterns = [
+            'ACTION REQUIRED',
+            'MANDATORY FIRST STEP',
+            'SCAFFOLDING CHECK',
+            'list_directory',
+            '{"type": "tool_result"',
+          ];
+          
+          if (skipPatterns.some(p => content.includes(p))) {
+            return; // Skip internal messages
+          }
+          
+          setMessages(prev => prev.map(msg => {
+            if (msg.id === aiMessageId) {
+              return { 
+                ...msg, 
+                content: msg.content + (msg.content && !msg.content.endsWith('\n') ? ' ' : '') + content
+              };
+            }
+            return msg;
+          }));
+        }
+        
+        // Handle errors
+        else if (chunk.type === 'error') {
+          setAgentPhase('error');
+          setMessages(prev => prev.map(msg => {
             if (msg.id === aiMessageId) {
               return { ...msg, content: msg.content + `\n🛑 Error: ${chunk.content}` };
             }
@@ -160,16 +213,23 @@ function App() {
       },
       (error: any) => {
         setIsAgentRunning(false);
-         setMessages(prev => prev.map(msg => {
-            if (msg.id === aiMessageId) {
-              return { ...msg, content: msg.content + `\n⚠️ Network Error: ${error.message}` };
-            }
-            return msg;
-          }));
+        setAgentPhase('error');
+        setMessages(prev => prev.map(msg => {
+          if (msg.id === aiMessageId) {
+            return { ...msg, content: msg.content + `\n⚠️ Network Error: ${error.message}` };
+          }
+          return msg;
+        }));
       }
     );
     
     setIsAgentRunning(false);
+    setAgentPhase('done');
+    
+    // Refresh file explorer if files were created
+    if (filesCreated) {
+      refreshFileTree();
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -318,9 +378,20 @@ function App() {
         </div>
 
         <div className="chat-messages">
+          {/* Phase indicator when agent is running */}
+          {isAgentRunning && agentPhase !== 'idle' && (
+            <PhaseIndicator phase={agentPhase} />
+          )}
+          
           {messages.map((message) => (
             <ChatMessage key={message.id} message={message} />
           ))}
+          
+          {/* Tool progress card when there are tool events */}
+          {toolEvents.length > 0 && (
+            <ToolProgress events={toolEvents} />
+          )}
+          
           <div ref={messagesEndRef} />
         </div>
 

@@ -194,11 +194,12 @@ async def run_agent(request: Request, body: PromptRequest):
                                 import json as json_mod
                                 try:
                                     parsed = json_mod.loads(tool_content) if isinstance(tool_content, str) else tool_content
-                                    if isinstance(parsed, dict) and parsed.get('success'):
+                                    if isinstance(parsed, dict):
+                                        is_success = parsed.get('success', False)
                                         yield json.dumps({
                                             "type": "tool_result",
                                             "tool": tool_name,
-                                            "success": True,
+                                            "success": is_success,
                                             "file": parsed.get('relative_path') or parsed.get('path', ''),
                                             "preview": str(tool_content)[:100]
                                         }) + "\n"
@@ -226,14 +227,28 @@ async def run_agent(request: Request, body: PromptRequest):
                             
                         # FILTER: Skip internal control messages
                         if isinstance(content, str):
-                            skip_patterns = ['EXECUTE NOW', 'Start creating files NOW', 'Use the write_file_to_disk', 'ACTION REQUIRED']
+                            skip_patterns = ['EXECUTE NOW', 'Start creating files NOW', 'Use the write_file_to_disk', 'ACTION REQUIRED', 'MANDATORY FIRST STEP', 'SCAFFOLDING CHECK']
                             if any(pattern in content for pattern in skip_patterns):
                                 continue
                         
-                        # Track node changes
+                        # Track node changes and emit phase events
                         if node_name != current_node:
                             current_node = node_name
                             logger.info(f"[STREAM] Entered node: {node_name}")
+                            
+                            # Map node names to phase events
+                            phase_map = {
+                                'planner': 'planning',
+                                'coder': 'coding',
+                                'validator': 'validating',
+                                'fixer': 'coding',  # Fixer is part of coding loop
+                            }
+                            phase = phase_map.get(node_name.lower())
+                            if phase:
+                                yield json.dumps({
+                                    "type": "phase",
+                                    "phase": phase
+                                }) + "\n"
                         
                         # ============================================================
                         # CRITICAL: Convert content to displayable string
