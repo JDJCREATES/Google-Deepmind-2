@@ -54,6 +54,8 @@ function App() {
   // Streaming state
   const [agentPhase, setAgentPhase] = useState<AgentPhase>('idle');
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
+  // Terminal output from agent commands
+  const [terminalOutput, setTerminalOutput] = useState<string>('');
   // Get project path from Electron (if available)
   const [electronProjectPath, setElectronProjectPath] = useState<string | null>(null);
   
@@ -239,6 +241,16 @@ function App() {
           filesCreated = true;
         }
         
+        // Handle terminal output from agent commands
+        else if (chunk.type === 'terminal_output') {
+          const output = chunk.output || '';
+          const stderr = chunk.stderr || '';
+          const command = chunk.command || '';
+          const fullOutput = `$ ${command}\n${output}${stderr ? '\nSTDERR: ' + stderr : ''}`;
+          setTerminalOutput(fullOutput);
+          setShowTerminal(true);
+        }
+        
         // Handle AI text messages (filter noise)
         else if (chunk.type === 'message' && chunk.content) {
           // Filter out internal control messages
@@ -403,6 +415,7 @@ function App() {
                 isCollapsed={terminalCollapsed}
                 onClose={() => setShowTerminal(false)}
                 onToggleCollapse={() => setTerminalCollapsed(!terminalCollapsed)}
+                externalOutput={terminalOutput}
               />
             </>
           )}

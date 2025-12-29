@@ -36,6 +36,8 @@ interface XTerminalProps {
   onClose: () => void;
   onToggleCollapse?: () => void;
   isCollapsed?: boolean;
+  /** External output to write (from agent backend) */
+  externalOutput?: string;
 }
 
 export function XTerminal({ 
@@ -43,7 +45,8 @@ export function XTerminal({
   isVisible, 
   onClose, 
   onToggleCollapse,
-  isCollapsed = false 
+  isCollapsed = false,
+  externalOutput,
 }: XTerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
@@ -206,6 +209,19 @@ export function XTerminal({
       spawnTerminal();
     }
   }, [isVisible, projectPath, sessionId, isConnected, spawnTerminal]);
+
+  // Write external output (from agent backend) to terminal
+  useEffect(() => {
+    if (externalOutput && xtermRef.current) {
+      // Write with proper formatting
+      xtermRef.current.writeln('\r\n\x1b[36m[Agent Command Output]\x1b[0m');
+      // Split output by newlines and write each line
+      const lines = externalOutput.split('\n');
+      lines.forEach(line => {
+        xtermRef.current?.writeln(line);
+      });
+    }
+  }, [externalOutput]);
 
   if (!isVisible) return null;
 

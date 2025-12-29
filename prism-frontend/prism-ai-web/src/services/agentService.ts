@@ -7,7 +7,7 @@
  */
 
 export interface AgentChunk {
-  type: 'message' | 'phase' | 'error' | 'tool_start' | 'tool_result' | 'files_created';
+  type: 'message' | 'phase' | 'error' | 'tool_start' | 'tool_result' | 'files_created' | 'terminal_output';
   node?: string;
   content?: string;
   phase?: 'idle' | 'planning' | 'coding' | 'validating' | 'done' | 'error';
@@ -18,6 +18,13 @@ export interface AgentChunk {
   preview?: string;
   // Files created (for explorer refresh)
   files?: string[];
+  // Terminal output fields
+  command?: string;
+  output?: string;
+  stderr?: string;
+  exit_code?: number;
+  duration_ms?: number;
+  execution_mode?: string;
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';

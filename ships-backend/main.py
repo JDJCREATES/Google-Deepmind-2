@@ -196,12 +196,29 @@ async def run_agent(request: Request, body: PromptRequest):
                                     parsed = json_mod.loads(tool_content) if isinstance(tool_content, str) else tool_content
                                     if isinstance(parsed, dict):
                                         is_success = parsed.get('success', False)
+                                        
+                                        # TERMINAL OUTPUT: Stream full output for terminal commands
+                                        if tool_name == 'run_terminal_command':
+                                            output = parsed.get('output') or parsed.get('stdout') or ''
+                                            stderr = parsed.get('stderr') or ''
+                                            yield json.dumps({
+                                                "type": "terminal_output",
+                                                "command": parsed.get('command', ''),
+                                                "output": output,
+                                                "stderr": stderr,
+                                                "success": is_success,
+                                                "exit_code": parsed.get('exit_code'),
+                                                "duration_ms": parsed.get('duration_ms', 0),
+                                                "execution_mode": parsed.get('execution_mode', 'unknown')
+                                            }) + "\n"
+                                        
+                                        # Also send generic tool_result for UI
                                         yield json.dumps({
                                             "type": "tool_result",
                                             "tool": tool_name,
                                             "success": is_success,
                                             "file": parsed.get('relative_path') or parsed.get('path', ''),
-                                            "preview": str(tool_content)[:100]
+                                            "preview": str(tool_content)[:200]
                                         }) + "\n"
                                 except:
                                     pass
