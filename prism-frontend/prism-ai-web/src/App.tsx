@@ -18,7 +18,7 @@ import {
   VscLayoutSidebarRightOff,
   VscTerminal 
 } from 'react-icons/vsc';
-import { Terminal, type TerminalLine } from './components/Terminal';
+import { XTerminal } from './components/terminal/XTerminal';
 import { BiBox } from 'react-icons/bi';
 import { agentService, type AgentChunk } from './services/agentService';
 import './App.css';
@@ -48,7 +48,21 @@ function App() {
   // Terminal state
   const [showTerminal, setShowTerminal] = useState(false);
   const [terminalCollapsed, setTerminalCollapsed] = useState(false);
-  const [terminalLines, setTerminalLines] = useState<TerminalLine[]>([]);
+  // Get project path from Electron (if available)
+  const [electronProjectPath, setElectronProjectPath] = useState<string | null>(null);
+  
+  // Fetch project path from Electron on mount
+  useEffect(() => {
+    const fetchProjectPath = async () => {
+      if (window.electron?.getLastProject) {
+        const result = await window.electron.getLastProject();
+        if (result.path) {
+          setElectronProjectPath(result.path);
+        }
+      }
+    };
+    fetchProjectPath();
+  }, []);
 
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -128,13 +142,10 @@ function App() {
             return msg;
           }));
           
-          // Add to terminal
-          setShowTerminal(true);
-          setTerminalLines(prev => [...prev, {
-            type: chunk.tool === 'run_terminal_command' ? 'command' : 'system',
-            content: chunk.file || chunk.tool || 'command executed',
-            timestamp: Date.now()
-          }]);
+          // Auto-show terminal when agent runs commands
+          if (chunk.tool === 'run_terminal_command') {
+            setShowTerminal(true);
+          }
         } else if (chunk.type === 'phase') {
            // Optional: Show phase toast or status indicator
            console.log("Agent Phase:", chunk.phase);
@@ -259,14 +270,13 @@ function App() {
               <div className="monaco-container">
                 <MonacoEditor theme={theme} />
               </div>
-              {/* Terminal at bottom of editor (IDE-style) */}
-              <Terminal
-                lines={terminalLines}
+              {/* Interactive Terminal at bottom of editor (IDE-style) */}
+              <XTerminal
+                projectPath={electronProjectPath}
                 isVisible={showTerminal}
                 isCollapsed={terminalCollapsed}
                 onClose={() => setShowTerminal(false)}
                 onToggleCollapse={() => setTerminalCollapsed(!terminalCollapsed)}
-                inline={true}
               />
             </>
           )}

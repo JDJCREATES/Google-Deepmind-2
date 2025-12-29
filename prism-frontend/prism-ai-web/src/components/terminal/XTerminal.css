@@ -1,0 +1,140 @@
+/* XTerminal Styles */
+
+.xterminal-container {
+  display: flex;
+  flex-direction: column;
+  background: #1a1a1a;
+  border-top: 1px solid #333;
+  min-height: 36px;
+  max-height: 300px;
+  height: 200px;
+}
+
+.xterminal-container.xterminal-collapsed {
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+}
+
+.xterminal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background: #252525;
+  border-bottom: 1px solid #333;
+  user-select: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  height: 36px;
+}
+
+.xterminal-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #888;
+  font-size: 12px;
+}
+
+.xterminal-title svg {
+  color: #6c6c6c;
+}
+
+.xterminal-status {
+  font-size: 10px;
+  margin-left: 4px;
+}
+
+.xterminal-status.connected {
+  color: #4ec9b0;
+}
+
+.xterminal-status.error {
+  color: #f44747;
+}
+
+.xterminal-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.xterminal-actions button {
+  background: transparent;
+  border: none;
+  color: #666;
+  padding: 3px 5px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+}
+
+.xterminal-actions button:hover {
+  background: #333;
+  color: #ccc;
+}
+
+.xterminal-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.xterminal-xterm {
+  flex: 1;
+  padding: 4px;
+}
+
+.xterminal-xterm .xterm {
+  height: 100%;
+}
+
+.xterminal-xterm .xterm-viewport {
+  overflow-y: auto !important;
+}
+
+.xterminal-error {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(26, 26, 26, 0.95);
+  color: #f44747;
+  font-size: 13px;
+  z-index: 10;
+}
+
+.xterminal-error button {
+  margin-top: 10px;
+  background: #333;
+  border: 1px solid #444;
+  color: #ccc;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.xterminal-error button:hover {
+  background: #444;
+}
+
+/* Resize handle */
+.xterminal-container::before {
+  content: '';
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: ns-resize;
+  z-index: 100;
+}
