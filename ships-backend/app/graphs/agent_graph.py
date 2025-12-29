@@ -5,10 +5,12 @@ ROLE DEFINITION:
 This file defines the ARCHITECTURE and ROUTING of the multi-agent system.
 It is the "Skeleton" that holds the agents together.
 
-The "BRAINS" (Decision Logic, Prompts, Tools) reside in the individual agent definitions:
-- Orchestrator: app/agents/orchestrator.py (Master decision maker)
+The "BRAINS" (Decision Logic, Models, Components) reside in the sub_agents:
 - Planner:      app/agents/sub_agents/planner/planner.py
-...etc...
+- Coder:        app/agents/sub_agents/coder/coder.py
+- Validator:    app/agents/sub_agents/validator/validator.py
+- Fixer:        app/agents/sub_agents/fixer/fixer.py
+- Orchestrator: app/agents/orchestrator/orchestrator.py (Master decision maker)
 
 This file should ONLY contain:
 1. Graph Node Definitions (calling the agents)
@@ -23,7 +25,11 @@ from langgraph.graph import StateGraph, END, START
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 
-from app.agents.agent_factory import AgentFactory
+# Import the REAL agents from sub_agents (the original mature system)
+from app.agents.sub_agents import (
+    Planner, Coder, Validator, Fixer,
+    ValidationStatus, RecommendedAction,
+)
 from app.agents.orchestrator import MasterOrchestrator  # The Brain
 from app.agents.tools.coder import set_project_root  # Secure project path context
 
@@ -113,85 +119,71 @@ import logging
 logger = logging.getLogger("ships.agent")
 
 async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
-    """Run the Planner agent."""
+    """
+    Run the Planner agent.
+    
+    Uses the mature sub_agents Planner class which:
+    - Produces 7 discrete artifacts (PlanManifest, TaskList, FolderMap, etc.)
+    - Uses modular components (Scoper, FolderArchitect, ContractAuthor, etc.)
+    - Supports streaming
+    - Has deterministic heuristics
+    """
     logger.info("[PLANNER] 🎯 Starting planner node...")
     
     # Extract project path and set context for tools
     artifacts = state.get("artifacts", {})
-    project_path = artifacts.get("project_path")  # None if not set - safety check will catch
+    project_path = artifacts.get("project_path")
     set_project_root(project_path)
     logger.info(f"[PLANNER] 📁 Project root set to: {project_path}")
 
-    # PRE-CHECK: Determine project state BEFORE calling LLM (saves tokens!)
-    project_state = "empty"
-    if project_path:
-        from pathlib import Path
-        package_json = Path(project_path) / "package.json"
-        if package_json.exists():
-            project_state = "scaffolded"
-            logger.info("[PLANNER] ✅ Project already scaffolded (package.json exists)")
-        else:
-            logger.info("[PLANNER] 📦 Project needs scaffolding (no package.json)")
-    
-    planner = AgentFactory.create_planner()
-    
-    # Get the user message
+    # Get the user message as intent
     messages = state.get("messages", [])
-    logger.info(f"[PLANNER] Input messages count: {len(messages)}")
+    user_request = ""
+    for m in messages:
+        if isinstance(m, HumanMessage):
+            user_request = m.content if hasattr(m, 'content') else str(m)
+            break
     
-    # INJECT PROJECT STATE into first message to avoid LLM checking
-    if messages:
-        original_content = messages[0].content if hasattr(messages[0], 'content') else str(messages[0])
-        if project_state == "scaffolded":
-            context_msg = HumanMessage(content=f"""
-PROJECT STATE: Already scaffolded (package.json exists). Skip scaffolding.
-
-USER REQUEST: {original_content}
-""")
-        else:
-            context_msg = HumanMessage(content=f"""
-PROJECT STATE: Empty project. Scaffold with Vite/React first.
-
-USER REQUEST: {original_content}
-""")
-        messages = [context_msg]
+    logger.info(f"[PLANNER] 📝 User request: {user_request[:100]}...")
     
-    # RE-PLANNING INJECTION: If coming from failure, inject error context
-    error_log = state.get("error_log", [])
-    if error_log and len(error_log) > 0:
-        error_context = "\n".join(error_log[-3:]) # Last 3 errors
-        replan_msg = HumanMessage(content=f"""
-CRITICAL: PREVIOUS ATTEMPTS FAILED.
-The functionality was implemented but failed validation multiple times.
-Please UPDATE the plan to address these specific errors:
-
-{error_context}
-
-Refine the approach to fix these root causes.
-""")
-        # Append to messages (or prepend if you prefer, but append makes sense as "latest news")
-        messages.append(replan_msg)
-        logger.info(f"[PLANNER] ⚠️ Injected {len(error_log)} errors into context for re-planning")
+    # Create the mature Planner instance
+    planner = Planner()
     
-    result = await planner.ainvoke({"messages": messages})
-    
-    # Extract artifacts from tool calls
-    new_messages = result.get("messages", [])
-    logger.info(f"[PLANNER] Output messages count: {len(new_messages)}")
-    
-    # Log tool calls if any
-    for msg in new_messages:
-        if hasattr(msg, 'tool_calls') and msg.tool_calls:
-            logger.info(f"[PLANNER] 🔧 Tool calls: {[tc.get('name', 'unknown') for tc in msg.tool_calls]}")
-        if hasattr(msg, 'content') and msg.content:
-            content_preview = str(msg.content)[:200]
-            logger.info(f"[PLANNER] 📝 Content preview: {content_preview}...")
-    
-    return {
-        "messages": new_messages,
-        "phase": "plan_ready",
-        "artifacts": state.get("artifacts", {})
+    # Build intent dict from user request
+    intent = {
+        "raw_request": user_request,
+        "project_path": project_path,
     }
+    
+    # Check for re-planning context (errors from previous attempts)
+    error_log = state.get("error_log", [])
+    if error_log:
+        intent["previous_errors"] = error_log[-3:]  # Last 3 errors
+        logger.info(f"[PLANNER] ⚠️ Re-planning with {len(error_log)} previous errors")
+    
+    # Invoke the Planner
+    try:
+        result = await planner.invoke(state)
+        
+        logger.info(f"[PLANNER] ✅ Planner completed with artifacts: {list(result.get('artifacts', {}).keys())}")
+        
+        # Merge planner artifacts with existing artifacts
+        merged_artifacts = {**artifacts}
+        if "artifacts" in result:
+            merged_artifacts.update(result["artifacts"])
+        
+        return {
+            "phase": "plan_ready",
+            "artifacts": merged_artifacts,
+            "messages": [AIMessage(content="Planning complete. Ready for coding.")]
+        }
+    except Exception as e:
+        logger.error(f"[PLANNER] ❌ Planner failed: {e}")
+        return {
+            "phase": "error",
+            "error_log": state.get("error_log", []) + [f"Planner error: {str(e)}"],
+            "messages": [AIMessage(content=f"Planning failed: {e}")]
+        }
 
 
 async def coder_node(state: AgentGraphState) -> Dict[str, Any]:
@@ -329,21 +321,55 @@ ACTUAL FILE STRUCTURE (Disk State):
 "Created: [file]" or "Implementation complete."
 </output_format>"""
 
-    # 5. Create Coder with Dynamic Prompt
-    coder = AgentFactory.create_agent("coder", override_system_prompt=system_prompt)
+    # 5. Create Coder and invoke
+    # Note: The Coder class expects a state dict with artifacts
+    coder = Coder()
     
-    # 6. Construct Execution Prompt (Minimal Context)
-    messages_with_context = [
-        HumanMessage(content=f"""<task>Continue implementation.
-Plan and Context are provided in system prompt.
-User Request: "{user_request.content}"</task>""")
-    ]
+    # Add context to state for Coder
+    coder_state = {
+        **state,
+        "artifacts": {
+            **artifacts,
+            "plan_content": plan_content,
+            "project_structure": real_file_tree,
+            "completed_files": unique_completed,
+        },
+        "parameters": {
+            "user_request": user_request.content if hasattr(user_request, 'content') else str(user_request),
+            "project_path": project_path,
+        }
+    }
     
-    logger.info(f"[CODER] Generated dynamic prompt with {len(unique_completed)} files completed")
+    logger.info(f"[CODER] Invoking Coder with {len(unique_completed)} files completed")
     
-    result = await coder.ainvoke({"messages": messages_with_context})
+    try:
+        result = await coder.invoke(coder_state)
+        new_messages = [AIMessage(content=f"Coder completed: {result.get('status', 'unknown')}")]
+        
+        # Check if coder produced file changes
+        coder_artifacts = result.get("artifacts", {})
+        file_change_set = coder_artifacts.get("file_change_set", {})
+        changes = file_change_set.get("changes", [])
+        
+        for change in changes:
+            path = change.get("path", "")
+            if path:
+                norm_path = normalize_path(path, project_path)
+                if norm_path:
+                    unique_completed.add(norm_path)
+        
+        implementation_complete = result.get("status") == "complete" or len(changes) == 0
+    except Exception as e:
+        logger.error(f"[CODER] ❌ Coder invoke failed: {e}, falling back to AgentFactory")
+        # FALLBACK: If sub_agents Coder fails, we need to handle gracefully
+        # For now, just log and mark as error
+        return {
+            "phase": "error",
+            "error_log": state.get("error_log", []) + [f"Coder error: {str(e)}"],
+            "messages": [AIMessage(content=f"Coding failed: {e}")]
+        }
     
-    new_messages = result.get("messages", [])
+    new_messages = result.get("messages", []) if isinstance(result.get("messages"), list) else new_messages
     
     # EXTRACT STATUS from agent output
     # Priority: Structured JSON > String matching (backwards compat)
@@ -406,7 +432,14 @@ User Request: "{user_request.content}"</task>""")
 
 
 async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
-    """Run the Validator agent."""
+    """
+    Run the Validator agent.
+    
+    Uses the mature sub_agents Validator class which:
+    - Runs 4 validation layers (Structural, Completeness, Dependency, Scope)
+    - Produces ValidationReport with pass/fail status
+    - Has recommended actions (PROCEED, FIX, REPLAN, ASK_USER)
+    """
     logger.info("[VALIDATOR] 🔍 Starting validator node...")
     
     # Set project context for any file operations
@@ -414,64 +447,69 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
     project_path = artifacts.get("project_path")
     set_project_root(project_path)
     
-    validator = AgentFactory.create_validator()
+    # Create the mature Validator instance
+    validator = Validator()
     
-    messages = state.get("messages", [])
-    
-    result = await validator.ainvoke({"messages": messages})
-    
-    # Parse structured response
-    response = result.get("messages", [])
-    validation_passed = False
-    validation_status = {"status": "unknown"}
-    
-    import json as json_module
-    import re as re_module
-    
-    for m in response:
-        if hasattr(m, 'content') and m.content:
-            content = str(m.content)
-            
-            # Try structured JSON parsing
-            try:
-                json_match = re_module.search(r'\{[\s\S]*"status"[\s\S]*\}', content)
-                if json_match:
-                    parsed = json_module.loads(json_match.group())
-                    validation_status = parsed
-                    if parsed.get("status") == "pass":
-                        validation_passed = True
-                        logger.info(f"[VALIDATOR] ✅ Structured pass: {parsed.get('message', 'OK')}")
-                    elif parsed.get("status") == "fail":
-                        validation_passed = False
-                        logger.info(f"[VALIDATOR] ❌ Structured fail: {parsed.get('issue', 'Unknown')}")
-            except (json_module.JSONDecodeError, AttributeError):
-                pass
-            
-            # Fallback: String matching
-            if validation_status.get("status") == "unknown":
-                if "pass" in content.lower() and "fail" not in content.lower():
-                    validation_passed = True
-                elif "fail" in content.lower():
-                    validation_passed = False
-
-    # Update error log if failed
-    error_log = state.get("error_log", [])
-    if not validation_passed and response:
-        last_msg = response[-1].content if hasattr(response[-1], 'content') else str(response[-1])
-        issue = validation_status.get("issue", str(last_msg)[:500])
-        error_log.append(f"Validation Failed: {issue}")
-    
-    return {
-        "messages": response,
-        "validation_passed": validation_passed,
-        "phase": "validating",
-        "error_log": error_log,
-        "agent_status": validation_status
-    }
+    try:
+        # Invoke the Validator with current state
+        result = await validator.invoke(state)
+        
+        # Extract validation status from result
+        validation_passed = result.get("passed", False)
+        validation_status = result.get("status", "unknown")
+        failure_layer = result.get("failure_layer", "none")
+        recommended_action = result.get("recommended_action", "fix")
+        violation_count = result.get("violation_count", 0)
+        
+        if validation_passed:
+            logger.info(f"[VALIDATOR] ✅ All {violation_count} checks passed")
+        else:
+            logger.info(f"[VALIDATOR] ❌ Failed at layer: {failure_layer} ({violation_count} violations)")
+        
+        # Update error log if failed
+        error_log = state.get("error_log", [])
+        if not validation_passed:
+            validation_report = result.get("artifacts", {}).get("validation_report", {})
+            fixer_instructions = validation_report.get("fixer_instructions", f"Fix {violation_count} violations")
+            error_log.append(f"Validation Failed [{failure_layer}]: {fixer_instructions[:200]}")
+        
+        # Merge artifacts
+        merged_artifacts = {**artifacts}
+        if "artifacts" in result:
+            merged_artifacts.update(result["artifacts"])
+        
+        return {
+            "validation_passed": validation_passed,
+            "phase": "validating",
+            "error_log": error_log,
+            "artifacts": merged_artifacts,
+            "agent_status": {
+                "status": "pass" if validation_passed else "fail",
+                "failure_layer": failure_layer,
+                "recommended_action": recommended_action,
+                "violation_count": violation_count
+            },
+            "messages": [AIMessage(content=f"Validation {'passed' if validation_passed else 'failed'}: {violation_count} violations")]
+        }
+    except Exception as e:
+        logger.error(f"[VALIDATOR] ❌ Validator failed: {e}")
+        return {
+            "validation_passed": False,
+            "phase": "error",
+            "error_log": state.get("error_log", []) + [f"Validator error: {str(e)}"],
+            "messages": [AIMessage(content=f"Validation error: {e}")]
+        }
 
 
 async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
-    """Run the Fixer agent."""
+    """
+    Run the Fixer agent.
+    
+    Uses the mature sub_agents Fixer class which:
+    - Has multiple fix strategies
+    - Produces FixPlan with targeted patches
+    - Knows when to escalate to Planner
+    """
     logger.info("[FIXER] 🔧 Starting fixer node...")
     
     # Set project context for file operations
@@ -479,60 +517,63 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
     project_path = artifacts.get("project_path")
     set_project_root(project_path)
     
-    fixer = AgentFactory.create_fixer()
-    
     fix_attempts = state.get("fix_attempts", 0) + 1
     max_attempts = state.get("max_fix_attempts", 3)
     
     if fix_attempts > max_attempts:
+        logger.warning(f"[FIXER] ⚠️ Max attempts ({max_attempts}) exceeded, escalating to planner")
         return {
-            "phase": "fixing_failed",
-            "fix_attempts": fix_attempts
+            "phase": "planner",  # Escalate to replanning
+            "fix_attempts": fix_attempts,
+            "error_log": state.get("error_log", []) + ["Fixer max attempts exceeded - needs replanning"],
+            "messages": [AIMessage(content="Fix attempts exceeded. Escalating to planner.")]
         }
     
-    messages = state.get("messages", [])
+    # Create the mature Fixer instance
+    fixer = Fixer()
     
-    result = await fixer.ainvoke({"messages": messages})
-    
-    # Parse structured response
-    response = result.get("messages", [])
-    fixer_status = {"status": "unknown"}
-    needs_escalate = False
-    
-    import json as json_module
-    import re as re_module
-    
-    for m in response:
-        if hasattr(m, 'content') and m.content:
-            content = str(m.content)
-            
-            try:
-                json_match = re_module.search(r'\{[\s\S]*"status"[\s\S]*\}', content)
-                if json_match:
-                    parsed = json_module.loads(json_match.group())
-                    fixer_status = parsed
-                    if parsed.get("status") == "escalate":
-                        needs_escalate = True
-                        logger.info(f"[FIXER] ⚠️ Escalation requested: {parsed.get('reason', 'Unknown')}")
-                    elif parsed.get("status") == "fixed":
-                        logger.info(f"[FIXER] ✅ Fixed: {parsed.get('file', 'unknown')} - {parsed.get('change', '')}")
-            except (json_module.JSONDecodeError, AttributeError):
-                pass
-            
-            # Fallback: String matching for escalation
-            if fixer_status.get("status") == "unknown":
-                if "replan" in content.lower() or "escalate" in content.lower():
-                    needs_escalate = True
-    
-    # Determine next phase
-    next_phase = "planner" if needs_escalate else "fixing"
-    
-    return {
-        "messages": response,
-        "fix_attempts": fix_attempts,
-        "phase": next_phase,
-        "agent_status": fixer_status
-    }
+    try:
+        # Invoke the Fixer with current state
+        result = await fixer.invoke(state)
+        
+        # Check for escalation request
+        needs_escalate = result.get("needs_replan", False)
+        fix_status = result.get("status", "unknown")
+        
+        if needs_escalate:
+            replan_request = result.get("artifacts", {}).get("replan_request", {})
+            reason = replan_request.get("reason", "Fixer requested escalation")
+            logger.info(f"[FIXER] ⚠️ Escalation requested: {reason}")
+            return {
+                "phase": "planner",
+                "fix_attempts": fix_attempts,
+                "error_log": state.get("error_log", []) + [f"Escalated: {reason}"],
+                "artifacts": {**artifacts, **result.get("artifacts", {})},
+                "messages": [AIMessage(content=f"Escalating to planner: {reason}")]
+            }
+        
+        logger.info(f"[FIXER] ✅ Fix applied (attempt {fix_attempts}/{max_attempts})")
+        
+        # Merge artifacts
+        merged_artifacts = {**artifacts}
+        if "artifacts" in result:
+            merged_artifacts.update(result["artifacts"])
+        
+        return {
+            "fix_attempts": fix_attempts,
+            "phase": "fixing",
+            "artifacts": merged_artifacts,
+            "agent_status": {"status": "fixed", "attempt": fix_attempts},
+            "messages": [AIMessage(content=f"Fix applied (attempt {fix_attempts})")]
+        }
+    except Exception as e:
+        logger.error(f"[FIXER] ❌ Fixer failed: {e}")
+        return {
+            "fix_attempts": fix_attempts,
+            "phase": "error",
+            "error_log": state.get("error_log", []) + [f"Fixer error: {str(e)}"],
+            "messages": [AIMessage(content=f"Fix error: {e}")]
+        }
 
 
 async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:

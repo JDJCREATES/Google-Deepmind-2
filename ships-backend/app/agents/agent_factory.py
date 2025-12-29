@@ -29,8 +29,8 @@ from app.agents.tools import (
 
 # Token limits for message trimming (per agent type)
 TOKEN_LIMITS = {
-    "planner": 12000,   # Planning needs context
-    "coder": 8000,      # Coding focuses in tight loop: plan -> file -> done
+    "planner": 15000,   # Planning needs context
+    "coder": 10000,      # Coding focuses in tight loop: plan -> file -> done
     "validator": 6000,  # Validation is quick
     "fixer": 8000,      # Fixing needs context of errors
 }
