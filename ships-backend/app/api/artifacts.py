@@ -38,120 +38,141 @@ def get_artifact_dir(project_id: str) -> str:
 @router.get("/artifacts/{project_id}")
 async def list_artifacts(project_id: str, type: Optional[str] = None):
     try:
-        artifact_dir = get_artifact_dir(project_id)
+        base_path = get_project_path(project_id)
+        dot_ships = os.path.join(base_path, ".ships")
         artifacts = []
         
-        if not os.path.exists(artifact_dir):
-            return {"projectId": project_id, "artifacts": [], "total": 0, "groups": []}
+        if not os.path.exists(dot_ships):
+            return {"projectId": project_id, "artifacts": [], "total": 0}
 
-        for filename in os.listdir(artifact_dir):
-            if filename.endswith(".json"):
-                 # In a real DB app, we'd query SQL. Here we read JSON files.
-                 # Implementation omitted for brevity in this mock, 
-                 # but we'd return metadata.
-                 pass
-        
-        # Mock response for now to unblock frontend
+        # 1. Auto-discover System Artifacts (Planner outputs)
+        # implementation_plan.md -> plan_manifest
+        plan_path = os.path.join(dot_ships, "implementation_plan.md")
+        if os.path.exists(plan_path):
+            stat = os.stat(plan_path)
+            artifacts.append({
+                "id": "implementation_plan",
+                "type": "plan_manifest",
+                "title": "Implementation Plan",
+                "projectId": project_id,
+                "createdAt": datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                "updatedAt": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "status": "active",
+                "data": {"path": plan_path}
+            })
+
+        # task.md -> task_list
+        task_path = os.path.join(dot_ships, "task.md")
+        if os.path.exists(task_path):
+            stat = os.stat(task_path)
+            artifacts.append({
+                "id": "task_list",
+                "type": "task_list",
+                "title": "Task Checklist",
+                "projectId": project_id,
+                "createdAt": datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                "updatedAt": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "status": "active",
+                "data": {"path": task_path}
+            })
+
+        # 2. Discover User/Agent Uploaded Artifacts in .ships/artifacts/
+        artifact_dir = os.path.join(dot_ships, "artifacts")
+        if os.path.exists(artifact_dir):
+            for filename in os.listdir(artifact_dir):
+                if filename.endswith(".json"):
+                    try:
+                        with open(os.path.join(artifact_dir, filename), "r") as f:
+                            import json
+                            metadata = json.load(f)
+                            # Ensure ID maps to filename for easy retrieval
+                            metadata["id"] = filename.replace(".json", "") 
+                            artifacts.append(metadata)
+                    except Exception as e:
+                        print(f"Error reading artifact {filename}: {e}")
+
+        # Filter by type if requested
+        if type:
+            artifacts = [a for a in artifacts if a["type"] == type]
+
         return {
             "projectId": project_id,
-            "artifacts": [],
-            "total": 0,
-            "groups": []
+            "artifacts": artifacts,
+            "total": len(artifacts)
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/artifacts/upload")
-async def upload_artifact(
-    projectId: str = Form(...),
-    file: UploadFile = File(...)
-):
-    try:
-        artifact_dir = get_artifact_dir(projectId)
-        
-        # Generate ID
-        artifact_id = str(uuid.uuid4())
-        
-        # Determine type based on extension
-        content_type = file.content_type
-        ext = os.path.splitext(file.filename)[1].lower()
-        
-        if content_type.startswith("image/"):
-            artifact_type = "image"
-        elif ext in [".txt", ".md", ".py", ".ts", ".js", ".json"]:
-            artifact_type = "text_document"
-        else:
-            artifact_type = "generic_file"
-
-        # Save file
-        # structured as: <id>_<filename>
-        safe_filename = f"{artifact_id}_{file.filename}"
-        file_path = os.path.join(artifact_dir, safe_filename)
-        
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-            
-        # Create metadata JSON
-        metadata = {
-            "id": artifact_id,
-            "type": artifact_type,
-            "projectId": projectId,
-            "createdBy": "user",
-            "createdAt": datetime.now().isoformat(),
-            "updatedAt": datetime.now().isoformat(),
-            "status": "active",
-            "schemaVersion": "1.0",
-            "data": {
-                "url": f"file://{file_path}", # Local file path for electron/local web
-                "filename": file.filename,
-                "mimeType": content_type,
-                "size": os.path.getsize(file_path)
-            }
-        }
-        
-        # Add specific data
-        if artifact_type == "text_document":
-             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                 metadata["data"]["content"] = f.read()
-                 metadata["data"]["language"] = ext.replace(".", "")
-
-        metadata_path = os.path.join(artifact_dir, f"{artifact_id}.json")
-        import json
-        with open(metadata_path, "w") as f:
-            json.dump(metadata, f, indent=2)
-
-        return metadata
-
-    except Exception as e:
-        print(f"Upload error: {e}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+        print(f"Error listing artifacts: {e}")
+        # Return empty list on error instead of 500 to keep UI stable
+        return {"projectId": project_id, "artifacts": [], "total": 0}
 
 @router.get("/artifact/{artifact_id}")
 async def get_artifact(artifact_id: str):
-    # Mock implementation - would need project_id context or a global search
-    # For now, we stub it.
-    raise HTTPException(status_code=404, detail="Artifact not found")
+    # This is tricky because we don't have project_id in the path,
+    # but the frontend might send it or we assume a single active project context.
+    # For now, we search in the CURRENT active project (passed via query param would be better, 
+    # but let's assume we can resolve it or search common paths).
+    
+    # HACK: Since we don't passed project_id to get_artifact in the frontend service url,
+    # we'll look at the PWD or a known global project. 
+    # Ideal fix: Update frontend to pass projectId query param.
+    
+    # For the specific system artifacts, we can rely on PWD or specific request.
+    project_path = os.getcwd() # Default to CWD for now
+    
+    # If the artifact ID contains a path-like structure or is known system ID
+    dot_ships = os.path.join(project_path, ".ships")
+    
+    artifact_data = None
+    
+    try:
+        if artifact_id == "implementation_plan":
+            target_path = os.path.join(dot_ships, "implementation_plan.md")
+            if os.path.exists(target_path):
+                stat = os.stat(target_path)
+                with open(target_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                artifact_data = {
+                    "id": "implementation_plan",
+                    "type": "plan_manifest",
+                    "title": "Implementation Plan",
+                    "data": {
+                        "content": content,
+                        "language": "markdown"
+                    },
+                    "updatedAt": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                }
 
-@router.post("/artifact")
-async def create_artifact(artifact: ArtifactCreate):
-    # Mock implementation
-    return {
-        "id": str(uuid.uuid4()),
-        **artifact.dict(),
-        "createdAt": datetime.now().isoformat(),
-        "updatedAt": datetime.now().isoformat(),
-        "status": "active"
-    }
+        elif artifact_id == "task_list":
+            target_path = os.path.join(dot_ships, "task.md")
+            if os.path.exists(target_path):
+                stat = os.stat(target_path)
+                with open(target_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                artifact_data = {
+                    "id": "task_list",
+                    "type": "task_list",
+                    "title": "Task Checklist",
+                    "data": {
+                        "content": content,
+                        "language": "markdown"
+                    },
+                    "updatedAt": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                }
+        
+        else:
+            # Check user artifacts
+            meta_path = os.path.join(dot_ships, "artifacts", f"{artifact_id}.json")
+            if os.path.exists(meta_path):
+                import json
+                with open(meta_path, "r") as f:
+                    artifact_data = json.load(f)
+        
+        if not artifact_data:
+            raise HTTPException(status_code=404, detail="Artifact not found")
+            
+        return {"artifact": artifact_data}
 
-@router.put("/artifact/{artifact_id}")
-async def update_artifact(artifact_id: str, update: ArtifactUpdate):
-    # Mock implementation
-    return {
-        "id": artifact_id,
-        "data": update.data,
-        "updatedAt": datetime.now().isoformat()
-    }
+    except Exception as e:
+        print(f"Error getting artifact: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-@router.delete("/artifact/{artifact_id}")
-async def delete_artifact(artifact_id: str):
-    return {"success": True}

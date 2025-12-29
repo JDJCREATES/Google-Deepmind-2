@@ -29,10 +29,10 @@ from app.agents.tools import (
 
 # Token limits for message trimming (per agent type)
 TOKEN_LIMITS = {
-    "planner": 30000,   # Planning needs context
-    "coder": 20000,     # Coding can be more focused
-    "validator": 10000, # Validation is quick
-    "fixer": 20000,     # Fixing needs context of errors
+    "planner": 12000,   # Planning needs context
+    "coder": 8000,      # Coding focuses in tight loop: plan -> file -> done
+    "validator": 6000,  # Validation is quick
+    "fixer": 8000,      # Fixing needs context of errors
 }
 
 
@@ -71,33 +71,75 @@ def create_message_trimmer(max_tokens: int = 20000):
 # System prompts for each agent type - Optimized for Gemini 3
 # Using: XML structure, few-shot examples, completion strategy
 AGENT_PROMPTS = {
-    "planner": """<role>You are the Planner. You scaffold projects and create implementation plans.</role>
+    "planner": """<role>You are the Planner. You scaffold projects, design folder structure, and create detailed implementation plans.</role>
 
-<task>
-1. If PROJECT_STATE is "empty": Run scaffolding commands
-2. Create folder structure using create_directory()
-3. Write plan files to .ships/
-</task>
+<critical>
+EXECUTE ONE STEP AT A TIME. Wait for each tool to complete before calling the next.
+Do NOT call multiple tools in parallel.
+</critical>
 
-<constraints>
-- Scaffold with `.` (current directory), never subfolders
-- Use `npx -y` flags to avoid prompts
-- Be concise in plan files
-</constraints>
+<workflow>
+STEP 1 - SCAFFOLD (if PROJECT_STATE is "empty"):
+  - run_terminal_command("npx -y create-vite@latest . --template react-ts")
+  - WAIT for result
+  - run_terminal_command("npm install")
+  - WAIT for result
+
+STEP 2 - ANALYZE & PLAN:
+  Based on the user's request, determine ALL files and folders needed.
+  Write a detailed plan to .ships/implementation_plan.md with:
+  - List of ALL component files to create (full paths)
+  - List of ALL page/route files
+  - List of utilities, hooks, types
+  - CSS/styling approach
+  
+STEP 3 - CREATE FOLDER STRUCTURE:
+  Create ALL directories from your plan using create_directory():
+  - src/components/ (for reusable UI components)
+  - src/pages/ (for page components)
+  - src/hooks/ (for custom hooks)
+  - src/utils/ (for helper functions)
+  - src/types/ (for TypeScript types)
+  - src/styles/ (for CSS if needed)
+  - src/assets/ (for images/icons)
+  Add more based on the specific project needs.
+
+STEP 4 - WRITE TASK LIST:
+  Write .ships/task.md with checkboxes for Coder to follow:
+  - [ ] Create [ComponentName] component
+  - [ ] Add styles for [Feature]
+  - [ ] Implement [functionality]
+</workflow>
 
 <example>
-User: Create a calculator app
-Steps taken:
-1. run_terminal_command("npx -y create-vite@latest . --template react-ts")
-2. run_terminal_command("npm install")
-3. create_directory("src/components")
-4. write_file_to_disk(".ships/implementation_plan.md", "## Files\\n- src/components/Calculator.tsx\\n- src/App.tsx")
-5. write_file_to_disk(".ships/task.md", "- [ ] Create Calculator component\\n- [ ] Update App.tsx")
-Output: "Project ready. Folders created. Plan saved."
+User: "Create a todo app with dark theme"
+Plan output (.ships/implementation_plan.md):
+## Files to Create
+- src/components/TodoItem.tsx
+- src/components/TodoList.tsx  
+- src/components/AddTodoForm.tsx
+- src/components/Header.tsx
+- src/hooks/useTodos.ts
+- src/types/todo.ts
+- src/styles/theme.css
+- src/App.tsx (modify)
+
+Folders created:
+- src/components
+- src/hooks
+- src/types
+- src/styles
 </example>
 
+<constraints>
+- ONE TOOL CALL PER RESPONSE
+- Scaffold in `.` (current directory), never subfolders
+- Create ALL folders the Coder will need
+- Plan must list EVERY file with full path
+</constraints>
+
 <output_format>
-After completing all steps, respond exactly: "Project ready. Folders created. Plan saved."
+After ALL steps complete: "Project ready. Folders created. Plan saved."
 </output_format>""",
 
     "coder": """<role>You are the Coder. You write complete, working code files.</role>
@@ -177,7 +219,8 @@ class AgentFactory:
         cls,
         agent_type: Literal["planner", "coder", "validator", "fixer"],
         checkpointer: Optional[MemorySaver] = None,
-        additional_tools: Optional[List] = None
+        additional_tools: Optional[List] = None,
+        override_system_prompt: Optional[str] = None
     ):
         """
         Create a modern LangGraph agent using create_react_agent.
@@ -186,6 +229,7 @@ class AgentFactory:
             agent_type: Type of agent to create
             checkpointer: Optional checkpointer for state persistence
             additional_tools: Optional extra tools to add
+            override_system_prompt: Optional dynamic system prompt to use
             
         Returns:
             A compiled LangGraph agent
@@ -206,20 +250,31 @@ class AgentFactory:
         if additional_tools:
             tools.extend(additional_tools)
         
-        # Get system prompt
-        prompt = AGENT_PROMPTS.get(agent_type, "You are a helpful assistant.")
+        # Get system prompt (dynamic override or static default)
+        prompt = override_system_prompt or AGENT_PROMPTS.get(agent_type, "You are a helpful assistant.")
         
         # Get token limit for this agent type
         max_tokens = TOKEN_LIMITS.get(agent_type, 20000)
         
         # Create the modern ReAct agent with message trimming
+        # Note: Sequential tool execution is enforced via prompt constraints
+        # (Gemini API does not support parallel_tool_calls parameter)
         agent = create_react_agent(
             model=llm,
             tools=tools,
             prompt=prompt,
             checkpointer=checkpointer,
-            pre_model_hook=create_message_trimmer(max_tokens),  # Trim messages for token efficiency
+            # trim messages to keep context under control
+            pre_model_hook=create_message_trimmer(max_tokens),
+            # prevent infinite loops
+            # Note: newer LangGraph versions support recursion_limit in create_react_agent
+            debug=False,
         )
+        # Note: recursion limit is set in invoke/stream config, but can be defaulted here in newer versions.
+        # For LangGraph prebuilt, recursion_limit is a runtime config, not compile time.
+        # We'll set it in run_agent instead.
+        
+        return agent
         
         return agent
     
@@ -291,9 +346,14 @@ async def run_agent(
             lc_messages.append(SystemMessage(content=msg["content"]))
     
     # Run the agent
+    # Enforce recursion limit to prevent token explosions
+    run_config = config or {}
+    if "recursion_limit" not in run_config:
+        run_config["recursion_limit"] = 15
+
     result = await agent.ainvoke(
         {"messages": lc_messages},
-        config=config or {}
+        config=run_config
     )
     
     return result
@@ -319,9 +379,14 @@ async def stream_agent(
     
     lc_messages = [HumanMessage(content=m["content"]) for m in messages if m.get("role") == "user"]
     
+    # Enforce recursion limit
+    run_config = config or {}
+    if "recursion_limit" not in run_config:
+        run_config["recursion_limit"] = 15
+
     async for event in agent.astream(
         {"messages": lc_messages},
-        config=config or {},
+        config=run_config,
         stream_mode="values"
     ):
         yield event

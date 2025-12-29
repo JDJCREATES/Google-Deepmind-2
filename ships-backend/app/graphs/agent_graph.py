@@ -55,6 +55,17 @@ class AgentGraphState(TypedDict):
     # Final result
     result: Optional[Dict[str, Any]]
 
+    # ============================================================================
+    # MODERN STATE FIELDS (2025 Architecture)
+    # ============================================================================
+    # These replace "chat history" as the primary source of truth
+    
+    plan: Dict[str, Any]          # The parsed plan (goal, steps, files)
+    completed_files: List[str]    # List of files successfully written
+    active_file: Optional[str]    # File currently being edited
+    project_structure: List[str]  # Cached file tree summary
+    error_log: List[str]          # Recent errors to avoid repeating
+
 
 # ============================================================================
 # NODE FUNCTIONS
@@ -132,81 +143,76 @@ async def coder_node(state: AgentGraphState) -> Dict[str, Any]:
     """Run the Coder agent."""
     logger.info("[CODER] 💻 Starting coder node...")
     
-    coder = AgentFactory.create_coder()
+    # ========================================================================
+    # DYNAMIC PROMPT CONSTRUCTION (State-Driven)
+    # ========================================================================
+    # Instead of reading the plan manually every time, we inject the state
     
-    messages = state.get("messages", [])
-    artifacts = state.get("artifacts", {})
-    project_path = artifacts.get("project_path")  # None if not set - safety check will catch
+    # 1. Get progress
+    completed_files = state.get("completed_files", [])
+    files_list = "\n".join([f"- {f}" for f in completed_files]) if completed_files else "- None"
     
-    # SECURITY: Set project root in tool context BEFORE running coder
-    # The LLM never sees this path - it's injected directly into the tool
-    set_project_root(project_path)
-    
-    logger.info(f"[CODER] Input messages count: {len(messages)}")
-    
-    # CONTEXT SANITIZATION:
-    # Filter out Planner's JSON output to prevent Coder from just continuing text generation.
-    # We only keep the ORIGINAL user request (first message) and then append the execution directive.
-    user_request = messages[0] if messages else HumanMessage(content="Start coding.")
-    
-    # If the first message is not HumanMessage (rare), find the proper one or use default
-    if not isinstance(user_request, HumanMessage) and len(messages) > 0:
-        for m in messages:
-            if isinstance(m, HumanMessage):
-                user_request = m
-                break
-    
-    logger.info(f"[CODER] Using User Request: {str(user_request.content)[:50]}...")
+    # 2. Build Dynamic System Prompt
+    system_prompt = f"""<role>You are the Coder. You write complete, working code files.</role>
 
-    # IMPORTANT: Add a context message to guide the coder to execute
-    # NOTE: We do NOT send the actual project path to the LLM for security reasons
-    # The path is handled at the tool level, not by the LLM
-    execution_prompt = HumanMessage(content=f"""<task>Implement: "{user_request.content}"</task>
+<context>
+FILES ALREADY CREATED:
+{files_list}
 
-<steps>
-1. read_file_from_disk(".ships/implementation_plan.md")
-2. For each file in plan: write_file_to_disk(path, complete_code)
-3. Stop and summarize
-</steps>
+CURRENT PROJECT PATH: {project_path}
+</context>
+
+<task>
+1. Read .ships/implementation_plan.md (if you haven't already cached it).
+2. Compare with FILES ALREADY CREATED.
+3. Pick the NEXT file to implement.
+4. Write it using write_file_to_disk.
+5. Repeat until ALL files are done.
+</task>
+
+<constraints>
+- Write COMPLETE code, no TODOs.
+- Listen to "FILES ALREADY CREATED" - do NOT overwrite them unless asked.
+- Stop when "Implementation complete".
+</constraints>
 
 <output_format>
-"Created:
-- [files created]
-Implementation complete."
-</output_format>""")
+"Created: [file]" or "Implementation complete."
+</output_format>"""
+
+    # 3. Create Coder with Dynamic Prompt
+    coder = AgentFactory.create_agent("coder", override_system_prompt=system_prompt)
     
-    # Pass ONLY the user request and the execution prompt
-    messages_with_context = [execution_prompt]  # The prompt includes the user request now
-    logger.info(f"[CODER] Added execution prompt. Total messages: {len(messages_with_context)}")
+    # 4. Construct Execution Prompt (Minimal Context)
+    messages_with_context = [
+        HumanMessage(content=f"""<task>Continue implementation.
+User Request: "{user_request.content}"</task>""")
+    ]
+    
+    logger.info(f"[CODER] Generated dynamic prompt with {len(completed_files)} files completed")
     
     result = await coder.ainvoke({"messages": messages_with_context})
     
     new_messages = result.get("messages", [])
-    logger.info(f"[CODER] Output messages count: {len(new_messages)}")
     
-    # Log ONLY the NEW messages (not inherited ones)
-    # The new messages are those beyond what we passed in
-    new_count = len(new_messages) - len(messages_with_context)
-    logger.info(f"[CODER] 🆕 New messages generated by coder: {new_count}")
-    
-    for msg in new_messages[-max(new_count, 3):]:  # Log last few messages
+    # EXTRACT STATE ALERTS from tool calls
+    # This updates our structured state based on what the agent Just Did
+    new_completed = []
+    for msg in new_messages:
         if hasattr(msg, 'tool_calls') and msg.tool_calls:
-            tool_names = [tc.get('name', 'unknown') for tc in msg.tool_calls]
-            logger.info(f"[CODER] 🔧 NEW Tool calls: {tool_names}")
-            if 'write_file_to_disk' in tool_names:
-                logger.info("[CODER] ✅ Coder is writing files!")
-                # Log the actual tool call args to see if project_root is being used
-                for tc in msg.tool_calls:
-                    if tc.get('name') == 'write_file_to_disk':
-                        args = tc.get('args', {})
-                        logger.info(f"[CODER] 📝 File: {args.get('file_path')} → {args.get('project_root', '.')}")
-        if hasattr(msg, 'content') and msg.content:
-            content_preview = str(msg.content)[:200]
-            logger.info(f"[CODER] 📝 NEW Content: {content_preview}...")
+            for tc in msg.tool_calls:
+                if tc.get('name') == 'write_file_to_disk':
+                    path = tc['args'].get('file_path')
+                    if path:
+                        new_completed.append(path)
+    
+    # Update local state variable to pass back
+    current_completed = list(state.get("completed_files", [])) + new_completed
     
     return {
         "messages": new_messages,
-        "phase": "validating"
+        "phase": "validating",
+        "completed_files": current_completed
     }
 
 
@@ -458,7 +464,14 @@ async def run_full_pipeline(
         "validation_passed": False,
         "fix_attempts": 0,
         "max_fix_attempts": 3,
-        "result": None
+        "max_fix_attempts": 3,
+        "result": None,
+        # Modern State Init
+        "plan": {},
+        "completed_files": [],
+        "active_file": None,
+        "project_structure": [],
+        "error_log": []
     }
     
     config = {"configurable": {"thread_id": thread_id}}
@@ -515,7 +528,13 @@ async def stream_pipeline(
         "fix_attempts": 0,
         "max_fix_attempts": 3,
         "result": None,
-        "tool_results": {}  # Store tool outputs here, not in messages
+        "tool_results": {},
+        # Modern State Init
+        "plan": {},
+        "completed_files": [],
+        "active_file": None,
+        "project_structure": [],
+        "error_log": []
     }
     
     logger.info(f"[PIPELINE] 🎬 Starting graph with initial_state keys: {list(initial_state.keys())}")

@@ -666,3 +666,10 @@ body {
   padding: 0 !important;
   color: var(--text-primary);
 }
+
+/* Explicitly allow text selection in chat */
+.chat-messages, .message-content, .message-bubble {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}

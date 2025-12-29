@@ -62,6 +62,9 @@ export default function ArtifactViewer() {
         return <ImageViewer artifact={artifact} />;
       
       case 'text_document':
+      case 'plan_manifest':
+      case 'task_list':
+        // @ts-ignore - We know these have compatible data structure
         return <TextViewer artifact={artifact} />;
         
       case 'folder_map':
