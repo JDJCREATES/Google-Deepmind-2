@@ -8,7 +8,7 @@ The central intelligence of the ShipS* system providing:
 - Error Recovery: Smart retries and escalation
 """
 
-from app.orchestrator.state_machine import (
+from .state_machine import (
     StateMachine,
     OrchestratorState,
     TransitionReason,
@@ -17,7 +17,7 @@ from app.orchestrator.state_machine import (
     StateContext,
 )
 
-from app.orchestrator.quality_gates import (
+from .quality_gates import (
     QualityGate,
     QualityGateRegistry,
     QualityGateChecker,
@@ -25,7 +25,7 @@ from app.orchestrator.quality_gates import (
     GateCheckStatus,
 )
 
-from app.orchestrator.artifact_flow import (
+from .artifact_flow import (
     ArtifactRegistry,
     ArtifactVersion,
     ArtifactStatus,
@@ -40,7 +40,7 @@ from app.orchestrator.artifact_flow import (
     MissingOutput,
 )
 
-from app.orchestrator.error_recovery import (
+from .error_recovery import (
     ErrorRecoverySystem,
     ErrorType,
     RecoveryStrategy,
@@ -49,10 +49,13 @@ from app.orchestrator.error_recovery import (
     UserOption,
 )
 
-from app.orchestrator.orchestrator import (
+from .orchestrator import (
     ShipSOrchestrator,
     TaskResult,
 )
+
+# Backwards compatibility alias
+MasterOrchestrator = ShipSOrchestrator
 
 
 __all__ = [

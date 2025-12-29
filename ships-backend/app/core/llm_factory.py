@@ -53,11 +53,17 @@ class LLMFactory:
         thinking_level = "low"
         
         # Configure based on agent type
-        if agent_type in ["orchestrator", "mini"]:
-            # Fast routing/validation - use Flash with low reasoning
+        if agent_type == "mini":
+            # Fast validation - use Flash with low reasoning
             model_name = MODEL_FLASH
             temperature = 0.5
             thinking_level = "low"
+            
+        elif agent_type == "orchestrator":
+            # Orchestrator needs DEEP reasoning for routing decisions
+            model_name = MODEL_FLASH
+            temperature = 0.5
+            thinking_level = "high"
             
         elif agent_type == "planner":
             # Complex planning requires deep reasoning

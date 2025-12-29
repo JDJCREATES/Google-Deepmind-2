@@ -1,14 +1,19 @@
 """
-ShipS* Agent Graph
+ShipS* Agent Graph Architecture
 
-Creates a multi-agent StateGraph using LangGraph for 
-orchestrating Planner → Coder → Validator → Fixer flow.
+ROLE DEFINITION:
+This file defines the ARCHITECTURE and ROUTING of the multi-agent system.
+It is the "Skeleton" that holds the agents together.
 
-This is the modern approach using:
-- StateGraph for workflow definition
-- create_react_agent for individual agents
-- Conditional edges for routing
-- State persistence with checkpointing
+The "BRAINS" (Decision Logic, Prompts, Tools) reside in the individual agent definitions:
+- Orchestrator: app/agents/orchestrator.py (Master decision maker)
+- Planner:      app/agents/sub_agents/planner/planner.py
+...etc...
+
+This file should ONLY contain:
+1. Graph Node Definitions (calling the agents)
+2. State Schema (AgentGraphState)
+3. Edge/Routing Logic (wiring)
 """
 
 from typing import TypedDict, Annotated, Literal, Optional, List, Dict, Any
@@ -19,7 +24,40 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 
 from app.agents.agent_factory import AgentFactory
+from app.agents.orchestrator import MasterOrchestrator  # The Brain
 from app.agents.tools.coder import set_project_root  # Secure project path context
+
+# ... [State Definition omitted for brevity, keeping existing code] ...
+
+# ============================================================================
+# NODE FUNCTIONS
+# ============================================================================
+
+import logging
+logger = logging.getLogger("ships.agent")
+
+# ... [planner_node, coder_node, validator_node, fixer_node kept as is] ...
+
+async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
+    """
+    MASTER ORCHESTRATOR NODE
+    Delegates decision making to the MasterOrchestrator class.
+    """
+    logger.info("[ORCHESTRATOR] 🧠 Starting orchestrator node...")
+    
+    # Instantiate the Brain (lightweight, no heavy init)
+    orchestrator = MasterOrchestrator()
+    
+    # Invoke the Brain with current state
+    # MasterOrchestrator handles all context building, prompting, and parsing
+    result = await orchestrator.invoke(state)
+    
+    decision = result.get("phase", "planner")
+    logger.info(f"[ORCHESTRATOR] 🧠 Decision: {decision}")
+    
+    return {
+        "phase": decision  # This will drive the conditional edges
+    }
 
 
 # ============================================================================
@@ -307,30 +345,63 @@ User Request: "{user_request.content}"</task>""")
     
     new_messages = result.get("messages", [])
     
-    # EXTRACT STATE ALERTS from tool calls
-    # This updates our structured state based on what the agent Just Did
+    # EXTRACT STATUS from agent output
+    # Priority: Structured JSON > String matching (backwards compat)
     new_completed = []
+    implementation_complete = False
+    agent_status = {"status": "in_progress"}  # Default
+    
+    import json as json_module
+    import re as re_module
+    
     for msg in new_messages:
+        if hasattr(msg, 'content') and msg.content:
+            content = str(msg.content)
+            
+            # Try to parse structured JSON status
+            try:
+                json_match = re_module.search(r'\{[\s\S]*"status"[\s\S]*\}', content)
+                if json_match:
+                    parsed = json_module.loads(json_match.group())
+                    if parsed.get("status") == "complete":
+                        implementation_complete = True
+                        agent_status = parsed
+                        logger.info(f"[CODER] ✅ Structured completion signal: {parsed}")
+                    elif parsed.get("just_created"):
+                        new_completed.append(parsed.get("just_created"))
+            except (json_module.JSONDecodeError, AttributeError):
+                pass
+            
+            # Fallback: String matching for backwards compatibility
+            if not implementation_complete and "implementation complete" in content.lower():
+                implementation_complete = True
+                logger.info("[CODER] ✅ String completion signal detected (fallback)")
+        
+        # Track file creation from tool calls
         if hasattr(msg, 'tool_calls') and msg.tool_calls:
             for tc in msg.tool_calls:
                 if tc.get('name') == 'write_file_to_disk':
                     path = tc['args'].get('file_path')
                     if path:
-                        # Normalize BEFORE storing
                         norm_path = normalize_path(path, project_path)
                         if norm_path:
                             new_completed.append(norm_path)
     
-    # Update local state variable to pass back
-    # Use SET to prevent duplicates in state
+    # Update completed files list
     current_set = set(state.get("completed_files", []))
     current_set.update(new_completed)
     current_completed = list(current_set)
     
+    # Determine next phase
+    next_phase = "validating" if implementation_complete else "coding"
+    if implementation_complete:
+        logger.info(f"[CODER] ✅ Implementation complete. {len(current_completed)} files created.")
+    
     return {
         "messages": new_messages,
-        "phase": "coding",
-        "completed_files": current_completed
+        "phase": next_phase,
+        "completed_files": current_completed,
+        "agent_status": agent_status  # Pass structured status for frontend
     }
 
 
@@ -349,25 +420,53 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
     
     result = await validator.ainvoke({"messages": messages})
     
-    # Check if validation passed (look for pass/fail in response)
+    # Parse structured response
     response = result.get("messages", [])
-    validation_passed = any(
-        "pass" in str(m.content).lower() and "fail" not in str(m.content).lower()
-        for m in response if hasattr(m, 'content')
-    )
+    validation_passed = False
+    validation_status = {"status": "unknown"}
+    
+    import json as json_module
+    import re as re_module
+    
+    for m in response:
+        if hasattr(m, 'content') and m.content:
+            content = str(m.content)
+            
+            # Try structured JSON parsing
+            try:
+                json_match = re_module.search(r'\{[\s\S]*"status"[\s\S]*\}', content)
+                if json_match:
+                    parsed = json_module.loads(json_match.group())
+                    validation_status = parsed
+                    if parsed.get("status") == "pass":
+                        validation_passed = True
+                        logger.info(f"[VALIDATOR] ✅ Structured pass: {parsed.get('message', 'OK')}")
+                    elif parsed.get("status") == "fail":
+                        validation_passed = False
+                        logger.info(f"[VALIDATOR] ❌ Structured fail: {parsed.get('issue', 'Unknown')}")
+            except (json_module.JSONDecodeError, AttributeError):
+                pass
+            
+            # Fallback: String matching
+            if validation_status.get("status") == "unknown":
+                if "pass" in content.lower() and "fail" not in content.lower():
+                    validation_passed = True
+                elif "fail" in content.lower():
+                    validation_passed = False
 
     # Update error log if failed
     error_log = state.get("error_log", [])
     if not validation_passed and response:
-        # Capture the last message as the error reason
-        last_msg = response[-1].content
-        error_log.append(f"Validation Attempt {state.get('fix_attempts', 0) + 1} Failed: {str(last_msg)[:500]}...")
+        last_msg = response[-1].content if hasattr(response[-1], 'content') else str(response[-1])
+        issue = validation_status.get("issue", str(last_msg)[:500])
+        error_log.append(f"Validation Failed: {issue}")
     
     return {
         "messages": response,
         "validation_passed": validation_passed,
         "phase": "validating",
-        "error_log": error_log
+        "error_log": error_log,
+        "agent_status": validation_status
     }
 
 
@@ -395,17 +494,44 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
     
     result = await fixer.ainvoke({"messages": messages})
     
-    # Check if fixer wants to replan
+    # Parse structured response
     response = result.get("messages", [])
-    needs_replan = any(
-        "replan" in str(m.content).lower()
-        for m in response if hasattr(m, 'content')
-    )
+    fixer_status = {"status": "unknown"}
+    needs_escalate = False
+    
+    import json as json_module
+    import re as re_module
+    
+    for m in response:
+        if hasattr(m, 'content') and m.content:
+            content = str(m.content)
+            
+            try:
+                json_match = re_module.search(r'\{[\s\S]*"status"[\s\S]*\}', content)
+                if json_match:
+                    parsed = json_module.loads(json_match.group())
+                    fixer_status = parsed
+                    if parsed.get("status") == "escalate":
+                        needs_escalate = True
+                        logger.info(f"[FIXER] ⚠️ Escalation requested: {parsed.get('reason', 'Unknown')}")
+                    elif parsed.get("status") == "fixed":
+                        logger.info(f"[FIXER] ✅ Fixed: {parsed.get('file', 'unknown')} - {parsed.get('change', '')}")
+            except (json_module.JSONDecodeError, AttributeError):
+                pass
+            
+            # Fallback: String matching for escalation
+            if fixer_status.get("status") == "unknown":
+                if "replan" in content.lower() or "escalate" in content.lower():
+                    needs_escalate = True
+    
+    # Determine next phase
+    next_phase = "planner" if needs_escalate else "fixing"
     
     return {
         "messages": response,
         "fix_attempts": fix_attempts,
-        "phase": "fixing"
+        "phase": next_phase,
+        "agent_status": fixer_status
     }
 
 
@@ -463,8 +589,19 @@ Return ONE word: "call_planner", "call_coder", "call_validator", "call_fixer", o
     
     # We pass the last few messages for context, or just a state summary?
     # Let's pass the last system message + a prompt
+    
+    # Get last message content for context (why did we get here?)
+    messages = state.get("messages", [])
+    last_context = "No previous context."
+    if messages:
+        last_msg = messages[-1]
+        content = last_msg.content if hasattr(last_msg, 'content') else str(last_msg)
+        last_context = f"PREVIOUS AGENT OUTPUT: {str(content)[:1000]}" # Truncate for safety
+
     messages_with_context = [
-        HumanMessage(content="Analyze state and decide next step.")
+        HumanMessage(content=f"""{last_context}
+        
+Analyze state and decide next step.""")
     ]
     
     # Run agent

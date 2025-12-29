@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 import uuid
 import asyncio
 
-from app.orchestrator.state_machine import (
+from .state_machine import (
     StateMachine,
     OrchestratorState,
     TransitionReason,
@@ -25,19 +25,19 @@ from app.orchestrator.state_machine import (
     TransitionError,
     StateContext,
 )
-from app.orchestrator.quality_gates import (
+from .quality_gates import (
     QualityGateRegistry,
     QualityGateChecker,
     QualityGate,
 )
-from app.orchestrator.artifact_flow import (
+from .artifact_flow import (
     ArtifactRegistry,
     AgentInvoker,
     ArtifactError,
     ArtifactStale,
     MissingArtifact,
 )
-from app.orchestrator.error_recovery import (
+from .error_recovery import (
     ErrorRecoverySystem,
     ErrorType,
     RecoveryResult,
@@ -83,7 +83,8 @@ class ShipSOrchestrator:
     def __init__(
         self, 
         project_root: str,
-        artifact_manager: Optional[ArtifactManager] = None
+        artifact_manager: Optional[ArtifactManager] = None,
+        reasoning_callback: Optional[Callable[[str, Any], None]] = None
     ):
         """
         Initialize the orchestrator.
@@ -91,8 +92,12 @@ class ShipSOrchestrator:
         Args:
             project_root: Path to target project
             artifact_manager: Optional pre-configured artifact manager
+            reasoning_callback: Optional callback for streaming reasoning output
+                                Signature: (event_type: str, data: Any) -> None
+                                event_type can be: "observation", "reasoning", "decision", "confidence"
         """
         self.project_root = project_root
+        self.reasoning_callback = reasoning_callback
         
         # Initialize subsystems
         self.artifact_manager = artifact_manager or ArtifactManager(project_root)
@@ -113,6 +118,10 @@ class ShipSOrchestrator:
         # Current task
         self._current_task_id: Optional[str] = None
         self._task_started_at: Optional[datetime] = None
+        
+        # Initialize LLM for reasoning (used when state machine is ambiguous)
+        from app.core.llm_factory import LLMFactory
+        self._reasoning_llm = LLMFactory.get_model("orchestrator", reasoning_level="high")
         
         # Wire up gate callbacks
         self._setup_gate_callbacks()
@@ -472,3 +481,234 @@ class ShipSOrchestrator:
             "artifacts": self.artifact_registry.get_summary(),
             "error_attempts": self.error_recovery.get_summary()
         }
+    
+    # =========================================================================
+    # LLM REASONING (For Ambiguous Situations)
+    # =========================================================================
+    
+    def _stream_reasoning(self, event_type: str, data: Any) -> None:
+        """Stream reasoning events to callback if registered."""
+        if self.reasoning_callback:
+            self.reasoning_callback(event_type, data)
+    
+    async def _llm_reason(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Use LLM to reason about next action when state machine is ambiguous.
+        
+        This is called when deterministic rules are insufficient,
+        e.g., when multiple valid actions exist or edge cases are hit.
+        
+        Args:
+            context: Current context including state, artifacts, errors
+            
+        Returns:
+            Structured reasoning result with decision and confidence
+        """
+        import json
+        import re
+        
+        # Build reasoning prompt
+        current_state = self.state_machine.current_state.value
+        transitions = len(self.state_machine.get_history())
+        error_summary = self.error_recovery.get_summary()
+        
+        prompt = f"""<role>You are the ShipS* Orchestrator reasoning about next steps.</role>
+
+<state>
+CURRENT_STATE: {current_state}
+TRANSITIONS_MADE: {transitions}
+TASK_ID: {self._current_task_id}
+ERROR_HISTORY: {error_summary}
+</state>
+
+<context>
+{json.dumps(context, indent=2, default=str)}
+</context>
+
+<task>
+Think step-by-step:
+1. OBSERVE: What is the current state and context?
+2. ANALYZE: What rules or patterns apply?
+3. RISKS: What could go wrong with each option?
+4. DECIDE: What is the safest next action?
+</task>
+
+<output_format>
+Respond with JSON only:
+{{
+  "observations": ["key observations about current state"],
+  "reasoning": "step-by-step analysis",
+  "decision": "continue" | "retry" | "escalate" | "skip_gate" | "abort",
+  "confidence": 0.0 to 1.0,
+  "risks": ["potential issues if we proceed"],
+  "suggested_action": "specific action to take"
+}}
+</output_format>"""
+        
+        # Stream observation
+        self._stream_reasoning("thinking", {"status": "analyzing state..."})
+        
+        # Call LLM
+        from langchain_core.messages import HumanMessage, SystemMessage
+        messages = [
+            SystemMessage(content=prompt),
+            HumanMessage(content="Analyze and decide. Respond with JSON.")
+        ]
+        
+        response = await self._reasoning_llm.ainvoke(messages)
+        response_text = response.content if hasattr(response, 'content') else str(response)
+        
+        # Parse structured response
+        result = {
+            "observations": [],
+            "reasoning": "",
+            "decision": "continue",
+            "confidence": 0.5,
+            "risks": [],
+            "suggested_action": ""
+        }
+        
+        try:
+            json_match = re.search(r'\{[\s\S]*\}', response_text)
+            if json_match:
+                parsed = json.loads(json_match.group())
+                result.update(parsed)
+        except (json.JSONDecodeError, AttributeError):
+            result["reasoning"] = response_text
+        
+        # Stream reasoning events
+        for obs in result.get("observations", []):
+            self._stream_reasoning("observation", obs)
+        
+        self._stream_reasoning("reasoning", result.get("reasoning", ""))
+        self._stream_reasoning("decision", result.get("decision", "continue"))
+        self._stream_reasoning("confidence", result.get("confidence", 0.5))
+        
+        for risk in result.get("risks", []):
+            self._stream_reasoning("risk", risk)
+        
+        # Self-critique if confidence is low
+        if result.get("confidence", 0) < 0.8:
+            critique = await self._self_critique(result, context)
+            if critique.get("should_revise", False):
+                result = await self._revise_decision(result, critique, context)
+                self._stream_reasoning("revised", True)
+        
+        return result
+    
+    async def _self_critique(
+        self, 
+        decision: Dict[str, Any], 
+        context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Self-critique a decision to catch mistakes."""
+        import json
+        import re
+        
+        self._stream_reasoning("thinking", {"status": "self-critiquing..."})
+        
+        prompt = f"""<role>You are auditing an orchestrator decision. Find flaws.</role>
+
+<decision>
+Action: {decision.get('decision')}
+Reasoning: {decision.get('reasoning')}
+Confidence: {decision.get('confidence')}
+Risks: {decision.get('risks')}
+</decision>
+
+<critique_checklist>
+1. Did the decision consider edge cases?
+2. Are there safer alternatives?
+3. Is the confidence appropriate?
+4. Any logical errors?
+</critique_checklist>
+
+<output_format>
+JSON:
+{{
+  "should_revise": true/false,
+  "issues": "description of issues or 'None'",
+  "suggested_decision": "alternative action or null"
+}}
+</output_format>"""
+        
+        from langchain_core.messages import HumanMessage, SystemMessage
+        messages = [
+            SystemMessage(content=prompt),
+            HumanMessage(content="Critique honestly. Find flaws if they exist.")
+        ]
+        
+        response = await self._reasoning_llm.ainvoke(messages)
+        response_text = response.content if hasattr(response, 'content') else str(response)
+        
+        result = {"should_revise": False, "issues": "None", "suggested_decision": None}
+        
+        try:
+            json_match = re.search(r'\{[\s\S]*\}', response_text)
+            if json_match:
+                result = json.loads(json_match.group())
+        except:
+            pass
+        
+        if result.get("should_revise"):
+            self._stream_reasoning("critique", result.get("issues", "Issues found"))
+        
+        return result
+    
+    async def _revise_decision(
+        self,
+        original: Dict[str, Any],
+        critique: Dict[str, Any],
+        context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Revise a decision based on critique."""
+        import json
+        import re
+        
+        self._stream_reasoning("thinking", {"status": "revising decision..."})
+        
+        prompt = f"""<role>Revise your decision based on critique.</role>
+
+<original>
+Decision: {original.get('decision')}
+Reasoning: {original.get('reasoning')}
+</original>
+
+<critique>
+Issues: {critique.get('issues')}
+Suggested: {critique.get('suggested_decision')}
+</critique>
+
+<output_format>
+JSON:
+{{
+  "decision": "continue" | "retry" | "escalate" | "skip_gate" | "abort",
+  "reasoning": "revised reasoning",
+  "confidence": 0.0 to 1.0
+}}
+</output_format>"""
+        
+        from langchain_core.messages import HumanMessage, SystemMessage
+        messages = [
+            SystemMessage(content=prompt),
+            HumanMessage(content="Make final decision.")
+        ]
+        
+        response = await self._reasoning_llm.ainvoke(messages)
+        response_text = response.content if hasattr(response, 'content') else str(response)
+        
+        result = original.copy()
+        result["was_revised"] = True
+        
+        try:
+            json_match = re.search(r'\{[\s\S]*\}', response_text)
+            if json_match:
+                parsed = json.loads(json_match.group())
+                result.update(parsed)
+        except:
+            pass
+        
+        self._stream_reasoning("decision", result.get("decision"))
+        self._stream_reasoning("confidence", result.get("confidence"))
+        
+        return result
