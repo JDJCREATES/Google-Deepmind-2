@@ -442,7 +442,8 @@ async def stream_pipeline(
         "metadata": {
             "project_path": project_path,
             "request_length": len(user_request),
-        }
+        },
+        "recursion_limit": 100,  # Increased from default 25 for complex scaffolding
     }
     
     # Use stream_mode="messages" for token-by-token streaming

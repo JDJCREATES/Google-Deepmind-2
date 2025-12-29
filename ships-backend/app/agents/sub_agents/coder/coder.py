@@ -105,6 +105,14 @@ CRITICAL RULES:
 4. TESTABLE: Every change must be testable - produce tests for each acceptance criterion
 5. DETERMINISTIC: Use consistent patterns, avoid creative flourishes
 
+🚨 ABSOLUTELY CRITICAL - CODE FILES ONLY CONTAIN CODE 🚨
+- NEVER write reasoning, thinking, or planning inside code files
+- NEVER include comments like "Let's think about...", "Wait, I need to...", "Actually..."
+- NEVER include multi-line reasoning comments in CSS, JS, or any code file
+- Code files contain ONLY: functional code, brief technical comments, JSDoc/docstrings
+- If you need to reason, do it BEFORE calling write_file_to_disk, not inside the file content
+- VIOLATION OF THIS RULE PRODUCES BROKEN CODE AND IS UNACCEPTABLE
+
 =======================================================================
 ⚠️ MANDATORY SCAFFOLDING CHECK - READ THIS FIRST ⚠️
 =======================================================================
