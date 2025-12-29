@@ -136,10 +136,17 @@ export function XTerminal({
     return () => window.removeEventListener('resize', handleResize);
   }, [isVisible, isCollapsed, sessionId]);
 
-  // Spawn PTY session when project path is available
+  // Spawn PTY session when project path is available (Electron only)
   const spawnTerminal = useCallback(async () => {
-    if (!projectPath || !window.electron) {
-      setError('Terminal requires Electron environment');
+    if (!window.electron) {
+      // Don't show error - just note that interactive terminal needs Electron
+      // External output from agent still works without Electron
+      setError('Interactive terminal requires Electron (agent output still works)');
+      return;
+    }
+    
+    if (!projectPath) {
+      setError('No project path available');
       return;
     }
 
@@ -203,9 +210,9 @@ export function XTerminal({
     };
   }, [sessionId]);
 
-  // Auto-spawn on first visibility
+  // Auto-spawn on first visibility (only if Electron is available)
   useEffect(() => {
-    if (isVisible && projectPath && !sessionId && !isConnected) {
+    if (isVisible && projectPath && !sessionId && !isConnected && window.electron) {
       spawnTerminal();
     }
   }, [isVisible, projectPath, sessionId, isConnected, spawnTerminal]);
