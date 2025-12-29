@@ -134,7 +134,7 @@ USER REQUEST: {original_content}
     
     return {
         "messages": new_messages,
-        "phase": "coding",
+        "phase": "orchestrator", # Return to hub
         "artifacts": state.get("artifacts", {})
     }
 
@@ -142,6 +142,23 @@ USER REQUEST: {original_content}
 async def coder_node(state: AgentGraphState) -> Dict[str, Any]:
     """Run the Coder agent."""
     logger.info("[CODER] 💻 Starting coder node...")
+    
+    # ========================================================================
+    # SETUP & CONTEXT SANITIZATION
+    # ========================================================================
+    artifacts = state.get("artifacts", {})
+    project_path = artifacts.get("project_path")
+    set_project_root(project_path)  # Security context for tools
+
+    messages = state.get("messages", [])
+    # Filter out Planner's JSON output, keep only the original user request
+    user_request = messages[0] if messages else HumanMessage(content="Start coding.")
+    
+    if not isinstance(user_request, HumanMessage) and len(messages) > 0:
+        for m in messages:
+            if isinstance(m, HumanMessage):
+                user_request = m
+                break
     
     # ========================================================================
     # DYNAMIC PROMPT CONSTRUCTION (State-Driven)
@@ -211,7 +228,7 @@ User Request: "{user_request.content}"</task>""")
     
     return {
         "messages": new_messages,
-        "phase": "validating",
+        "phase": "orchestrator",
         "completed_files": current_completed
     }
 
@@ -241,7 +258,7 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
     return {
         "messages": response,
         "validation_passed": validation_passed,
-        "phase": "complete" if validation_passed else "fixing"
+        "phase": "orchestrator" # Return to hub
     }
 
 
@@ -279,8 +296,75 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
     return {
         "messages": response,
         "fix_attempts": fix_attempts,
-        "phase": "planning" if needs_replan else "validating"
+        "phase": "orchestrator"  # Return to hub
     }
+
+
+async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
+    """
+    MASTER ORCHESTRATOR NODE
+    Decides which agent to call next based on global state.
+    """
+    logger.info("[ORCHESTRATOR] 🧠 Starting orchestrator node...")
+    
+    # 1. Build Dynamic Context
+    phase = state.get("phase", "planning")
+    completed_files = state.get("completed_files", [])
+    validation_passed = state.get("validation_passed", False)
+    fix_attempts = state.get("fix_attempts", 0)
+    error_log = state.get("error_log", [])
+    
+    # 2. Build Dynamic System Prompt
+    system_prompt = f"""<role>You are the Master Orchestrator.</role>
+
+<state>
+CURRENT PHASE: {phase}
+FILES COMPLETED: {len(completed_files)}
+VALIDATION PASSED: {validation_passed}
+FIX ATTEMPTS: {fix_attempts}
+RECENT ERRORS: {error_log[-3:] if error_log else "None"}
+</state>
+
+<rules>
+- If PHASE is "planning" or project empty -> call_planner
+- If PHASE is "coding" (and files remain) -> call_coder
+- If PHASE is "validating" -> call_validator
+- If PHASE is "fixing" -> call_fixer
+- If Validation Passed -> finish
+- If Fixer failed > 3 times -> call_planner (to re-scope) or finish (if stuck)
+</rules>
+
+<output_format>
+Return ONE word: "call_planner", "call_coder", "call_validator", "call_fixer", or "finish".
+</output_format>"""
+
+    # 3. Call Orchestrator Agent
+    orchestrator = AgentFactory.create_orchestrator(override_system_prompt=system_prompt)
+    
+    # We pass the last few messages for context, or just a state summary?
+    # Let's pass the last system message + a prompt
+    messages_with_context = [
+        HumanMessage(content="Analyze state and decide next step.")
+    ]
+    
+    # Run agent
+    result = await orchestrator.ainvoke({"messages": messages_with_context})
+    response = result["messages"][-1].content.lower()
+    
+    logger.info(f"[ORCHESTRATOR] 🧠 Decision: {response}")
+    
+    # Extract decision
+    decision = "finish"
+    if "call_planner" in response: decision = "planner"
+    elif "call_coder" in response: decision = "coder"
+    elif "call_validator" in response: decision = "validator"
+    elif "call_fixer" in response: decision = "fixer"
+    elif "finish" in response: decision = "complete"
+    
+    return {
+        "phase": decision  # This drives the routing
+    }
+
 
 
 # ============================================================================
@@ -396,42 +480,44 @@ def create_agent_graph(checkpointer: Optional[MemorySaver] = None) -> StateGraph
     graph = StateGraph(AgentGraphState)
     
     # Add nodes
+    graph.add_node("orchestrator", orchestrator_node)
     graph.add_node("planner", planner_node)
     graph.add_node("coder", coder_node)
     graph.add_node("validator", validator_node)
     graph.add_node("fixer", fixer_node)
-    graph.add_node("complete", complete_node)  # Auto-launch preview
+    graph.add_node("complete", complete_node)
     
-    # Add edges
-    graph.add_edge(START, "planner")
-    graph.add_edge("planner", "coder")
-    graph.add_edge("coder", "validator")
+    # EDGE WIRING: Hub and Spoke
+    # Everyone returns to Orchestrator
+    graph.add_edge(START, "orchestrator")
+    graph.add_edge("planner", "orchestrator")
+    graph.add_edge("coder", "orchestrator")
+    graph.add_edge("validator", "orchestrator")
+    graph.add_edge("fixer", "orchestrator")
     
-    # Conditional routing after validation
+    # ORCHESTRATOR ROUTING
+    def route_orchestrator(state: AgentGraphState):
+        decision = state.get("phase")
+        if decision in ["planner", "coder", "validator", "fixer", "complete"]:
+            return decision
+        return "complete" # Default fallback
+        
     graph.add_conditional_edges(
-        "validator",
-        route_after_validation,
-        {
-            "fixer": "fixer",
-            "complete": "complete"  # Route to complete_node, not END
-        }
-    )
-    
-    # Complete node goes to END after launching preview
-    graph.add_edge("complete", END)
-    
-    # Conditional routing after fix
-    graph.add_conditional_edges(
-        "fixer",
-        route_after_fix,
+        "orchestrator",
+        route_orchestrator,
         {
             "planner": "planner",
+            "coder": "coder",
             "validator": "validator",
-            "error": END
+            "fixer": "fixer",
+            "complete": "complete"
         }
     )
     
-    # Compile with optional checkpointing
+    # Complete goes to END
+    graph.add_edge("complete", END)
+    
+    # Compile
     return graph.compile(checkpointer=checkpointer)
 
 

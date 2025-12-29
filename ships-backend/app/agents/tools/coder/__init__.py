@@ -25,6 +25,7 @@ from .file_operations import (
     read_file_from_disk,
     list_directory,
     create_directory,
+    view_source_code,
     FILE_OPERATION_TOOLS,
 )
 
@@ -46,6 +47,7 @@ from .terminal_operations import (
 )
 
 from .edit_operations import (
+    apply_edits,
     edit_file_content,
     insert_at_line,
     EDIT_TOOLS,
@@ -55,9 +57,11 @@ from .edit_operations import (
 # Edit tools listed FIRST as they are preferred for modifications
 CODER_TOOLS = [
     # Edit operations (preferred for modifying existing files - saves tokens!)
+    apply_edits,
     edit_file_content,
     insert_at_line,
     # Primary file operations
+    view_source_code,
     write_file_to_disk,
     read_file_from_disk,
     list_directory,
@@ -81,12 +85,14 @@ __all__ = [
     "validate_project_path",
     "is_path_safe",
     # Edit operations (preferred for modifications)
+    "apply_edits",
     "edit_file_content",
     "insert_at_line",
     # File operations
     "write_file_to_disk",
     "read_file_from_disk", 
     "list_directory",
+    "view_source_code",
     # Terminal operations
     "run_terminal_command",
     "get_allowed_terminal_commands",

@@ -7,7 +7,7 @@
  */
 
 export interface AgentChunk {
-  type: 'message' | 'phase' | 'error' | 'tool_start' | 'tool_result' | 'files_created' | 'terminal_output';
+  type: 'message' | 'phase' | 'error' | 'tool_start' | 'tool_result' | 'files_created' | 'terminal_output' | 'complete';
   node?: string;
   content?: string;
   phase?: 'idle' | 'planning' | 'coding' | 'validating' | 'done' | 'error';
@@ -16,6 +16,7 @@ export interface AgentChunk {
   success?: boolean;
   file?: string;
   preview?: string;
+  preview_url?: string; // For auto-launch
   // Files created (for explorer refresh)
   files?: string[];
   // Terminal output fields

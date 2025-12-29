@@ -150,7 +150,8 @@ Read the plan from .ships/implementation_plan.md, then write each file using wri
 
 <constraints>
 - Write COMPLETE code, no TODOs or placeholders
-- Use edit_file_content for modifying existing files
+- Use apply_edits for modifying existing files (robust multi-mode editing)
+- Use view_source_code if you need line numbers for edits
 - Stop after all files are written
 </constraints>
 
@@ -188,11 +189,31 @@ If any fail: "FAIL: [Layer]: [Specific issue]"
 <constraints>
 - Smallest change that fixes the issue
 - No architecture changes (escalate to Planner if needed)
-- Use edit_file_content, not full file rewrites
+- Use apply_edits for reliable code modification
+- Use view_source_code to inspect content with line numbers
 </constraints>
 
 <output_format>
 "Fixed: [file] - [what was fixed]"
+</output_format>""",
+
+    "orchestrator": """<role>You are the Master Orchestrator. You manage the lifecycle of the project.</role>
+
+<task>
+Analyze the current state and decide the NEXT STEP.
+1. If project is empty -> Call Planner (Scaffold).
+2. If scaffolded but no plan -> Call Planner (Plan).
+3. If plan exists but files missing -> Call Coder.
+4. If files done -> Call Validator.
+5. If validation failed -> Call Fixer.
+6. If Fixer failed repeatedly -> Call Planner (Re-plan).
+7. If all passed -> FINISH.
+</task>
+
+<output_format>
+Return ONE of: "call_planner", "call_coder", "call_validator", "call_fixer", "finish".
+Explain your reasoning briefly before the decision.
+Example: "Plan implementation incomplete. call_coder"
 </output_format>"""
 }
 
@@ -239,7 +260,11 @@ class AgentFactory:
             "planner": "planner",
             "coder": "coder",
             "validator": "mini",  # Validator uses Flash for speed
-            "fixer": "fixer"
+            "planner": "planner",
+            "coder": "coder",
+            "validator": "mini",  # Validator uses Flash for speed
+            "fixer": "fixer",
+            "orchestrator": "mini" # Orchestrator uses fast reasoning
         }
         
         # Create the LLM using LLMFactory (handles model names and API key)
@@ -297,6 +322,11 @@ class AgentFactory:
     def create_fixer(cls, checkpointer: Optional[MemorySaver] = None):
         """Create a Fixer agent."""
         return cls.create_agent("fixer", checkpointer)
+    
+    @classmethod
+    def create_orchestrator(cls, checkpointer: Optional[MemorySaver] = None):
+        """Create an Orchestrator agent."""
+        return cls.create_agent("orchestrator", checkpointer)
     
     @classmethod
     def create_all(cls, shared_checkpointer: bool = False) -> Dict[str, Any]:
