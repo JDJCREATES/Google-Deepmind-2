@@ -278,14 +278,15 @@ def assess_risks(
 
 
 # Import file tools from coder tools (modular)
-from app.agents.tools.coder import write_file_to_disk, list_directory
+from app.agents.tools.coder import write_file_to_disk, list_directory, create_directory
 from app.agents.tools.coder.terminal_operations import run_terminal_command
 
 # Export all tools for the Planner agent
 PLANNER_TOOLS = [
-    # Scaffolding tools (Planner sets up project BEFORE Coder runs)
+    # Setup tools (Planner scaffolds and creates folder structure)
     list_directory,          # Check if project exists
-    run_terminal_command,    # npx create-vite, npm install, etc.
+    run_terminal_command,    # npx create-vite, npm install (first time only)
+    create_directory,        # Create folder structure from plan
     write_file_to_disk,      # Write plan artifacts
     # Planning tools
     extract_scope,

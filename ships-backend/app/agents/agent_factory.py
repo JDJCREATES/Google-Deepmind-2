@@ -70,29 +70,25 @@ def create_message_trimmer(max_tokens: int = 20000):
 
 # System prompts for each agent type
 AGENT_PROMPTS = {
-    "planner": """You are the Planner for ShipS*, an AI coding system that SHIPS WORKING CODE.
+    "planner": """You are the Planner for ShipS*. Set up the project and create a plan.
 
-Your job is to:
-1. SCAFFOLD the project framework if needed
-2. Create an implementation plan for the Coder
+WORKFLOW:
 
-STEP 1 - PROJECT SCAFFOLDING (if creating new project):
-- `list_directory(".")` to check current state
-- If NO package.json exists:
-  - `run_terminal_command("npx -y create-vite@latest . --template react-ts")` for Vite/React
-  - `run_terminal_command("npm install")`
-- If package.json EXISTS, skip scaffolding
+1. CHECK PROJECT STATE: `list_directory(".")`
+   - If no package.json → scaffold: `run_terminal_command("npx -y create-vite@latest . --template react-ts")` then `run_terminal_command("npm install")`
+   - If package.json exists → skip scaffolding
 
-STEP 2 - WRITE PLAN FILES:
-- `.ships/implementation_plan.md` - Files to create, technical approach
-- `.ships/task.md` - Checklist for the Coder
+2. PLAN the implementation and write to `.ships/`:
+   - `.ships/implementation_plan.md` - List all files to create
+   - `.ships/task.md` - Checklist for the Coder
 
-The Coder will ONLY write custom code - scaffolding is YOUR responsibility.
+3. CREATE FOLDER STRUCTURE from your plan:
+   - Use `create_directory(path)` for each folder
+   - Example: `create_directory("src/components")`, `create_directory("src/pages")`
 
-OUTPUT: 
-1. Scaffold if needed
-2. Write plan files
-3. Say "Project ready. Plan saved."
+OUTPUT: "Project ready. Folders created. Plan saved."
+
+The Coder will fill these folders with code files.
 """,
 
     "coder": """You are the Coder for ShipS*, an AI coding system that SHIPS WORKING CODE.

@@ -24,6 +24,7 @@ from .file_operations import (
     write_file_to_disk,
     read_file_from_disk,
     list_directory,
+    create_directory,
     FILE_OPERATION_TOOLS,
 )
 

@@ -73,11 +73,39 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
     set_project_root(project_path)
     logger.info(f"[PLANNER] 📁 Project root set to: {project_path}")
 
+    # PRE-CHECK: Determine project state BEFORE calling LLM (saves tokens!)
+    project_state = "empty"
+    if project_path:
+        from pathlib import Path
+        package_json = Path(project_path) / "package.json"
+        if package_json.exists():
+            project_state = "scaffolded"
+            logger.info("[PLANNER] ✅ Project already scaffolded (package.json exists)")
+        else:
+            logger.info("[PLANNER] 📦 Project needs scaffolding (no package.json)")
+    
     planner = AgentFactory.create_planner()
     
     # Get the user message
     messages = state.get("messages", [])
     logger.info(f"[PLANNER] Input messages count: {len(messages)}")
+    
+    # INJECT PROJECT STATE into first message to avoid LLM checking
+    if messages:
+        original_content = messages[0].content if hasattr(messages[0], 'content') else str(messages[0])
+        if project_state == "scaffolded":
+            context_msg = HumanMessage(content=f"""
+PROJECT STATE: Already scaffolded (package.json exists). Skip scaffolding.
+
+USER REQUEST: {original_content}
+""")
+        else:
+            context_msg = HumanMessage(content=f"""
+PROJECT STATE: Empty project. Scaffold with Vite/React first.
+
+USER REQUEST: {original_content}
+""")
+        messages = [context_msg]
     
     result = await planner.ainvoke({"messages": messages})
     

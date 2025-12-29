@@ -180,9 +180,46 @@ def list_directory(path: str = ".") -> Dict[str, Any]:
         return {"success": False, "error": str(e), "path": path}
 
 
+@tool
+def create_directory(dir_path: str) -> Dict[str, Any]:
+    """
+    Create a directory (and any parent directories) in the project.
+    
+    Use this to set up folder structure before writing files.
+    
+    Args:
+        dir_path: Relative path for the directory (e.g., "src/components")
+        
+    Returns:
+        Dict with success status and path created
+    """
+    try:
+        is_safe, error = is_path_safe(dir_path)
+        if not is_safe:
+            return {"success": False, "error": error, "path": dir_path}
+        
+        project_root = get_project_root()
+        resolved_path = (Path(project_root) / dir_path).resolve()
+        
+        resolved_path.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"[PLANNER] 📁 Created directory: {dir_path}")
+        
+        return {
+            "success": True,
+            "path": dir_path,
+            "created": True
+        }
+        
+    except Exception as e:
+        logger.error(f"[PLANNER] ❌ Failed to create {dir_path}: {e}")
+        return {"success": False, "error": str(e), "path": dir_path}
+
+
 # Export all file operation tools
 FILE_OPERATION_TOOLS = [
     write_file_to_disk,
     read_file_from_disk,
     list_directory,
+    create_directory,
 ]
