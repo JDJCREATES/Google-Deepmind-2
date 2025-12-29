@@ -161,24 +161,19 @@ async def coder_node(state: AgentGraphState) -> Dict[str, Any]:
     # IMPORTANT: Add a context message to guide the coder to execute
     # NOTE: We do NOT send the actual project path to the LLM for security reasons
     # The path is handled at the tool level, not by the LLM
-    execution_prompt = HumanMessage(content=f"""
-IMPLEMENT NOW: "{user_request.content}"
+    execution_prompt = HumanMessage(content=f"""<task>Implement: "{user_request.content}"</task>
 
-The Planner has already scaffolded the project (if needed).
-Your job is to write the CUSTOM CODE.
+<steps>
+1. read_file_from_disk(".ships/implementation_plan.md")
+2. For each file in plan: write_file_to_disk(path, complete_code)
+3. Stop and summarize
+</steps>
 
-WORKFLOW:
-1. Read `.ships/implementation_plan.md` to see what files to create
-2. Write each file using `write_file_to_disk(path, content)`
-3. Respond with summary of files created
-
-RULES:
-- Write COMPLETE, working code - no placeholders
-- Create ALL files listed in the plan
-- Use edit_file_content to modify existing files
-
-STOP when all files are created.
-""")
+<output_format>
+"Created:
+- [files created]
+Implementation complete."
+</output_format>""")
     
     # Pass ONLY the user request and the execution prompt
     messages_with_context = [execution_prompt]  # The prompt includes the user request now
