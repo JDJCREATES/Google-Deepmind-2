@@ -131,17 +131,30 @@ async def coder_node(state: AgentGraphState) -> Dict[str, Any]:
     # The path is handled at the tool level, not by the LLM
     execution_prompt = HumanMessage(content=f"""
 ACTION REQUIRED: You are the Lead Developer. The planning phase is complete.
-Your task is to IMPLEMENT the request using the `write_file_to_disk` tool.
+Your task is to IMPLEMENT the request.
 
 User Request: "{user_request.content}"
 
-INSTRUCTIONS:
-1. Do NOT output a plan, JSON, or explanation.
-2. IMMEDIATELY call `write_file_to_disk` for every file needed.
-3. Create all necessary files (HTML, CSS, JS, etc.) to fulfill the request.
-4. If you need to assume details, do so and proceed.
+🚨 MANDATORY FIRST STEP - SCAFFOLDING CHECK:
+BEFORE writing ANY files, you MUST:
+1. Call `list_directory(".")` to check the project state
+2. Look for package.json, vite.config.js, node_modules
+3. If these DON'T exist OR if the request mentions "create", "new project", "vite", "next":
+   → You MUST use `run_terminal_command` to scaffold:
+   
+   For Vite projects: `run_terminal_command("npx create-vite@latest . --template react")`
+   For Next.js: `run_terminal_command("npx create-next-app@latest . --typescript")`
+   Then: `run_terminal_command("npm install")`
+   
+   ONLY AFTER scaffolding, write your custom code files.
 
-START CODING NOW.
+4. If package.json EXISTS and scaffolding is NOT needed:
+   → Proceed to write your custom code files directly.
+
+🔴 DO NOT manually write package.json, vite.config.js, or index.html if you need to scaffold!
+🔴 USE THE SCAFFOLDING TOOLS INSTEAD!
+
+START NOW - First call list_directory, then decide.
 """)
     
     # Pass ONLY the user request and the execution prompt
