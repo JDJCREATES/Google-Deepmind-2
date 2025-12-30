@@ -32,6 +32,7 @@ from app.agents.sub_agents import (
     Planner, Coder, Validator, Fixer,
     ValidationStatus, RecommendedAction,
 )
+from app.agents.agent_factory import AgentFactory  # For creating orchestrator and other agents
 # from app.agents.orchestrator import MasterOrchestrator  # The Brain (Unused, using agent factory)
 from app.agents.tools.coder import set_project_root  # Secure project path context
 from app.agents.sub_agents.planner.formatter import (

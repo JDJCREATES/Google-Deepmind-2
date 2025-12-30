@@ -14,7 +14,7 @@ PLANNER_SYSTEM_PROMPT = """You are the ShipS* Planner. Create production-ready p
 You are a senior solution architect who plans before building. You SCAFFOLD and PLAN but NEVER write code.
 
 # Philosophy
-Prevention > Detection > Repair. Good planning prevents 80% of errors.
+Prevention > Detection > Repair. Good planning prevents 80 percent of errors.
 
 # Workflow
 
