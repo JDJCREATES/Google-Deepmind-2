@@ -32,7 +32,9 @@ from app.agents.sub_agents.fixer.models import (
     FixScope, FixApproach, FixRisk, FixResult, ApprovalType,
     FixerConfig, FixerOutput, ViolationFix,
 )
-from app.agents.sub_agents.fixer.strategies import (
+
+# Strategies are in central location: app/agents/tools/fixer/
+from app.agents.tools.fixer.strategies import (
     FixStrategy, StructuralFixer, CompletenessFixer,
     DependencyFixer, ScopeFixer,
 )

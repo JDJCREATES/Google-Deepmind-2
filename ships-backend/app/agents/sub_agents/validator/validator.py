@@ -35,7 +35,9 @@ from app.agents.sub_agents.validator.models import (
     ViolationSeverity, Violation, ValidationReport, LayerResult,
     ValidatorConfig, ValidatorInput,
 )
-from app.agents.sub_agents.validator.layers import (
+
+# Layers are in central location: app/agents/tools/validator/
+from app.agents.tools.validator.layers import (
     ValidationLayer, StructuralLayer, CompletenessLayer,
     DependencyLayer, ScopeLayer,
 )

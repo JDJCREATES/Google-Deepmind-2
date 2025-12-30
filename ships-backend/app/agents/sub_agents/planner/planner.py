@@ -31,12 +31,11 @@ from app.agents.sub_agents.planner.models import (
     PlanManifest, TaskList, FolderMap, APIContracts,
     DependencyPlan, ValidationChecklist, RiskReport,
     ArtifactMetadata, Task, TaskComplexity, TaskPriority,
+    PlannerComponentConfig,
 )
-from app.agents.sub_agents.planner.components import (
-    PlannerComponentConfig, Scoper, FolderArchitect,
-    ContractAuthor, DependencyPlanner, TestDesigner, RiskAssessor,
-)
-from app.agents.sub_agents.planner.tools import PlannerTools
+
+# Tools are in central location: app/agents/tools/planner/
+from app.agents.tools.planner import PlannerTools
 
 
 class Planner(BaseAgent):

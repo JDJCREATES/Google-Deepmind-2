@@ -22,6 +22,7 @@ from app.agents.sub_agents.coder.models import (
     FollowUpTask,
     CoderOutput,
     CoderMetadata,
+    CoderComponentConfig,
     
     # Enums
     FileOperation,
@@ -54,6 +55,7 @@ __all__ = [
     "FollowUpTask",
     "CoderOutput",
     "CoderMetadata",
+    "CoderComponentConfig",
     
     # Enums
     "FileOperation",

@@ -35,6 +35,7 @@ from app.agents.sub_agents.coder.models import (
     PreflightCheck, CheckResult, CheckStatus,
     FollowUpTasks, FollowUpTask,
     CoderOutput, CoderMetadata,
+    CoderComponentConfig,
 )
 
 # Tools are in central location: app/agents/tools/coder/

@@ -109,6 +109,15 @@ class ArtifactMetadata(BaseModel):
     )
 
 
+class PlannerComponentConfig(BaseModel):
+    """Configuration for planner components."""
+    max_tokens: int = 4000
+    temperature: float = 0.0
+    enable_web_search: bool = False
+    project_root: str = "."
+
+
+
 # ============================================================================
 # TASK LIST
 # ============================================================================

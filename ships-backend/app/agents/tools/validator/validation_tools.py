@@ -8,6 +8,7 @@ Uses the validation layers from layers.py to perform checks.
 from typing import Dict, Any, List
 from langchain_core.tools import tool
 
+# Import directly from models.py to avoid circular import through __init__
 from app.agents.sub_agents.validator.models import (
     ValidationStatus, FailureLayer, ViolationSeverity,
     Violation, ValidationReport, ValidatorConfig,

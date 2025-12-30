@@ -79,6 +79,17 @@ class CoderMetadata(BaseModel):
     )
 
 
+class CoderComponentConfig(BaseModel):
+    """Configuration for coder components."""
+    max_tokens: int = 4000
+    temperature: float = 0.0
+    enable_web_search: bool = False
+    project_root: str = "."
+    diff_context_lines: int = 3
+    test_framework: str = "jest"
+
+
+
 # ============================================================================
 # FILE CHANGE SET
 # ============================================================================
