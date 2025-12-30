@@ -123,7 +123,8 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
     # Get the user message as intent
     messages = state.get("messages", [])
     user_request = ""
-    for m in messages:
+    # Find the LATEST human message (reversed iteration)
+    for m in reversed(messages):
         if isinstance(m, HumanMessage):
             user_request = m.content if hasattr(m, 'content') else str(m)
             break
@@ -206,11 +207,12 @@ async def coder_node(state: AgentGraphState) -> Dict[str, Any]:
     set_project_root(project_path)  # Security context for tools
 
     messages = state.get("messages", [])
-    # Filter out Planner's JSON output, keep only the original user request
-    user_request = messages[0] if messages else HumanMessage(content="Start coding.")
+    # Filter out Planner's JSON output, keep only the LATEST user request
+    user_request = HumanMessage(content="Start coding.")
     
-    if not isinstance(user_request, HumanMessage) and len(messages) > 0:
-        for m in messages:
+    # scan for latest human message
+    if messages:
+        for m in reversed(messages):
             if isinstance(m, HumanMessage):
                 user_request = m
                 break
