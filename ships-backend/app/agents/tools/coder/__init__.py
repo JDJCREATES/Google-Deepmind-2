@@ -47,9 +47,8 @@ from .terminal_operations import (
 )
 
 from .edit_operations import (
-    apply_edits,
-    edit_file_content,
-    insert_at_line,
+    apply_source_edits,
+    insert_content,
     EDIT_TOOLS,
 )
 
@@ -57,9 +56,8 @@ from .edit_operations import (
 # Edit tools listed FIRST as they are preferred for modifications
 CODER_TOOLS = [
     # Edit operations (preferred for modifying existing files - saves tokens!)
-    apply_edits,
-    edit_file_content,
-    insert_at_line,
+    apply_source_edits,
+    insert_content,
     # Primary file operations
     view_source_code,
     write_file_to_disk,
@@ -85,9 +83,8 @@ __all__ = [
     "validate_project_path",
     "is_path_safe",
     # Edit operations (preferred for modifications)
-    "apply_edits",
-    "edit_file_content",
-    "insert_at_line",
+    "apply_source_edits",
+    "insert_content",
     # File operations
     "write_file_to_disk",
     "read_file_from_disk", 
@@ -105,9 +102,9 @@ __all__ = [
     "create_file_change",
     "build_commit_message",
     # Tool lists
-    "CODER_TOOLS",
     "FILE_OPERATION_TOOLS",
     "CODE_ANALYSIS_TOOLS",
     "TERMINAL_TOOLS",
     "EDIT_TOOLS",
+    "CODER_TOOLS",
 ]

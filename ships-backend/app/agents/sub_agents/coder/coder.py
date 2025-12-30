@@ -172,8 +172,8 @@ CODE QUALITY REQUIREMENTS:
 
 AVAILABLE TOOLS:
 ⭐ PREFERRED FOR MODIFICATIONS (saves tokens!):
-- edit_file_content: Search/replace edits - USE THIS FOR EXISTING FILES!
-- insert_at_line: Insert code at line number
+- apply_source_edits: Robust Search/Replace blocks (Fuzzy Matched). USE THIS FOR EDITS!
+- insert_content: Insert new code after a unique context block.
 
 📁 FILE OPERATIONS:
 - write_file_to_disk: Create NEW files or full rewrites only
@@ -186,13 +186,14 @@ AVAILABLE TOOLS:
 
 TOKEN EFFICIENCY RULES:
 1. For NEW files → use write_file_to_disk
-2. For EDITING existing files → use edit_file_content (SAVES TOKENS!)
+2. For EDITING existing files → use apply_source_edits (SAVES TOKENS!)
 3. Don't rewrite entire files when you can do targeted edits
 
 OUTPUT FORMAT:
 Use the tools directly to write/edit files.
 For scaffolding, call run_terminal_command FIRST.
-For modifications, use edit_file_content instead of rewriting.
+For modifications, use apply_source_edits.
+ALWAYS provide unique surrounding context in your "search" blocks.
 
 REMEMBER: You are judged by how SMALL and CORRECT your diffs are, not how much code you write."""
     
