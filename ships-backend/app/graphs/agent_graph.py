@@ -108,11 +108,9 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
     """
     Run the Planner agent.
     
-    Uses the mature sub_agents Planner class which:
-    - Produces 7 discrete artifacts (PlanManifest, TaskList, FolderMap, etc.)
-    - Uses modular components (Scoper, FolderArchitect, ContractAuthor, etc.)
-    - Supports streaming
-    - Has deterministic heuristics
+    The Planner class now uses create_react_agent internally for:
+    - PLANNER_TOOLS (run_terminal_command, create_directory, write_file_to_disk)
+    - Scaffolding execution after plan generation
     """
     logger.info("[PLANNER] 🎯 Starting planner node...")
     
@@ -132,174 +130,60 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
     
     logger.info(f"[PLANNER] 📝 User request: {user_request[:100]}...")
     
-    # Create the mature Planner instance
-    # Use existing cache if available (from previous turn)
-    cache_name = state.get("cache_name")
-    planner = Planner(cached_content=cache_name)
+    # Create the Planner instance (now uses create_react_agent internally)
+    planner = Planner()
     
-    # Build intent dict from user request
-    intent = {
-        "raw_request": user_request,
-        "project_path": project_path,
+    # Build structured intent for the planner
+    structured_intent = {
+        "description": user_request,
+        "id": f"intent_{os.path.basename(project_path) if project_path else 'default'}",
     }
     
-    # Check for re-planning context (errors from previous attempts)
-    error_log = state.get("error_log", [])
-    if error_log:
-        intent["previous_errors"] = error_log[-3:]  # Last 3 errors
-        logger.info(f"[PLANNER] ⚠️ Re-planning with {len(error_log)} previous errors")
+    # Build state for planner.invoke()
+    planner_state = {
+        **state,
+        "artifacts": {
+            **artifacts,
+            "structured_intent": structured_intent,
+            "project_path": project_path,
+        },
+    }
     
-    # Invoke the Planner
     try:
-        result = await planner.invoke(state)
+        # Invoke the Planner (now uses create_react_agent for scaffolding)
+        result = await planner.invoke(planner_state)
+        
+        logger.info(f"[PLANNER] ✅ Planner completed")
         
         # Merge planner artifacts with existing artifacts
         merged_artifacts = {**artifacts}
         if "artifacts" in result:
             merged_artifacts.update(result["artifacts"])
-
+        
         # SAVE ARTIFACTS TO DISK (For Frontend Persistence)
         if project_path:
             try:
                 dot_ships = os.path.join(project_path, ".ships")
                 os.makedirs(dot_ships, exist_ok=True)
                 
-                # Save implementation_plan.md
-                plan_md = format_implementation_plan(merged_artifacts)
-                with open(os.path.join(dot_ships, "implementation_plan.md"), "w", encoding="utf-8") as f:
-                    f.write(plan_md)
-                    
-                # Save task.md
-                task_list = merged_artifacts.get("task_list")
-                if task_list:
-                    task_md = format_task_list(task_list)
-                    with open(os.path.join(dot_ships, "task.md"), "w", encoding="utf-8") as f:
-                        f.write(task_md)
-                        
-                # Save folder_map.md
-                folder_map = merged_artifacts.get("folder_map")
-                if folder_map:
-                    fm_md = format_folder_map(folder_map)
-                    with open(os.path.join(dot_ships, "folder_map.md"), "w", encoding="utf-8") as f:
-                        f.write(fm_md)
-                        
-                # Save api_contracts.md
-                api_contracts = merged_artifacts.get("api_contracts")
-                if api_contracts:
-                    ac_md = format_api_contracts(api_contracts)
-                    with open(os.path.join(dot_ships, "api_contracts.md"), "w", encoding="utf-8") as f:
-                        f.write(ac_md)
-                        
-                # Save dependencies.md
-                deps = merged_artifacts.get("dependency_plan")
-                if deps:
-                    dp_md = format_dependency_plan(deps)
-                    with open(os.path.join(dot_ships, "dependencies.md"), "w", encoding="utf-8") as f:
-                        f.write(dp_md)
+                # Save planner status
+                import json as json_mod
+                with open(os.path.join(dot_ships, "planner_status.json"), "w", encoding="utf-8") as f:
+                    json_mod.dump({
+                        "status": "complete",
+                        "scaffolding_complete": merged_artifacts.get("scaffolding_complete", False),
+                        "project_path": project_path,
+                    }, f, indent=2)
                 
-                logger.info(f"[PLANNER] 💾 Saved artifacts to {dot_ships}")
+                logger.info(f"[PLANNER] 💾 Saved planner status to {dot_ships}")
                 
             except Exception as io_e:
                 logger.error(f"[PLANNER] ❌ Failed to save artifacts: {io_e}")
-
-            # CREATE/UPDATE GEMINI EXPLICIT CACHE
-            # We use the formatted markdown content for best context
-            if cache_manager.enabled:
-                cache_artifacts = {}
-                if "folder_map" in merged_artifacts and folder_map:
-                    cache_artifacts["folder_map"] = format_folder_map(folder_map)
-                if "api_contracts" in merged_artifacts and api_contracts:
-                    cache_artifacts["api_contracts"] = format_api_contracts(api_contracts)
-                if "dependency_plan" in merged_artifacts and deps:
-                    cache_artifacts["dependencies"] = format_dependency_plan(deps)
-                
-                # Create cache if we have meaningful context
-                if cache_artifacts:
-                    new_cache_name = cache_manager.create_project_context_cache(
-                        project_id=os.path.basename(project_path) if project_path else "default",
-                        artifacts=cache_artifacts
-                    )
-                    if new_cache_name:
-                         # Update state with new cache name
-                         cache_name = new_cache_name
-                         logger.info(f"[PLANNER] 🧠 Created Explicit Cache: {new_cache_name}")
-        
-            # ================================================================
-            # PHASE 2: SCAFFOLDING EXECUTION
-            # After plan is created, scaffold the project structure
-            # ================================================================
-            from app.agents.sub_agents.planner.components import Scaffolder
-            
-            scaffolder = Scaffolder()
-            
-            # Get existing files in project
-            existing_files = []
-            try:
-                if project_path:
-                    project_dir = Path(project_path)
-                    if project_dir.exists():
-                        existing_files = [f.name for f in project_dir.iterdir()]
-            except Exception as e:
-                logger.warning(f"[PLANNER] ⚠️ Could not list project files: {e}")
-            
-            # Get folder map from merged artifacts
-            folder_map_data = merged_artifacts.get("folder_map", {})
-            if hasattr(folder_map_data, "model_dump"):
-                folder_map_data = folder_map_data.model_dump()
-            
-            # Check if scaffolding needed and build context
-            scaffold_context = scaffolder.process({
-                "folder_map": folder_map_data,
-                "project_path": project_path,
-                "existing_files": existing_files,
-            })
-            
-            needs_scaffolding = scaffold_context.get("needs_scaffolding", False)
-            framework = scaffold_context.get("framework", "react-vite")
-            
-            if needs_scaffolding and project_path:
-                logger.info(f"[PLANNER] 🏗️ Scaffolding {framework} project...")
-                
-                try:
-                    # Create a tool-calling agent for scaffolding
-                    scaffold_agent = AgentFactory.create_agent("planner")
-                    
-                    # Build the scaffolding prompt
-                    scaffold_prompt = scaffold_context.get("scaffolding_prompt", "")
-                    if not scaffold_prompt:
-                        scaffold_prompt = scaffolder.build_scaffolding_prompt(
-                            folder_map_data, project_path, existing_files
-                        )
-                    
-                    # Invoke the scaffolding agent
-                    scaffold_result = await scaffold_agent.ainvoke(
-                        {"messages": [HumanMessage(content=scaffold_prompt)]},
-                        config={
-                            "recursion_limit": 25,  # Allow multiple tool calls
-                            "configurable": {"thread_id": f"scaffold_{project_path}"}
-                        }
-                    )
-                    
-                    logger.info(f"[PLANNER] ✅ Scaffolding complete for {framework}")
-                    
-                    # Update artifacts with scaffolding status
-                    merged_artifacts["scaffolding_complete"] = True
-                    merged_artifacts["framework"] = framework
-                    
-                except Exception as scaffold_error:
-                    logger.error(f"[PLANNER] ❌ Scaffolding failed: {scaffold_error}")
-                    # Don't fail the entire planning - scaffolding is best-effort
-                    merged_artifacts["scaffolding_complete"] = False
-                    merged_artifacts["scaffolding_error"] = str(scaffold_error)
-            else:
-                logger.info(f"[PLANNER] ✓ Project already scaffolded, skipping...")
-                merged_artifacts["scaffolding_complete"] = True
         
         return {
             "phase": "plan_ready",
             "artifacts": merged_artifacts,
-            "cache_name": cache_name, # Propagate cache name
-            "messages": [AIMessage(content="Planning complete. Ready for coding.")]
+            "messages": [AIMessage(content="Planning and scaffolding complete. Ready for coding.")]
         }
     except Exception as e:
         logger.error(f"[PLANNER] ❌ Planner failed: {e}")
@@ -445,114 +329,58 @@ ACTUAL FILE STRUCTURE (Disk State):
 "Created: [file]" or "Implementation complete."
 </output_format>"""
 
-    # 5. Build state for Coder
+    # 5. Build state for Coder.invoke()
     coder_state = {
         **state,
         "artifacts": {
             **artifacts,
             "plan_content": plan_content,
             "project_structure": real_file_tree,
-            "completed_files": unique_completed,
+            "project_path": project_path,
         },
         "parameters": {
             "user_request": user_request.content if hasattr(user_request, 'content') else str(user_request),
             "project_path": project_path,
-        }
+        },
+        "completed_files": unique_completed,
     }
     
-    # 6. Invoke Coder with cached context
-    cache_name = state.get("cache_name")
-    coder = Coder(cached_content=cache_name)
-    
-    logger.info(f"[CODER] 🚀 Invoking Coder (Cache: {cache_name})...")
+    # 6. Invoke the Coder (now uses create_react_agent internally)
+    coder = Coder()
     
     try:
         result = await coder.invoke(coder_state)
-        new_messages = [AIMessage(content=f"Coder completed: {result.get('status', 'unknown')}")]
         
-        # Check if coder produced file changes
-        coder_artifacts = result.get("artifacts", {})
-        file_change_set = coder_artifacts.get("file_change_set", {})
-        changes = file_change_set.get("changes", [])
+        logger.info(f"[CODER] ✅ Coder completed")
         
-        for change in changes:
-            path = change.get("path", "")
-            if path:
-                norm_path = normalize_path(path, project_path)
-                if norm_path:
-                    unique_completed.add(norm_path)
+        # Extract completion status
+        implementation_complete = result.get("implementation_complete", False)
+        files_written = result.get("completed_files", [])
         
-        implementation_complete = result.get("status") == "complete" or len(changes) == 0
+        # Update completed files list
+        current_set = set(state.get("completed_files", []))
+        current_set.update(files_written)
+        current_completed = list(current_set)
+        
+        # Determine next phase
+        next_phase = "validating" if implementation_complete else "coding"
+        if implementation_complete:
+            logger.info(f"[CODER] ✅ Implementation complete. {len(current_completed)} files created.")
+        
+        return {
+            "messages": [AIMessage(content=f"Coder completed: {result.get('status', 'unknown')}")],
+            "phase": next_phase,
+            "completed_files": current_completed,
+            "agent_status": {"status": result.get("status", "in_progress")}
+        }
+        
     except Exception as e:
-        logger.error(f"[CODER] ❌ Coder invoke failed: {e}, falling back to AgentFactory")
-        # FALLBACK: If sub_agents Coder fails, we need to handle gracefully
-        # For now, just log and mark as error
+        logger.error(f"[CODER] ❌ Coder invoke failed: {e}")
         return {
             "phase": "error",
             "error_log": state.get("error_log", []) + [f"Coder error: {str(e)}"],
             "messages": [AIMessage(content=f"Coding failed: {e}")]
         }
-    
-    new_messages = result.get("messages", []) if isinstance(result.get("messages"), list) else new_messages
-    
-    # EXTRACT STATUS from agent output
-    # Priority: Structured JSON > String matching (backwards compat)
-    new_completed = []
-    implementation_complete = False
-    agent_status = {"status": "in_progress"}  # Default
-    
-    import json as json_module
-    import re as re_module
-    
-    for msg in new_messages:
-        if hasattr(msg, 'content') and msg.content:
-            content = str(msg.content)
-            
-            # Try to parse structured JSON status
-            try:
-                json_match = re_module.search(r'\{[\s\S]*"status"[\s\S]*\}', content)
-                if json_match:
-                    parsed = json_module.loads(json_match.group())
-                    if parsed.get("status") == "complete":
-                        implementation_complete = True
-                        agent_status = parsed
-                        logger.info(f"[CODER] ✅ Structured completion signal: {parsed}")
-                    elif parsed.get("just_created"):
-                        new_completed.append(parsed.get("just_created"))
-            except (json_module.JSONDecodeError, AttributeError):
-                pass
-            
-            # Fallback: String matching for backwards compatibility
-            if not implementation_complete and "implementation complete" in content.lower():
-                implementation_complete = True
-                logger.info("[CODER] ✅ String completion signal detected (fallback)")
-        
-        # Track file creation from tool calls
-        if hasattr(msg, 'tool_calls') and msg.tool_calls:
-            for tc in msg.tool_calls:
-                if tc.get('name') == 'write_file_to_disk':
-                    path = tc['args'].get('file_path')
-                    if path:
-                        norm_path = normalize_path(path, project_path)
-                        if norm_path:
-                            new_completed.append(norm_path)
-    
-    # Update completed files list
-    current_set = set(state.get("completed_files", []))
-    current_set.update(new_completed)
-    current_completed = list(current_set)
-    
-    # Determine next phase
-    next_phase = "validating" if implementation_complete else "coding"
-    if implementation_complete:
-        logger.info(f"[CODER] ✅ Implementation complete. {len(current_completed)} files created.")
-    
-    return {
-        "messages": new_messages,
-        "phase": next_phase,
-        "completed_files": current_completed,
-        "agent_status": agent_status  # Pass structured status for frontend
-    }
 
 
 async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
@@ -653,43 +481,38 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
             "messages": [AIMessage(content="Fix attempts exceeded. Escalating to planner.")]
         }
     
-    # Create the mature Fixer instance
+    # Invoke the Fixer (now uses create_react_agent internally)
     fixer = Fixer()
     
+    fixer_state = {
+        **state,
+        "artifacts": {**artifacts, "project_path": project_path},
+        "parameters": {"attempt_number": fix_attempts},
+    }
+    
     try:
-        # Invoke the Fixer with current state
-        result = await fixer.invoke(state)
+        result = await fixer.invoke(fixer_state)
         
-        # Check for escalation request
-        needs_escalate = result.get("needs_replan", False)
-        fix_status = result.get("status", "unknown")
+        logger.info(f"[FIXER] ✅ Fixer completed")
         
-        if needs_escalate:
-            replan_request = result.get("artifacts", {}).get("replan_request", {})
-            reason = replan_request.get("reason", "Fixer requested escalation")
+        # Check for escalation
+        if result.get("requires_replan") or result.get("needs_replan"):
+            reason = result.get("artifacts", {}).get("replan_request", {}).get("reason", "Fixer requested escalation")
             logger.info(f"[FIXER] ⚠️ Escalation requested: {reason}")
             return {
                 "phase": "planner",
                 "fix_attempts": fix_attempts,
                 "error_log": state.get("error_log", []) + [f"Escalated: {reason}"],
-                "artifacts": {**artifacts, **result.get("artifacts", {})},
                 "messages": [AIMessage(content=f"Escalating to planner: {reason}")]
             }
         
-        logger.info(f"[FIXER] ✅ Fix applied (attempt {fix_attempts}/{max_attempts})")
-        
-        # Merge artifacts
-        merged_artifacts = {**artifacts}
-        if "artifacts" in result:
-            merged_artifacts.update(result["artifacts"])
-        
         return {
             "fix_attempts": fix_attempts,
-            "phase": "fixing",
-            "artifacts": merged_artifacts,
+            "phase": "validating",  # Go back to validation after fix
             "agent_status": {"status": "fixed", "attempt": fix_attempts},
             "messages": [AIMessage(content=f"Fix applied (attempt {fix_attempts})")]
         }
+        
     except Exception as e:
         logger.error(f"[FIXER] ❌ Fixer failed: {e}")
         return {

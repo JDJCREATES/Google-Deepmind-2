@@ -537,14 +537,25 @@ REMEMBER: You are judged by how SMALL and CORRECT your diffs are, not how much c
         """
         Invoke the Coder as part of orchestrator workflow.
         
+        TWO-PHASE EXECUTION:
+        1. Analyze task and plan implementation approach
+        2. Execute file writing using create_react_agent with CODER_TOOLS
+        
         Args:
             state: Current agent state
             
         Returns:
             Dict with 'artifacts' key containing all coder artifacts
         """
+        from langgraph.prebuilt import create_react_agent
+        from app.agents.tools.coder import CODER_TOOLS
+        from app.prompts import AGENT_PROMPTS
+        from app.core.llm_factory import LLMFactory
+        from pathlib import Path
+        
         artifacts = state.get("artifacts", {})
         parameters = state.get("parameters", {})
+        project_path = artifacts.get("project_path")
         
         # Get task from parameters or artifacts
         task = parameters.get("task") or artifacts.get("current_task")
@@ -552,6 +563,13 @@ REMEMBER: You are judged by how SMALL and CORRECT your diffs are, not how much c
         # If no structured task, create one from user_request
         if not task:
             user_request = parameters.get("user_request", "")
+            # Also check messages for user request
+            messages = state.get("messages", [])
+            for m in messages:
+                if hasattr(m, 'content') and m.content:
+                    user_request = m.content
+                    break
+            
             task = {
                 "id": f"task_{uuid.uuid4().hex[:8]}",
                 "title": user_request[:100] if user_request else "Implementation Task",
@@ -559,30 +577,101 @@ REMEMBER: You are judged by how SMALL and CORRECT your diffs are, not how much c
                 "acceptance_criteria": ["Code should work as requested"],
             }
         
-        folder_map = artifacts.get("folder_map")
-        api_contracts = artifacts.get("api_contracts")
-        dependency_plan = artifacts.get("dependency_plan")
+        folder_map = artifacts.get("folder_map", {})
+        plan_content = artifacts.get("plan_content", "")
         
-        # Generate code
-        result = await self.code(
-            task=task,
-            folder_map=folder_map,
-            api_contracts=api_contracts,
-            dependency_plan=dependency_plan
-        )
+        # Get implementation plan from disk if not in artifacts
+        if not plan_content and project_path:
+            plan_path = Path(project_path) / ".ships" / "implementation_plan.md"
+            if plan_path.exists():
+                try:
+                    plan_content = plan_path.read_text(encoding="utf-8")
+                except Exception:
+                    pass
         
-        # Convert to serializable dict
-        return {
-            "artifacts": {
-                "file_change_set": result.file_change_set.model_dump() if result.file_change_set else None,
-                "test_bundle": result.test_bundle.model_dump() if result.test_bundle else None,
-                "commit_intent": result.commit_intent.model_dump() if result.commit_intent else None,
-                "implementation_report": result.implementation_report.model_dump() if result.implementation_report else None,
-                "preflight_check": result.preflight_check.model_dump() if result.preflight_check else None,
-                "follow_up_tasks": result.follow_up_tasks.model_dump() if result.follow_up_tasks else None,
-            },
-            "success": result.success,
-            "is_blocking": result.is_blocking,
-            "blocking_reasons": result.blocking_reasons,
-            "recommended_next_agent": result.recommended_next_agent
-        }
+        # Get project structure for context
+        project_structure = artifacts.get("project_structure", "")
+        completed_files = state.get("completed_files", [])
+        
+        # ================================================================
+        # Build coding prompt with full context
+        # ================================================================
+        coder_prompt = f"""PROJECT PATH: {project_path}
+
+IMPLEMENTATION PLAN:
+{plan_content[:4000] if plan_content else 'No plan provided - implement based on task description.'}
+
+CURRENT TASK:
+{json.dumps(task, indent=2) if isinstance(task, dict) else str(task)}
+
+FILES ALREADY CREATED:
+{chr(10).join(['- ' + f for f in completed_files]) if completed_files else '- None yet'}
+
+YOUR INSTRUCTIONS:
+1. Analyze the task and implementation plan
+2. Write the NEXT file that needs to be created using write_file_to_disk
+3. Write COMPLETE, WORKING code - no TODOs or placeholders
+4. After each file, check if more files need to be created
+5. When ALL files from the plan are done, respond with "Implementation complete."
+
+IMPORTANT:
+- Check what files exist before writing
+- Write complete React/TypeScript/Python code
+- Follow the folder structure in the plan
+- Include all necessary imports
+- Each file should be self-contained and work correctly"""
+
+        # ================================================================
+        # Execute using create_react_agent with CODER_TOOLS
+        # ================================================================
+        try:
+            llm = LLMFactory.get_model("coder")
+            coder_agent = create_react_agent(
+                model=llm,
+                tools=CODER_TOOLS,
+                prompt=AGENT_PROMPTS.get("coder", "You are a code implementation agent."),
+            )
+            
+            result = await coder_agent.ainvoke(
+                {"messages": [HumanMessage(content=coder_prompt)]},
+                config={"recursion_limit": 50}  # Allow many file writes
+            )
+            
+            # Extract completion status from messages
+            new_messages = result.get("messages", [])
+            implementation_complete = False
+            files_written = []
+            
+            for msg in new_messages:
+                if hasattr(msg, 'content') and msg.content:
+                    content = str(msg.content).lower()
+                    if "implementation complete" in content:
+                        implementation_complete = True
+                
+                # Track tool calls for file writes
+                if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        if tc.get("name") == "write_file_to_disk":
+                            path = tc.get("args", {}).get("file_path", "")
+                            if path:
+                                files_written.append(path)
+            
+            return {
+                "artifacts": {
+                    "files_written": files_written,
+                    "message_count": len(new_messages),
+                },
+                "status": "complete" if implementation_complete else "in_progress",
+                "success": True,
+                "implementation_complete": implementation_complete,
+                "completed_files": files_written,
+            }
+            
+        except Exception as e:
+            return {
+                "artifacts": {},
+                "status": "error",
+                "success": False,
+                "error": str(e),
+            }
+

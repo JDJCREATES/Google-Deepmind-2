@@ -455,64 +455,147 @@ Output a JSON fix plan:
         )
     
     async def invoke(self, state: AgentState) -> Dict[str, Any]:
-        """Invoke the Fixer as part of orchestrator workflow."""
+        """
+        Invoke the Fixer as part of orchestrator workflow.
+        
+        TWO-PHASE EXECUTION:
+        1. Analyze validation errors and generate fix plan
+        2. Apply fixes using create_react_agent with FIXER_TOOLS
+        
+        Args:
+            state: Current agent state
+            
+        Returns:
+            Dict with fix results
+        """
+        from langgraph.prebuilt import create_react_agent
+        from app.agents.tools.fixer import FIXER_TOOLS
+        from app.prompts import AGENT_PROMPTS
+        from app.core.llm_factory import LLMFactory
+        from pathlib import Path
+        
         artifacts = state.get("artifacts", {})
         parameters = state.get("parameters", {})
+        project_path = artifacts.get("project_path")
+        error_log = state.get("error_log", [])
+        fix_attempts = parameters.get("attempt_number", 1)
         
-        # Get validation report
-        validation_report_dict = artifacts.get("validation_report", {})
+        # Check if we should escalate
+        max_attempts = self.config.max_auto_fix_attempts
+        if fix_attempts > max_attempts:
+            return {
+                "success": False,
+                "requires_replan": True,
+                "needs_replan": True,
+                "artifacts": {},
+                "recommended_action": "replan",
+                "next_agent": "planner",
+            }
         
-        # Convert to ValidationReport if needed
-        if isinstance(validation_report_dict, dict):
-            # Reconstruct violations
-            violations = []
-            for v in validation_report_dict.get("violations", []):
-                violations.append(Violation(
-                    id=v.get("id", ""),
-                    layer=FailureLayer(v.get("layer", "completeness")),
-                    rule=v.get("rule", ""),
-                    message=v.get("message", ""),
-                    file_path=v.get("file_path"),
-                    line_number=v.get("line_number"),
-                    severity=ViolationSeverity(v.get("severity", "major"))
-                ))
-            
-            validation_report = ValidationReport(
-                id=validation_report_dict.get("id", ""),
-                status=ValidationStatus(validation_report_dict.get("status", "fail")),
-                failure_layer=FailureLayer(validation_report_dict.get("failure_layer", "none")),
-                violations=violations,
-                task_id=validation_report_dict.get("task_id", ""),
-                plan_id=validation_report_dict.get("plan_id"),
-                recommended_action=RecommendedAction(validation_report_dict.get("recommended_action", "fix"))
+        # Get recent errors for context
+        recent_errors = error_log[-5:] if error_log else ["No specific errors"]
+        
+        # ================================================================
+        # Build fix prompt with error context
+        # ================================================================
+        fixer_prompt = f"""PROJECT PATH: {project_path}
+
+FIX ATTEMPT: {fix_attempts}/{max_attempts}
+
+ERRORS TO FIX:
+{chr(10).join(['- ' + str(e) for e in recent_errors])}
+
+YOUR TASK:
+1. Read the relevant files using read_file_from_disk
+2. Analyze what's broken based on the errors
+3. Apply TARGETED fixes using write_file_to_disk
+4. Only fix what is broken - do NOT rewrite entire files
+
+IMPORTANT CONSTRAINTS:
+- Make MINIMAL changes
+- Do NOT change file structure
+- Do NOT add new dependencies without good reason
+- If the fix requires architecture changes, respond with:
+  {{"escalate": true, "reason": "..."}}
+
+When done, respond with:
+{{"status": "fixed", "files_patched": [...]}}"""
+
+        # ================================================================
+        # Execute using create_react_agent with FIXER_TOOLS
+        # ================================================================
+        try:
+            llm = LLMFactory.get_model("fixer")
+            fixer_agent = create_react_agent(
+                model=llm,
+                tools=FIXER_TOOLS,
+                prompt=AGENT_PROMPTS.get("fixer", "You are a code fixing agent."),
             )
-        else:
-            validation_report = validation_report_dict
-        
-        # Get file contents
-        file_contents = artifacts.get("file_contents", {})
-        folder_map = artifacts.get("folder_map", {})
-        
-        # Fix
-        result = await self.fix(
-            validation_report=validation_report,
-            file_contents=file_contents,
-            folder_map=folder_map,
-            attempt_number=parameters.get("attempt_number", 1)
-        )
-        
-        return {
-            "artifacts": {
-                "fix_plan": result.fix_plan.model_dump() if result.fix_plan else None,
-                "fix_patch": result.fix_patch.model_dump() if result.fix_patch else None,
-                "fix_report": result.fix_report.model_dump() if result.fix_report else None,
-                "fix_attempt_log": result.fix_attempt_log.model_dump() if result.fix_attempt_log else None,
-                "replan_request": result.replan_request.model_dump() if result.replan_request else None,
-            },
-            "success": result.success,
-            "requires_approval": result.requires_approval,
-            "requires_replan": result.requires_replan,
-            "recommended_action": result.recommended_action,
-            "confidence": result.confidence,
-            "next_agent": result.next_agent
-        }
+            
+            result = await fixer_agent.ainvoke(
+                {"messages": [HumanMessage(content=fixer_prompt)]},
+                config={"recursion_limit": 25}
+            )
+            
+            # Analyze result
+            new_messages = result.get("messages", [])
+            needs_escalate = False
+            escalation_reason = ""
+            files_patched = []
+            
+            import json as json_mod
+            import re as re_mod
+            
+            for msg in new_messages:
+                if hasattr(msg, 'content') and msg.content:
+                    content = str(msg.content)
+                    
+                    # Check for escalation
+                    try:
+                        json_match = re_mod.search(r'\{[^}]*"escalate"[^}]*\}', content)
+                        if json_match:
+                            parsed = json_mod.loads(json_match.group())
+                            if parsed.get("escalate"):
+                                needs_escalate = True
+                                escalation_reason = parsed.get("reason", "Fixer requested escalation")
+                    except:
+                        pass
+                
+                # Track file patches from tool calls
+                if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        if tc.get("name") == "write_file_to_disk":
+                            path = tc.get("args", {}).get("file_path", "")
+                            if path:
+                                files_patched.append(path)
+            
+            if needs_escalate:
+                return {
+                    "success": False,
+                    "requires_replan": True,
+                    "needs_replan": True,
+                    "artifacts": {"replan_request": {"reason": escalation_reason}},
+                    "recommended_action": "replan",
+                    "next_agent": "planner",
+                }
+            
+            return {
+                "success": True,
+                "requires_replan": False,
+                "artifacts": {
+                    "files_patched": files_patched,
+                    "message_count": len(new_messages),
+                },
+                "status": "fixed",
+                "recommended_action": "validate",
+                "next_agent": "validator",
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "artifacts": {},
+                "recommended_action": "error",
+            }
+
