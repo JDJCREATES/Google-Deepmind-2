@@ -83,7 +83,7 @@ class Scoper:
                     estimated_minutes=t_data.get("estimated_minutes", 60),
                     acceptance_criteria=criteria,
                     expected_outputs=outputs,
-                    order=i + 1
+
                 )
                 task_list.add_task(task)
         else:
@@ -107,7 +107,7 @@ class Scoper:
                     expected_outputs=[
                         ExpectedOutput(file_path="src/types/index.ts", description="Type definitions")
                     ],
-                    order=1
+
                 ),
                 Task(
                     id="task_002",
@@ -124,7 +124,7 @@ class Scoper:
                     expected_outputs=[
                         ExpectedOutput(file_path="src/hooks/useApp.ts", description="Main state hook")
                     ],
-                    order=2
+
                 ),
                 Task(
                     id="task_003",
@@ -141,7 +141,7 @@ class Scoper:
                     expected_outputs=[
                         ExpectedOutput(file_path="src/components/Main.tsx", description="Main component")
                     ],
-                    order=3
+
                 ),
                 Task(
                     id="task_004",
@@ -158,7 +158,7 @@ class Scoper:
                     expected_outputs=[
                         ExpectedOutput(file_path="src/App.tsx", description="App composition")
                     ],
-                    order=4
+
                 ),
                 Task(
                     id="task_005",
@@ -175,7 +175,7 @@ class Scoper:
                     expected_outputs=[
                         ExpectedOutput(file_path="src/index.css", description="Global styles")
                     ],
-                    order=5
+
                 ),
             ]
             
@@ -446,7 +446,7 @@ class RiskAssessor:
         if scaffolding.get("needs_scaffolding"):
             risk_report.add_risk(RiskItem(
                 title="Project Setup Required",
-                category="setup",
+                category="technical",
                 risk_level=RiskLevel.LOW,
                 description="Project needs initial scaffolding",
                 mitigation="Scaffold task added to plan",
@@ -457,7 +457,7 @@ class RiskAssessor:
         for risk in llm_plan.get("risks", []):
             risk_report.add_risk(RiskItem(
                 title=risk.get("title", "Identified Risk"),
-                category="general",
+                category="technical",
                 risk_level=RiskLevel(risk.get("level", "medium")),
                 description=risk.get("description", ""),
                 mitigation=risk.get("mitigation", "")
@@ -468,7 +468,7 @@ class RiskAssessor:
         if questions:
             risk_report.add_risk(RiskItem(
                 title="Clarification Needed",
-                category="ambiguity",
+                category="unknown",
                 risk_level=RiskLevel.HIGH,
                 description="The following questions need answers:",
                 requires_human_input=True,

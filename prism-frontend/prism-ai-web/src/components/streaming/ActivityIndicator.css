@@ -25,7 +25,7 @@
 
 .activity-text {
   font-size: 13px;
-  color: var(--text-color, #ccc);
+  color: var(--primary-color, #ff5e57);
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;

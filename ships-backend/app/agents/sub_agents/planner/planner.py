@@ -287,22 +287,19 @@ REMEMBER: If you generate fewer than 4 tasks, you are doing it WRONG. Break it d
                 description=scaffolding_task_dict.get("description", ""),
                 complexity=TaskComplexity.SMALL,
                 priority=TaskPriority.CRITICAL,
-                order=0,
                 estimated_minutes=5,
             )
             
-            # Store terminal commands in metadata for coder to use
-            scaffold_task.metadata = {
-                "terminal_commands": scaffolding_task_dict.get("terminal_commands", []),
-                "is_scaffolding_task": True,
-            }
+            # Store terminal commands in description for visibility
+            cmds = scaffolding_task_dict.get("terminal_commands", [])
+            if cmds:
+                 scaffold_task.description += f"\n\nCommands to run: {', '.join(cmds)}"
             
             # Insert at beginning of task list
             task_list.tasks.insert(0, scaffold_task)
             
-            # Reorder all other tasks
-            for i, task in enumerate(task_list.tasks[1:], start=1):
-                task.order = i
+            # Reorder not needed - list order implies execution order
+
         
         # Enrich task list with LLM insights
         self._enrich_task_list(task_list, llm_plan)

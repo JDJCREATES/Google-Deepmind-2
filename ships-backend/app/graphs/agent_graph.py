@@ -545,42 +545,41 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
     project_scaffolded = False  # NEW: Check for actual project files
     
     if project_path:
-        project_dir = Path(project_path)
-        plan_path = project_dir / ".ships" / "implementation_plan.md"
+        plan_path = Path(project_path) / ".ships" / "implementation_plan.md"
         plan_exists = plan_path.exists()
         
-        # Check for actual project scaffolding (not just .ships folder)
-        scaffolding_indicators = [
-            project_dir / "package.json",
-            project_dir / "src",
-            project_dir / "index.html",
-            project_dir / "requirements.txt",
-            project_dir / "pyproject.toml",
-        ]
-        project_scaffolded = any(ind.exists() for ind in scaffolding_indicators)
+        # Check if scaffolding was explicitly marked complete in artifacts
+        # OR if package.json exists (which implies scaffolding is done)
+        scaffolding_done = artifacts.get("scaffolding_complete", False)
+        if not scaffolding_done and (Path(project_path) / "package.json").exists():
+            scaffolding_done = True
+            
+    fix_attempts = state.get("fix_attempts", 0)
     
-    # 2. Build Dynamic System Prompt
-    # 2. Build Dynamic System Prompt
-    system_prompt = f"""<role>You are the Master Orchestrator. You decide the next phase of development.</role>
+    # 2. Build Decision Prompt
+    system_prompt = f"""<role>
+You are the Master Orchestrator. You decide which agent runs next.
+</role>
 
 <state>
-CURRENT PHASE: {phase}
+PHASE: {phase}
 FILES COMPLETED: {len(completed_files)}
-VALIDATION PASSED: {validation_passed}
 FIX ATTEMPTS: {fix_attempts}
 PLAN EXISTS: {plan_exists}
-PROJECT SCAFFOLDED: {project_scaffolded}
+SCAFFOLDING DONE: {scaffolding_done}
 </state>
 
 <rules>
-1. If PHASE is "planning" (and plan missing) -> call_planner
-2. If PHASE is "plan_ready" -> call_coder (coder handles scaffolding via npx/npm)
+1. If PHASE is "planning":
+   - If plan missing OR scaffolding NOT done -> call_planner
+   - If plan ready AND scaffolding done -> call_coder
+2. If PHASE is "plan_ready" -> call_coder
 3. If PHASE is "coding" (and files remain) -> call_coder
 4. If PHASE is "validating" -> call_validator
 5. If PHASE is "fixing" -> call_fixer
 6. If Validation Passed -> finish
 7. If PHASE is "fixing_failed" -> call_planner (to re-scope)
-8. If Fixer failed > 3 times -> call_planner (to re-scope) or finish (if stuck)
+8. If Fixer failed > 3 times -> finish (escalate to user)
 </rules>
 
 <output_format>
