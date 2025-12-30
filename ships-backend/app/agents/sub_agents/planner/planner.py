@@ -37,6 +37,12 @@ from app.agents.sub_agents.planner.models import (
 # Tools are in central location: app/agents/tools/planner/
 from app.agents.tools.planner import PlannerTools
 
+# Subcomponents for artifact production
+from app.agents.sub_agents.planner.components import (
+    Scoper, FolderArchitect, ContractAuthor,
+    DependencyPlanner, TestDesigner, RiskAssessor,
+)
+
 
 class Planner(BaseAgent):
     """
