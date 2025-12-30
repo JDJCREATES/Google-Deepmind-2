@@ -10,11 +10,12 @@ console.log("-----------------------------------------");
 const Store = require('electron-store');
 
 // Register ships:// as a custom protocol for deep linking
+// In Dev mode, we must explicitly point Electron to the project root
 if (process.defaultApp) {
-  if (process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient('ships', process.execPath, [process.argv[1]]);
-  }
+  const projectRoot = join(__dirname, '../../'); // Point to ships-preview root
+  app.setAsDefaultProtocolClient('ships', process.execPath, [projectRoot]);
 } else {
+  // In Prod (bundled), the executable handles it self
   app.setAsDefaultProtocolClient('ships');
 }
 
@@ -86,7 +87,17 @@ if (!gotTheLock) {
     const url = commandLine.find(arg => arg.startsWith('ships://'));
     if (url) {
       console.log('Deep link received:', url);
-      // Could parse url and take action here
+      try {
+        const urlObj = new URL(url);
+        const path = urlObj.searchParams.get('path');
+        if (path && isValidProjectPath(path)) {
+            console.log('Syncing project path from deep link:', path);
+            if (store) store.set('lastProjectPath', path);
+            if (mainWindow) mainWindow.reload();
+        }
+      } catch (e) {
+        console.error('Failed to parse deep link:', e);
+      }
     }
   });
 }
@@ -97,6 +108,14 @@ app.on('open-url', (_event, url) => {
   if (mainWindow) {
     mainWindow.focus();
   }
+  try {
+     const urlObj = new URL(url);
+     const path = urlObj.searchParams.get('path');
+     if (path && isValidProjectPath(path)) {
+        if (store) store.set('lastProjectPath', path);
+        if (mainWindow) mainWindow.reload();
+     }
+  } catch(e) { console.error(e); }
 });
 
 app.on('window-all-closed', () => {
@@ -367,6 +386,25 @@ ipcMain.handle('pty-kill', async (_event, sessionId: string) => {
 // ============================================================================
 // PREVIEW
 // ============================================================================
+
+/**
+ * Focus the main window (Requested by backend via renderer)
+ */
+ipcMain.handle('focus-window', async () => {
+  console.log('[WINDOW] Focus requested');
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    
+    // Force focus on Windows by briefly making it top-most
+    mainWindow.setAlwaysOnTop(true);
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.setAlwaysOnTop(false);
+    
+    return true;
+  }
+  return false;
+});
 
 /**
  * Open a preview URL - sends it to the renderer to display in preview panel

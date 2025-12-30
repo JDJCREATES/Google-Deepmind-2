@@ -34,6 +34,9 @@ function App() {
   const { currentProjectId } = useArtifactStore();
   const { refreshFileTree } = useFileSystem();
   
+  // Define API URL for component usage
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+  
   // Toggle sidebar or switch view
   const handleSidebarClick = (view: SidebarView) => {
     if (activeSidebarView === view) {
@@ -71,7 +74,6 @@ function App() {
   // Sync project path with backend
   const syncProjectPathWithBackend = async (path: string) => {
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
       await fetch(`${API_URL}/preview/set-path`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -502,9 +504,20 @@ function App() {
           <div className="chat-header-center">
             <button 
               className="preview-btn"
-              onClick={() => {
-                // Try to open the Electron app via custom protocol
-                window.location.href = 'ships://preview';
+              onClick={async () => {
+                const targetUrl = `ships://preview?path=${encodeURIComponent(electronProjectPath || '')}`;
+                if (window.electronAPI?.openPreview) {
+                  // If running inside Electron, use IPC
+                  window.electronAPI.openPreview(targetUrl);
+                } else {
+                  // If running in browser, ask Backend to focus the external Electron app
+                  try {
+                      await fetch(`${API_URL}/preview/request-focus`, { method: 'POST' });
+                  } catch (e) {
+                      console.error("Failed to request focus", e);
+                      // Silent failure - user can switch manually
+                  }
+                }
               }}
               style={{
                 background: 'var(--primary-color, #ff5e57)',

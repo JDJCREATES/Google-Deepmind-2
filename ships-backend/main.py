@@ -53,8 +53,19 @@ async def get_status():
         "is_running": preview_manager.is_running,
         "logs": preview_manager.logs[-50:],
         "url": preview_manager.current_url,
-        "project_path": preview_manager.current_project_path
+        "project_path": preview_manager.current_project_path,
+        "focus_requested": preview_manager.focus_requested
     }
+
+@preview_router.post("/request-focus")
+async def request_focus():
+    preview_manager.request_focus()
+    return {"status": "success"}
+
+@preview_router.post("/ack-focus")
+async def ack_focus():
+    preview_manager.clear_focus_request()
+    return {"status": "success"}
 
 @preview_router.post("/set-path")
 async def set_project_path(project: ProjectPath):

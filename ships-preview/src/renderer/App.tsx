@@ -11,6 +11,7 @@ declare global {
       getLastProject: () => Promise<{ path: string | null; exists: boolean }>;
       clearProject: () => Promise<void>;
       runBuild: (path: string) => Promise<void>;
+      focusWindow: () => Promise<boolean>;
     }
   }
 }
@@ -117,6 +118,16 @@ function App() {
                   clearTimeout(connectionTimeoutRef.current);
                 }
             }
+
+            // Check for focus request (Reverse Focus)
+            if (data.focus_requested) {
+                console.log("Backend requested focus!");
+                if (window.electron && window.electron.focusWindow) {
+                    await window.electron.focusWindow();
+                    // Acknowledge to clear the flag
+                    await fetch('http://localhost:8001/preview/ack-focus', { method: 'POST' });
+                }
+            }
         } catch (e) {
             console.log("Polling error:", e);
         }
@@ -152,6 +163,30 @@ function App() {
       await setBackendPath(currentPath);
     }
   };
+
+  // 5. Auto-discover project from backend (if local is empty)
+  useEffect(() => {
+    if (backendConnected || currentPath) return; // Don't override if user selected something
+
+    const checkForbackendPath = async () => {
+       try {
+          const res = await fetch('http://localhost:8001/preview/path');
+          const data = await res.json();
+          if (data.is_set && data.project_path) {
+              console.log("Auto-discovered project from backend:", data.project_path);
+              // Use setBackendPath to connect and store it
+              await setBackendPath(data.project_path);
+          }
+       } catch (e) {
+          // Backend might be down, ignore
+       }
+    };
+    
+    // Check every 5 seconds
+    const interval = setInterval(checkForbackendPath, 5000);
+    checkForbackendPath(); // Immediate check
+    return () => clearInterval(interval);
+  }, [backendConnected, currentPath]);
 
   if (projectUrl) {
       return (

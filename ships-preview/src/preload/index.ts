@@ -109,4 +109,7 @@ contextBridge.exposeInMainWorld('electron', {
         ipcRenderer.on('preview-url', listener);
         return () => ipcRenderer.removeListener('preview-url', listener);
     },
+
+    // Window Management
+    focusWindow: () => ipcRenderer.invoke('focus-window'),
 });
