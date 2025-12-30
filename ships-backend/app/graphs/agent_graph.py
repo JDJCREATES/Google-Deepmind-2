@@ -20,6 +20,8 @@ This file should ONLY contain:
 
 from typing import TypedDict, Annotated, Literal, Optional, List, Dict, Any
 from operator import add
+import os
+from pathlib import Path
 
 from langgraph.graph import StateGraph, END, START
 from langgraph.checkpoint.memory import MemorySaver
@@ -30,8 +32,16 @@ from app.agents.sub_agents import (
     Planner, Coder, Validator, Fixer,
     ValidationStatus, RecommendedAction,
 )
-from app.agents.orchestrator import MasterOrchestrator  # The Brain
+# from app.agents.orchestrator import MasterOrchestrator  # The Brain (Unused, using agent factory)
 from app.agents.tools.coder import set_project_root  # Secure project path context
+from app.agents.sub_agents.planner.formatter import (
+    format_implementation_plan, 
+    format_task_list,
+    format_folder_map,
+    format_api_contracts,
+    format_dependency_plan,
+)
+
 
 # ============================================================================
 # STATE DEFINITION  
@@ -85,26 +95,7 @@ class AgentGraphState(TypedDict):
 import logging
 logger = logging.getLogger("ships.agent")
 
-async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
-    """
-    MASTER ORCHESTRATOR NODE
-    Delegates decision making to the MasterOrchestrator class.
-    """
-    logger.info("[ORCHESTRATOR] 🧠 Starting orchestrator node...")
-    
-    # Instantiate the Brain (lightweight, no heavy init)
-    orchestrator = MasterOrchestrator()
-    
-    # Invoke the Brain with current state
-    # MasterOrchestrator handles all context building, prompting, and parsing
-    result = await orchestrator.invoke(state)
-    
-    decision = result.get("phase", "planner")
-    logger.info(f"[ORCHESTRATOR] 🧠 Decision: {decision}")
-    
-    return {
-        "phase": decision  # This will drive the conditional edges
-    }
+
 
 
 async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
@@ -154,12 +145,53 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
     try:
         result = await planner.invoke(state)
         
-        logger.info(f"[PLANNER] ✅ Planner completed with artifacts: {list(result.get('artifacts', {}).keys())}")
-        
         # Merge planner artifacts with existing artifacts
         merged_artifacts = {**artifacts}
         if "artifacts" in result:
             merged_artifacts.update(result["artifacts"])
+
+        # SAVE ARTIFACTS TO DISK (For Frontend Persistence)
+        if project_path:
+            try:
+                dot_ships = os.path.join(project_path, ".ships")
+                os.makedirs(dot_ships, exist_ok=True)
+                
+                # Save implementation_plan.md
+                plan_md = format_implementation_plan(merged_artifacts)
+                with open(os.path.join(dot_ships, "implementation_plan.md"), "w", encoding="utf-8") as f:
+                    f.write(plan_md)
+                    
+                # Save task.md
+                task_list = merged_artifacts.get("task_list")
+                if task_list:
+                    task_md = format_task_list(task_list)
+                    with open(os.path.join(dot_ships, "task.md"), "w", encoding="utf-8") as f:
+                        f.write(task_md)
+                        
+                # Save folder_map.md
+                folder_map = merged_artifacts.get("folder_map")
+                if folder_map:
+                    fm_md = format_folder_map(folder_map)
+                    with open(os.path.join(dot_ships, "folder_map.md"), "w", encoding="utf-8") as f:
+                        f.write(fm_md)
+                        
+                # Save api_contracts.md
+                api_contracts = merged_artifacts.get("api_contracts")
+                if api_contracts:
+                    ac_md = format_api_contracts(api_contracts)
+                    with open(os.path.join(dot_ships, "api_contracts.md"), "w", encoding="utf-8") as f:
+                        f.write(ac_md)
+                        
+                # Save dependencies.md
+                deps = merged_artifacts.get("dependency_plan")
+                if deps:
+                    dp_md = format_dependency_plan(deps)
+                    with open(os.path.join(dot_ships, "dependencies.md"), "w", encoding="utf-8") as f:
+                        f.write(dp_md)
+                
+                logger.info(f"[PLANNER] 💾 Saved artifacts to {dot_ships}")
+            except Exception as io_e:
+                logger.error(f"[PLANNER] ❌ Failed to save artifacts: {io_e}")
         
         return {
             "phase": "plan_ready",
@@ -589,7 +621,8 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
         plan_exists = plan_path.exists()
     
     # 2. Build Dynamic System Prompt
-    system_prompt = f"""<role>You are the Master Orchestrator.</role>
+    # 2. Build Dynamic System Prompt
+    system_prompt = f"""<role>You are the Master Orchestrator. You decide the next phase of development.</role>
 
 <state>
 CURRENT PHASE: {phase}
@@ -600,25 +633,28 @@ PLAN EXISTS: {plan_exists}
 </state>
 
 <rules>
-- If PHASE is "planning" (and plan missing/stale) -> call_planner
-- If PHASE is "plan_ready" -> call_coder
-- If PHASE is "coding" (and files remain) -> call_coder
-- If PHASE is "validating" -> call_validator
-- If PHASE is "fixing" -> call_fixer
-- If Validation Passed -> finish
-- If PHASE is "fixing_failed" -> call_planner (to re-scope)
-- If Fixer failed > 3 times -> call_planner (to re-scope) or finish (if stuck)
+1. If PHASE is "planning" (and plan missing/stale) -> call_planner
+2. If PHASE is "plan_ready" -> call_coder
+3. If PHASE is "coding" (and files remain) -> call_coder
+4. If PHASE is "validating" -> call_validator
+5. If PHASE is "fixing" -> call_fixer
+6. If Validation Passed -> finish
+7. If PHASE is "fixing_failed" -> call_planner (to re-scope)
+8. If Fixer failed > 3 times -> call_planner (to re-scope) or finish (if stuck)
 </rules>
 
 <output_format>
-Return ONE word: "call_planner", "call_coder", "call_validator", "call_fixer", or "finish".
+Return JSON ONLY:
+{{
+  "observations": ["observation 1", "observation 2"],
+  "reasoning": "Explain why you are choosing the next step based on state and rules.",
+  "decision": "call_planner" | "call_coder" | "call_validator" | "call_fixer" | "finish",
+  "confidence": 0.0 to 1.0
+}}
 </output_format>"""
 
     # 3. Call Orchestrator Agent
     orchestrator = AgentFactory.create_orchestrator(override_system_prompt=system_prompt)
-    
-    # We pass the last few messages for context, or just a state summary?
-    # Let's pass the last system message + a prompt
     
     # Get last message content for context (why did we get here?)
     messages = state.get("messages", [])
@@ -631,36 +667,60 @@ Return ONE word: "call_planner", "call_coder", "call_validator", "call_fixer", o
     messages_with_context = [
         HumanMessage(content=f"""{last_context}
         
-Analyze state and decide next step.""")
+Analyze state and decide next step. Respond with JSON.""")
     ]
     
     # Run agent
-    result = await orchestrator.ainvoke({"messages": messages_with_context})
-    last_message = result["messages"][-1]
-    
-    # Robust content extraction (handle string vs list from Gemini)
-    content = last_message.content
-    if isinstance(content, list):
-        # Join text parts if it's a list (common with Gemini tool use/multipart)
-        response = " ".join([str(c) for c in content if isinstance(c, (str, dict))])
-        # If dicts, we might need to extract 'text' key?
-        # Usually LangChain flattens it, but let's be safe:
-        if isinstance(content[0], dict) and "text" in content[0]:
-             response = " ".join([c.get("text", "") for c in content])
-    else:
-        response = str(content)
+    try:
+        result = await orchestrator.ainvoke({"messages": messages_with_context})
+        last_message = result["messages"][-1]
         
-    response = response.lower()
-    
-    logger.info(f"[ORCHESTRATOR] 🧠 Decision: {response}")
-    
-    # Extract decision
-    decision = "finish"
-    if "call_planner" in response: decision = "planner"
-    elif "call_coder" in response: decision = "coder"
-    elif "call_validator" in response: decision = "validator"
-    elif "call_fixer" in response: decision = "fixer"
-    elif "finish" in response: decision = "complete"
+        # Robust content extraction
+        content = last_message.content
+        if isinstance(content, list):
+             response = " ".join([str(c) for c in content if isinstance(c, (str, dict))])
+             if isinstance(content[0], dict) and "text" in content[0]:
+                 response = " ".join([c.get("text", "") for c in content])
+        else:
+            response = str(content)
+            
+        logger.info(f"[ORCHESTRATOR] 🧠 Raw Response: {response[:200]}...")
+        
+        # Parse JSON
+        import json as json_module
+        import re as re_module
+        
+        decision = "finish"
+        json_match = re_module.search(r'\{[\s\S]*\}', response)
+        
+        if json_match:
+            try:
+                parsed = json_module.loads(json_match.group())
+                raw_decision = parsed.get("decision", "finish").lower()
+                logger.info(f"[ORCHESTRATOR] 🧠 Structured Decision: {parsed}")
+                
+                if "planner" in raw_decision: decision = "planner"
+                elif "coder" in raw_decision: decision = "coder"
+                elif "validator" in raw_decision: decision = "validator"
+                elif "fixer" in raw_decision: decision = "fixer"
+                elif "finish" in raw_decision: decision = "complete"
+            except Exception as e:
+                logger.error(f"[ORCHESTRATOR] ❌ JSON parse failed: {e}")
+                decision = "finish" # Fail safe
+        else:
+            # Fallback string matching
+            response = response.lower()
+            if "call_planner" in response: decision = "planner"
+            elif "call_coder" in response: decision = "coder"
+            elif "call_validator" in response: decision = "validator"
+            elif "call_fixer" in response: decision = "fixer"
+            elif "finish" in response: decision = "complete"
+            
+    except Exception as e:
+        logger.error(f"[ORCHESTRATOR] ❌ Orchestrator failed: {e}")
+        decision = "finish" # Fail safe
+        
+    logger.info(f"[ORCHESTRATOR] 🧠 Final Routing: {decision}")
     
     return {
         "phase": decision  # This drives the routing

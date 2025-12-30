@@ -64,7 +64,8 @@ class Coder(BaseAgent):
     def __init__(
         self,
         artifact_manager: Optional[ArtifactManager] = None,
-        config: Optional[CoderComponentConfig] = None
+        config: Optional[CoderComponentConfig] = None,
+        cached_content: Optional[str] = None
     ):
         """
         Initialize the Coder.
@@ -76,8 +77,9 @@ class Coder(BaseAgent):
         super().__init__(
             name="Coder",
             agent_type="coder",  # Uses Pro model
-            reasoning_level="standard",
-            artifact_manager=artifact_manager
+            reasoning_level="high",  # Coder needs high reasoning
+            artifact_manager=artifact_manager,
+            cached_content=cached_content
         )
         
         self.config = config or CoderComponentConfig()

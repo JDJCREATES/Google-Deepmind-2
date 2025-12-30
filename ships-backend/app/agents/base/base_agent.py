@@ -76,7 +76,8 @@ class BaseAgent(ABC):
         name: str, 
         agent_type: Literal["orchestrator", "planner", "coder", "fixer", "mini"],
         reasoning_level: Literal["standard", "high"] = "standard",
-        artifact_manager: Optional[ArtifactManager] = None
+        artifact_manager: Optional[ArtifactManager] = None,
+        cached_content: Optional[str] = None # NEW: Explicit Caching
     ):
         """
         Initialize the base agent.
@@ -90,7 +91,11 @@ class BaseAgent(ABC):
         self.name = name
         self.agent_type = agent_type
         self.reasoning_level = reasoning_level
-        self.llm = LLMFactory.get_model(agent_type, reasoning_level)
+        self.llm = LLMFactory.get_model(
+            agent_type, 
+            reasoning_level,
+            cached_content=cached_content
+        )
         self.system_prompt = self._get_system_prompt()
         self._artifact_manager = artifact_manager
         

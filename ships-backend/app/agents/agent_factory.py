@@ -93,7 +93,8 @@ class AgentFactory:
         agent_type: Literal["planner", "coder", "validator", "fixer"],
         checkpointer: Optional[MemorySaver] = None,
         additional_tools: Optional[List] = None,
-        override_system_prompt: Optional[str] = None
+        override_system_prompt: Optional[str] = None,
+        cached_content: Optional[str] = None, # NEW: Explicit Cache Support
     ):
         """
         Create a modern LangGraph agent using create_react_agent.
@@ -103,6 +104,7 @@ class AgentFactory:
             checkpointer: Optional checkpointer for state persistence
             additional_tools: Optional extra tools to add
             override_system_prompt: Optional dynamic system prompt to use
+            cached_content: Optional Gemini explicit cache name to use
             
         Returns:
             A compiled LangGraph agent
@@ -120,7 +122,10 @@ class AgentFactory:
         }
         
         # Create the LLM using LLMFactory (handles model names and API key)
-        llm = LLMFactory.get_model(llm_type_map.get(agent_type, "mini"))
+        llm = LLMFactory.get_model(
+            llm_type_map.get(agent_type, "mini"),
+            cached_content=cached_content
+        )
         
         # Get tools for this agent
         tools = list(cls.AGENT_TOOLS.get(agent_type, []))
@@ -161,9 +166,9 @@ class AgentFactory:
         return cls.create_agent("planner", checkpointer)
     
     @classmethod
-    def create_coder(cls, checkpointer: Optional[MemorySaver] = None):
+    def create_coder(cls, checkpointer: Optional[MemorySaver] = None, cached_content: Optional[str] = None):
         """Create a Coder agent."""
-        return cls.create_agent("coder", checkpointer)
+        return cls.create_agent("coder", checkpointer, cached_content=cached_content)
     
     @classmethod
     def create_validator(cls, checkpointer: Optional[MemorySaver] = None):

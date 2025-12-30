@@ -31,7 +31,8 @@ class LLMFactory:
     @staticmethod
     def get_model(
         agent_type: Literal["orchestrator", "planner", "coder", "fixer", "mini"],
-        reasoning_level: Literal["standard", "high"] = "standard"
+        reasoning_level: Literal["standard", "high"] = "standard",
+        cached_content: str = None  # Explicit caching support
     ) -> ChatGoogleGenerativeAI:
         """
         Returns a configured ChatGoogleGenerativeAI instance.
@@ -97,6 +98,7 @@ class LLMFactory:
             convert_system_message_to_human=True,
             # Gemini 3 thinking_level for built-in reasoning
             thinking_level=thinking_level,
+            cached_content=cached_content, # Pass explicit cache name
             max_retries=30, # Aggressive retries for Hackathon rate limits
         )
         

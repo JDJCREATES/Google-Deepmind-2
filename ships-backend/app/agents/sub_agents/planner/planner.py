@@ -55,7 +55,8 @@ class Planner(BaseAgent):
     def __init__(
         self,
         artifact_manager: Optional[ArtifactManager] = None,
-        config: Optional[PlannerComponentConfig] = None
+        config: Optional[PlannerComponentConfig] = None,
+        cached_content: Optional[str] = None
     ):
         """
         Initialize the Planner.
@@ -67,8 +68,9 @@ class Planner(BaseAgent):
         super().__init__(
             name="Planner",
             agent_type="planner",  # Uses Pro model
-            reasoning_level="standard",
-            artifact_manager=artifact_manager
+            reasoning_level="high",  # Planner needs deep thought
+            artifact_manager=artifact_manager,
+            cached_content=cached_content
         )
         
         self.config = config or PlannerComponentConfig()
