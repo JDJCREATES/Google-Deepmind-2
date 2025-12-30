@@ -15,6 +15,8 @@ from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger("ships.cache")
 
+from app.core.llm_factory import MODEL_FLASH
+
 # Try importing SDKs (prefer newer google.genai)
 try:
     from google import genai
@@ -93,19 +95,8 @@ class GeminiCacheManager:
         
         try:
             if SDK_VERSION == "legacy":
-                # Check if exists (by iterating list - naive)
-                # Legacy SDK doesn't support 'get' by alias easily, usually by name
-                # We'll just create a new one for now (or let API handle dedupe?)
-                # Actually, explicit caching creates a NEW resource each time usually.
-                
                 cache = caching.CachedContent.create(
-                    model='models/gemini-1.5-flash-001', # Base model (Flash supports caching?)
-                    # Note: Gemini 1.5 Flash supports caching. 
-                    # Gemini 3 Flash Preview might not yet via public SDK?
-                    # User said "Gemini 3 Flash Preview 1024 token limit".
-                    # We should align with the model we use.
-                    # app uses gemini-3-flash-preview.
-                    
+                    model=MODEL_FLASH, # Use shared constant
                     display_name=cache_name,
                     system_instruction="You are an expert AI developer with access to this project context.",
                     contents=[full_content],
@@ -117,7 +108,7 @@ class GeminiCacheManager:
             elif SDK_VERSION == "v1":
                 # Create cache
                 cache = self.client.caches.create(
-                    model='models/gemini-1.5-flash-001', # TODO: Configurable
+                    model=MODEL_FLASH, # Use shared constant
                     config=types.CreateCachedContentConfig(
                         display_name=cache_name,
                         system_instruction="You are an expert AI developer.",

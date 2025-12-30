@@ -275,6 +275,24 @@ function App() {
           filesCreated = true;
         }
         
+        // Handle plan created event (display nicely instead of JSON dump)
+        else if (chunk.type === 'plan_created') {
+          const summary = (chunk as any).summary || 'Plan created';
+          const taskCount = (chunk as any).task_count || 0;
+          const folderCount = (chunk as any).folders || 0;
+          
+          setMessages(prev => prev.map(msg => {
+            if (msg.id === aiMessageId) {
+              const planText = `📋 **Plan Created:** ${summary}\n• ${taskCount} tasks defined\n• ${folderCount} folders structured`;
+              return { 
+                ...msg, 
+                content: msg.content + (msg.content ? '\n\n' : '') + planText
+              };
+            }
+            return msg;
+          }));
+        }
+        
         // Handle terminal output from agent commands
         else if (chunk.type === 'terminal_output') {
           const output = chunk.output || '';

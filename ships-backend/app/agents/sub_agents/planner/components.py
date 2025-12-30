@@ -66,8 +66,10 @@ class Scoper:
                 # Parse output files
                 outputs = []
                 for out in t_data.get("expected_outputs", []):
+                    # Handle both 'path' (LLM output) and 'file_path' (model field)
+                    file_path = out.get("file_path") or out.get("path", "")
                     outputs.append(ExpectedOutput(
-                        path=out.get("path", ""),
+                        file_path=file_path,
                         description=out.get("description", "Created file")
                     ))
                 
@@ -85,25 +87,100 @@ class Scoper:
                 )
                 task_list.add_task(task)
         else:
-            # Fallback if no LLM plan (should rare)
+            # Fallback: Generate granular tasks from description
             description = intent.get("description", "")
-            main_task = Task(
-                id="task_main_001",
-                title="Implement Core Features",
-                description=f"Implement: {description[:200]}",
-                complexity=TaskComplexity.MEDIUM,
-                priority=TaskPriority.HIGH,
-                status=TaskStatus.PENDING,
-                estimated_minutes=120,
-                acceptance_criteria=[
-                    AcceptanceCriterion(
-                        given="the application is running",
-                        when="user interacts with it",
-                        then="expected behavior occurs"
-                    )
-                ]
-            )
-            task_list.add_task(main_task)
+            
+            # Always create foundational tasks
+            tasks_to_create = [
+                Task(
+                    id="task_001",
+                    title="Create Core Types and Interfaces",
+                    description=f"Define TypeScript types for: {description[:100]}",
+                    complexity=TaskComplexity.TINY,
+                    priority=TaskPriority.HIGH,
+                    status=TaskStatus.PENDING,
+                    estimated_minutes=30,
+                    acceptance_criteria=[
+                        AcceptanceCriterion(description="All types are defined in src/types/"),
+                        AcceptanceCriterion(description="Types are exported and importable")
+                    ],
+                    expected_outputs=[
+                        ExpectedOutput(file_path="src/types/index.ts", description="Type definitions")
+                    ],
+                    order=1
+                ),
+                Task(
+                    id="task_002",
+                    title="Create State Management Hook",
+                    description=f"Implement state logic for: {description[:100]}",
+                    complexity=TaskComplexity.SMALL,
+                    priority=TaskPriority.HIGH,
+                    status=TaskStatus.PENDING,
+                    estimated_minutes=45,
+                    acceptance_criteria=[
+                        AcceptanceCriterion(description="Hook manages component state"),
+                        AcceptanceCriterion(description="State updates trigger re-renders")
+                    ],
+                    expected_outputs=[
+                        ExpectedOutput(file_path="src/hooks/useApp.ts", description="Main state hook")
+                    ],
+                    order=2
+                ),
+                Task(
+                    id="task_003",
+                    title="Create Main UI Component",
+                    description=f"Build the primary UI for: {description[:100]}",
+                    complexity=TaskComplexity.SMALL,
+                    priority=TaskPriority.HIGH,
+                    status=TaskStatus.PENDING,
+                    estimated_minutes=60,
+                    acceptance_criteria=[
+                        AcceptanceCriterion(description="Component renders without errors"),
+                        AcceptanceCriterion(description="UI matches expected design")
+                    ],
+                    expected_outputs=[
+                        ExpectedOutput(file_path="src/components/Main.tsx", description="Main component")
+                    ],
+                    order=3
+                ),
+                Task(
+                    id="task_004",
+                    title="Integrate Components in App",
+                    description="Wire up all components in App.tsx",
+                    complexity=TaskComplexity.TINY,
+                    priority=TaskPriority.HIGH,
+                    status=TaskStatus.PENDING,
+                    estimated_minutes=20,
+                    acceptance_criteria=[
+                        AcceptanceCriterion(description="App renders main component"),
+                        AcceptanceCriterion(description="Application runs in browser")
+                    ],
+                    expected_outputs=[
+                        ExpectedOutput(file_path="src/App.tsx", description="App composition")
+                    ],
+                    order=4
+                ),
+                Task(
+                    id="task_005",
+                    title="Apply Styling",
+                    description="Add CSS styling for visual appearance",
+                    complexity=TaskComplexity.TINY,
+                    priority=TaskPriority.MEDIUM,
+                    status=TaskStatus.PENDING,
+                    estimated_minutes=30,
+                    acceptance_criteria=[
+                        AcceptanceCriterion(description="Styles are applied"),
+                        AcceptanceCriterion(description="Layout looks professional")
+                    ],
+                    expected_outputs=[
+                        ExpectedOutput(file_path="src/index.css", description="Global styles")
+                    ],
+                    order=5
+                ),
+            ]
+            
+            for task in tasks_to_create:
+                task_list.add_task(task)
         
         return {"task_list": task_list}
 

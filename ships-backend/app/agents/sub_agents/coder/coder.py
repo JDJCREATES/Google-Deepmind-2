@@ -43,6 +43,7 @@ from app.agents.tools.coder import (
     generate_file_diff,
     detect_language,
     assess_change_risk,
+    create_file_change,
 )
 
 # Subcomponents for code generation
@@ -267,12 +268,18 @@ REMEMBER: You are judged by how SMALL and CORRECT your diffs are, not how much c
             new_content = file_info.get("content", "")
             original = existing_code.get(path, "") if existing_code else ""
             
-            change = DiffGenerator.create_file_change(
-                path=path,
-                operation=operation,
-                original_content=original if operation == FileOperation.MODIFY else None,
-                new_content=new_content,
-                reason=file_info.get("reason", ""),
+            # Use the tool to generate diff and analysis
+            change_data = create_file_change.invoke({
+                "path": path,
+                "operation": operation.value,
+                "new_content": new_content,
+                "original_content": original if operation == FileOperation.MODIFY else None,
+                "reason": file_info.get("reason", "")
+            })
+            
+            # Create the model
+            change = FileChange(
+                **change_data,
                 acceptance_criteria_ids=file_info.get("acceptance_criteria", [])
             )
             changes.append(change)
@@ -511,7 +518,8 @@ REMEMBER: You are judged by how SMALL and CORRECT your diffs are, not how much c
         parameters = state.get("parameters", {})
         
         # Get task from parameters or artifacts
-        task = parameters.get("task") or artifacts.get("current_task", {})
+        task = parameters.get("task") or artifacts.get("current_task") or {}
+        
         folder_map = artifacts.get("folder_map")
         api_contracts = artifacts.get("api_contracts")
         dependency_plan = artifacts.get("dependency_plan")

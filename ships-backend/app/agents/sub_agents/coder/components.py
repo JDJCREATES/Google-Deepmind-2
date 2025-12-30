@@ -21,6 +21,8 @@ from app.agents.sub_agents.coder.models import (
     TestBundle, TestCase, TestType,
     PreflightCheck, CheckResult, CheckStatus,
     CoderComponentConfig,
+    CoderMetadata, ImplementationReport, CommitIntent,
+    CoderOutput,
 )
 
 
@@ -288,10 +290,13 @@ class TestAuthor:
                 name=tc.get("name", "Test"),
                 description=tc.get("description", ""),
                 test_type=TestType(tc.get("type", "unit")),
-                code=tc.get("code", ""),
+                test_code=tc.get("code", ""),
+                test_file_path=tc.get("file_path", f"tests/{tc.get('name', 'test')}.test.ts")
             ))
         
-        return TestBundle(task_id=task_id, tests=cases)
+        # Create metadata for the bundle
+        metadata = CoderMetadata(task_id=task_id, plan_id=None, confidence=1.0)
+        return TestBundle(metadata=metadata, tests=cases)
 
 
 class PreflightChecker:
@@ -385,6 +390,58 @@ class CodeTools:
                 return f"{base_dir}/{name}"
         
         return f"src/{name}"
+
+    @staticmethod
+    def assemble_coder_output(
+        task_id: str,
+        changes: List[FileChange],
+        tests: List[TestCase],
+        summary: str,
+        confidence: float,
+        plan_id: Optional[str] = None
+    ) -> CoderOutput:
+        """Assemble the complete coder output."""
+        metadata = CoderMetadata(
+            task_id=task_id,
+            plan_id=plan_id,
+            confidence=confidence
+        )
+        
+        # Create changeset
+        changeset = FileChangeSet(
+            metadata=metadata,
+            summary=summary,
+            changes=changes,
+            total_files_changed=len(changes),
+            total_lines_added=sum(c.lines_added for c in changes),
+            total_lines_removed=sum(c.lines_removed for c in changes)
+        )
+        
+        # Create implementation report
+        report = ImplementationReport(
+            metadata=metadata,
+            summary=summary,
+            changes_made=[c.summary_line for c in changes if c.summary_line] or ["Implemented changes"],
+            overall_confidence=confidence
+        )
+        
+        # Create commit intent
+        commit = CommitIntent(
+            task_id=task_id,
+            plan_id=plan_id,
+            changeset_id=changeset.id,
+            message=summary
+        )
+        
+        return CoderOutput(
+            success=True,
+            file_change_set=changeset,
+            test_bundle=TestBundle(metadata=metadata, tests=tests),
+            commit_intent=commit,
+            implementation_report=report,
+            total_files_changed=changeset.total_files_changed,
+            total_lines_changed=changeset.total_lines_added + changeset.total_lines_removed
+        )
 
 
 __all__ = [

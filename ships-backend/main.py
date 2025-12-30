@@ -181,6 +181,7 @@ async def run_agent(request: Request, body: PromptRequest):
                             node_name = metadata.get('langgraph_node', 'agent') if isinstance(metadata, dict) else 'agent'
                         
                         # FILTER: Skip HumanMessage types (internal prompts)
+                        msg_type = type(message_chunk).__name__
                         if msg_type in ['HumanMessage', 'HumanMessageChunk']:
                             continue
                         
@@ -299,35 +300,81 @@ async def run_agent(request: Request, body: PromptRequest):
                         if not display_content:
                             continue
                         
-                        # IMPROVED: Parse JSON content to avoid streaming raw data
-                        # This catches Orchestrator thinking and Planner artifacts
-                        if isinstance(display_content, str) and display_content.strip().startswith('{'):
-                            try:
-                                import json as json_mod
-                                parsed = json_mod.loads(display_content)
-                                
-                                # Case 1: Orchestrator Decision
-                                if 'observations' in parsed and 'decision' in parsed:
-                                    decision = parsed.get('decision', 'thinking')
-                                    reasoning = parsed.get('reasoning', '')
-                                    # Format as a thought bubble or simple status update
-                                    display_content = f"**🧠 Orchestrator:** {decision}\n_{reasoning}_"
-                                
-                                # Case 2: Planner Output (Plan Manifest)
-                                elif 'tasks' in parsed and 'folders' in parsed:
-                                    summary = parsed.get('summary', 'Plan generated')
-                                    task_count = len(parsed.get('tasks', []))
-                                    display_content = f"**📋 Plan Created:** {summary}\n• {task_count} tasks defined\n• {len(parsed.get('folders', []))} folders structured"
+                        # ============================================================
+                        # IMPROVED: Aggressive filtering to prevent wall of text
+                        # ============================================================
+                        if isinstance(display_content, str):
+                            # Skip if this is raw JSON (internal data)
+                            stripped = display_content.strip()
+                            
+                            # Skip raw JSON objects/arrays entirely (these are internal)
+                            if stripped.startswith('{') or stripped.startswith('['):
+                                try:
+                                    import json as json_mod
+                                    parsed = json_mod.loads(stripped)
                                     
-                                # Case 3: Validation Result
-                                elif 'validation_results' in parsed:
-                                    display_content = "**✅ Validation Complete**"
-                                
-                            except Exception:
-                                pass # Fallback to raw content if parsing fails
+                                    # Case 1: Orchestrator Decision - emit as phase, not message
+                                    if isinstance(parsed, dict) and 'observations' in parsed and 'decision' in parsed:
+                                        decision = parsed.get('decision', '')
+                                        logger.debug(f"[STREAM] Orchestrator decision: {decision} (suppressed from chat)")
+                                        continue  # Don't display orchestrator thinking
+                                    
+                                    # Case 2: Planner Output - emit as structured event, not wall of text
+                                    if isinstance(parsed, dict) and 'tasks' in parsed:
+                                        task_count = len(parsed.get('tasks', []))
+                                        summary = parsed.get('summary', 'Plan created')
+                                        yield json.dumps({
+                                            "type": "plan_created",
+                                            "summary": summary,
+                                            "task_count": task_count,
+                                            "folders": len(parsed.get('folders', []))
+                                        }) + "\n"
+                                        continue  # Don't dump raw JSON to chat
+                                    
+                                    # Case 3: Any other JSON - skip it (internal data)
+                                    logger.debug(f"[STREAM] Suppressing JSON blob: {stripped[:100]}...")
+                                    continue
+                                    
+                                except Exception:
+                                    pass  # Not valid JSON, might be displayable text
+                            
+                            # Skip very long content (likely internal dumps)
+                            if len(stripped) > 2000:
+                                logger.debug(f"[STREAM] Suppressing long content ({len(stripped)} chars)")
+                                continue
+                            
+                            # Skip content that looks like code/file dumps
+                            skip_code_patterns = [
+                                'import React',
+                                'export default',
+                                'function App',
+                                '```',  # Markdown code blocks
+                                'const ',  # Variable declarations
+                                'let ',
+                                'def ',
+                                'class ',
+                            ]
+                            if any(stripped.startswith(p) for p in skip_code_patterns):
+                                logger.debug(f"[STREAM] Suppressing code content")
+                                continue
+                            
+                            # Skip repeated internal patterns
+                            internal_patterns = [
+                                'CURRENT PROJECT PATH:',
+                                'FILES ALREADY CREATED',
+                                'ACTUAL FILE STRUCTURE',
+                                '<role>',
+                                '<context>',
+                                '<task>',
+                                '<constraints>',
+                                '<output_format>',
+                                '===',  # Dividers
+                            ]
+                            if any(p in stripped for p in internal_patterns):
+                                continue
                         
-                        # Stream the content to frontend
-                        logger.debug(f"[STREAM] Chunk from {node_name}: {str(display_content)[:50]}...")
+                        # Stream the content to frontend (only clean, user-relevant text)
+                        logger.debug(f"[STREAM] Displaying from {node_name}: {str(display_content)[:50]}...")
                         chunk = {
                             "type": "message",
                             "node": node_name,

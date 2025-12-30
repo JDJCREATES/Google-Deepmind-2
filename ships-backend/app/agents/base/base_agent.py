@@ -167,8 +167,21 @@ class BaseAgent(ABC):
                 if role == 'user':
                     messages.append(HumanMessage(content=content))
                 elif role == 'assistant':
-                    messages.append(AIMessage(content=content))
-                # Skip system messages as we already have our own
+                    # CRITICAL: Preserve tool_calls and additional_kwargs for thought signatures
+                    messages.append(AIMessage(
+                        content=content,
+                        tool_calls=msg.get('tool_calls', []),
+                        additional_kwargs=msg.get('additional_kwargs', {}),
+                        response_metadata=msg.get('response_metadata', {})
+                    ))
+                elif role == 'tool':
+                    from langchain_core.messages import ToolMessage
+                    messages.append(ToolMessage(
+                        content=content,
+                        tool_call_id=msg.get('tool_call_id', ''),
+                        name=msg.get('name', ''),
+                        additional_kwargs=msg.get('additional_kwargs', {})
+                    ))
             else:
                 # Assume it's already a BaseMessage
                 messages.append(msg)
