@@ -188,10 +188,19 @@ async def run_agent(request: Request, body: PromptRequest):
                         # SPECIAL: Stream Tool Start events (AIMessage with tool_calls)
                         if getattr(message_chunk, 'tool_calls', None):
                             for tc in message_chunk.tool_calls:
+                                tool_name = tc.get('name', 'unknown_tool')
+                                args = tc.get('args', {})
+                                
+                                # Extract file path from arguments for file operations
+                                file_path = None
+                                if isinstance(args, dict):
+                                    file_path = args.get('file_path') or args.get('path') or args.get('filename')
+                                
                                 yield json.dumps({
                                     "type": "tool_start",
-                                    "tool": tc.get('name', 'unknown_tool'),
-                                    "content": str(tc.get('args', {}))
+                                    "tool": tool_name,
+                                    "file": file_path,
+                                    "content": str(args)[:200]  # Truncate for safety
                                 }) + "\n"
                         
                         # SPECIAL: Stream ToolMessage results to frontend
@@ -250,12 +259,6 @@ async def run_agent(request: Request, body: PromptRequest):
                         # Skip empty content
                         if not content:
                             continue
-                            
-                        # FILTER: Skip internal control messages
-                        if isinstance(content, str):
-                            skip_patterns = ['EXECUTE NOW', 'Start creating files NOW', 'Use the write_file_to_disk', 'ACTION REQUIRED', 'MANDATORY FIRST STEP', 'SCAFFOLDING CHECK']
-                            if any(pattern in content for pattern in skip_patterns):
-                                continue
                         
                         # Track node changes and emit phase events
                         if node_name != current_node:
@@ -277,110 +280,34 @@ async def run_agent(request: Request, body: PromptRequest):
                                 }) + "\n"
                         
                         # ============================================================
-                        # CRITICAL: Convert content to displayable string
+                        # FUNDAMENTAL FIX: DO NOT stream raw LLM content to chat
+                        # Only emit structured events - never raw AI text/JSON
                         # ============================================================
-                        display_content = content
+                        # 
+                        # The previous approach tried to filter out JSON/code patterns,
+                        # but this was a losing battle (whack-a-mole).
+                        # 
+                        # NEW APPROACH: Only log raw content for debugging, never send it.
+                        # The frontend gets information through:
+                        #   - phase events (planning/coding/validating)
+                        #   - tool_start events (when tools are called)
+                        #   - tool_result events (when tools complete)
+                        #   - terminal_output events (for terminal commands)
+                        #   - complete event (final status)
+                        #
+                        # This keeps the UI clean and focused on actions, not AI thinking.
                         
-                        # Handle list content (e.g., [{'type': 'text', 'text': '...'}])
-                        if isinstance(content, list):
-                            text_parts = []
-                            for item in content:
-                                if isinstance(item, dict) and 'text' in item:
-                                    text_parts.append(item['text'])
-                                elif isinstance(item, str):
-                                    text_parts.append(item)
-                            display_content = "".join(text_parts) if text_parts else None
-                        
-                        # Handle dict content (shouldn't display as object)
+                        # Log for debugging only
+                        if isinstance(content, str) and content:
+                            preview = content[:100].replace('\n', ' ')
+                            logger.debug(f"[STREAM] AI content from {node_name} (not displayed): {preview}...")
+                        elif isinstance(content, list):
+                            logger.debug(f"[STREAM] AI list content from {node_name} (not displayed): {len(content)} items")
                         elif isinstance(content, dict):
-                            # Try to get text from common fields
-                            display_content = content.get('text') or content.get('content') or None
+                            logger.debug(f"[STREAM] AI dict content from {node_name} (not displayed): {list(content.keys())}")
                         
-                        # Skip if nothing to display
-                        if not display_content:
-                            continue
-                        
-                        # ============================================================
-                        # IMPROVED: Aggressive filtering to prevent wall of text
-                        # ============================================================
-                        if isinstance(display_content, str):
-                            # Skip if this is raw JSON (internal data)
-                            stripped = display_content.strip()
-                            
-                            # Skip raw JSON objects/arrays entirely (these are internal)
-                            if stripped.startswith('{') or stripped.startswith('['):
-                                try:
-                                    import json as json_mod
-                                    parsed = json_mod.loads(stripped)
-                                    
-                                    # Case 1: Orchestrator Decision - emit as phase, not message
-                                    if isinstance(parsed, dict) and 'observations' in parsed and 'decision' in parsed:
-                                        decision = parsed.get('decision', '')
-                                        logger.debug(f"[STREAM] Orchestrator decision: {decision} (suppressed from chat)")
-                                        continue  # Don't display orchestrator thinking
-                                    
-                                    # Case 2: Planner Output - emit as structured event, not wall of text
-                                    if isinstance(parsed, dict) and 'tasks' in parsed:
-                                        task_count = len(parsed.get('tasks', []))
-                                        summary = parsed.get('summary', 'Plan created')
-                                        yield json.dumps({
-                                            "type": "plan_created",
-                                            "summary": summary,
-                                            "task_count": task_count,
-                                            "folders": len(parsed.get('folders', []))
-                                        }) + "\n"
-                                        continue  # Don't dump raw JSON to chat
-                                    
-                                    # Case 3: Any other JSON - skip it (internal data)
-                                    logger.debug(f"[STREAM] Suppressing JSON blob: {stripped[:100]}...")
-                                    continue
-                                    
-                                except Exception:
-                                    pass  # Not valid JSON, might be displayable text
-                            
-                            # Skip very long content (likely internal dumps)
-                            if len(stripped) > 2000:
-                                logger.debug(f"[STREAM] Suppressing long content ({len(stripped)} chars)")
-                                continue
-                            
-                            # Skip content that looks like code/file dumps
-                            skip_code_patterns = [
-                                'import React',
-                                'export default',
-                                'function App',
-                                '```',  # Markdown code blocks
-                                'const ',  # Variable declarations
-                                'let ',
-                                'def ',
-                                'class ',
-                            ]
-                            if any(stripped.startswith(p) for p in skip_code_patterns):
-                                logger.debug(f"[STREAM] Suppressing code content")
-                                continue
-                            
-                            # Skip repeated internal patterns
-                            internal_patterns = [
-                                'CURRENT PROJECT PATH:',
-                                'FILES ALREADY CREATED',
-                                'ACTUAL FILE STRUCTURE',
-                                '<role>',
-                                '<context>',
-                                '<task>',
-                                '<constraints>',
-                                '<output_format>',
-                                '===',  # Dividers
-                            ]
-                            if any(p in stripped for p in internal_patterns):
-                                continue
-                        
-                        # Stream the content to frontend (only clean, user-relevant text)
-                        logger.debug(f"[STREAM] Displaying from {node_name}: {str(display_content)[:50]}...")
-                        chunk = {
-                            "type": "message",
-                            "node": node_name,
-                            "content": str(display_content)  # Ensure string
-                        }
-                        yield json.dumps(chunk) + "\n"
+                        # DO NOT YIELD RAW CONTENT - that's what caused the wall of JSON!
+                        # The continue here is intentional - we've already emitted tool events above
                     
                     # Handle dict format (other stream modes)
                     elif isinstance(event, dict):

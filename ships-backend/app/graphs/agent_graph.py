@@ -224,6 +224,77 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
                          cache_name = new_cache_name
                          logger.info(f"[PLANNER] 🧠 Created Explicit Cache: {new_cache_name}")
         
+            # ================================================================
+            # PHASE 2: SCAFFOLDING EXECUTION
+            # After plan is created, scaffold the project structure
+            # ================================================================
+            from app.agents.sub_agents.planner.components import Scaffolder
+            
+            scaffolder = Scaffolder()
+            
+            # Get existing files in project
+            existing_files = []
+            try:
+                if project_path:
+                    project_dir = Path(project_path)
+                    if project_dir.exists():
+                        existing_files = [f.name for f in project_dir.iterdir()]
+            except Exception as e:
+                logger.warning(f"[PLANNER] ⚠️ Could not list project files: {e}")
+            
+            # Get folder map from merged artifacts
+            folder_map_data = merged_artifacts.get("folder_map", {})
+            if hasattr(folder_map_data, "model_dump"):
+                folder_map_data = folder_map_data.model_dump()
+            
+            # Check if scaffolding needed and build context
+            scaffold_context = scaffolder.process({
+                "folder_map": folder_map_data,
+                "project_path": project_path,
+                "existing_files": existing_files,
+            })
+            
+            needs_scaffolding = scaffold_context.get("needs_scaffolding", False)
+            framework = scaffold_context.get("framework", "react-vite")
+            
+            if needs_scaffolding and project_path:
+                logger.info(f"[PLANNER] 🏗️ Scaffolding {framework} project...")
+                
+                try:
+                    # Create a tool-calling agent for scaffolding
+                    scaffold_agent = AgentFactory.create_agent("planner")
+                    
+                    # Build the scaffolding prompt
+                    scaffold_prompt = scaffold_context.get("scaffolding_prompt", "")
+                    if not scaffold_prompt:
+                        scaffold_prompt = scaffolder.build_scaffolding_prompt(
+                            folder_map_data, project_path, existing_files
+                        )
+                    
+                    # Invoke the scaffolding agent
+                    scaffold_result = await scaffold_agent.ainvoke(
+                        {"messages": [HumanMessage(content=scaffold_prompt)]},
+                        config={
+                            "recursion_limit": 25,  # Allow multiple tool calls
+                            "configurable": {"thread_id": f"scaffold_{project_path}"}
+                        }
+                    )
+                    
+                    logger.info(f"[PLANNER] ✅ Scaffolding complete for {framework}")
+                    
+                    # Update artifacts with scaffolding status
+                    merged_artifacts["scaffolding_complete"] = True
+                    merged_artifacts["framework"] = framework
+                    
+                except Exception as scaffold_error:
+                    logger.error(f"[PLANNER] ❌ Scaffolding failed: {scaffold_error}")
+                    # Don't fail the entire planning - scaffolding is best-effort
+                    merged_artifacts["scaffolding_complete"] = False
+                    merged_artifacts["scaffolding_error"] = str(scaffold_error)
+            else:
+                logger.info(f"[PLANNER] ✓ Project already scaffolded, skipping...")
+                merged_artifacts["scaffolding_complete"] = True
+        
         return {
             "phase": "plan_ready",
             "artifacts": merged_artifacts,
@@ -648,9 +719,22 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
     artifacts = state.get("artifacts", {})
     project_path = artifacts.get("project_path")
     plan_exists = False
+    project_scaffolded = False  # NEW: Check for actual project files
+    
     if project_path:
-        plan_path = Path(project_path) / ".ships" / "implementation_plan.md"
+        project_dir = Path(project_path)
+        plan_path = project_dir / ".ships" / "implementation_plan.md"
         plan_exists = plan_path.exists()
+        
+        # Check for actual project scaffolding (not just .ships folder)
+        scaffolding_indicators = [
+            project_dir / "package.json",
+            project_dir / "src",
+            project_dir / "index.html",
+            project_dir / "requirements.txt",
+            project_dir / "pyproject.toml",
+        ]
+        project_scaffolded = any(ind.exists() for ind in scaffolding_indicators)
     
     # 2. Build Dynamic System Prompt
     # 2. Build Dynamic System Prompt
@@ -662,11 +746,12 @@ FILES COMPLETED: {len(completed_files)}
 VALIDATION PASSED: {validation_passed}
 FIX ATTEMPTS: {fix_attempts}
 PLAN EXISTS: {plan_exists}
+PROJECT SCAFFOLDED: {project_scaffolded}
 </state>
 
 <rules>
-1. If PHASE is "planning" (and plan missing/stale) -> call_planner
-2. If PHASE is "plan_ready" -> call_coder
+1. If PHASE is "planning" (and plan missing) -> call_planner
+2. If PHASE is "plan_ready" -> call_coder (coder handles scaffolding via npx/npm)
 3. If PHASE is "coding" (and files remain) -> call_coder
 4. If PHASE is "validating" -> call_validator
 5. If PHASE is "fixing" -> call_fixer

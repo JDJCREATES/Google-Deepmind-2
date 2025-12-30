@@ -478,6 +478,175 @@ class RiskAssessor:
         return {"risk_report": risk_report}
 
 
+class Scaffolder:
+    """
+    Project scaffolding component.
+    
+    Builds scaffolding prompts and determines what scaffolding is needed
+    based on project state and folder map.
+    
+    Does NOT execute scaffolding - that's done by the planner_node
+    using a tool-calling agent.
+    """
+    
+    def __init__(self, config: Optional[PlannerComponentConfig] = None):
+        self.config = config or PlannerComponentConfig()
+    
+    def detect_framework(self, folder_map: Dict[str, Any]) -> str:
+        """Detect target framework from folder map or entries."""
+        entries = folder_map.get("entries", [])
+        paths = [e.get("path", "") for e in entries]
+        
+        # Check for Next.js indicators
+        if any("app/" in p and "page." in p for p in paths):
+            return "nextjs"
+        # Check for React/Vite
+        if any("src/App" in p or "src/main" in p for p in paths):
+            return "react-vite"
+        # Check for Python/FastAPI
+        if any("main.py" in p or "__init__.py" in p for p in paths):
+            return "python"
+        # Check for Vue
+        if any("App.vue" in p for p in paths):
+            return "vue"
+        
+        return "react-vite"  # Default
+    
+    def get_scaffold_command(self, framework: str) -> str:
+        """Get the npx/npm command for scaffolding."""
+        commands = {
+            "react-vite": "npx -y create-vite@latest . --template react",
+            "react-vite-ts": "npx -y create-vite@latest . --template react-ts",
+            "nextjs": "npx -y create-next-app@latest . --typescript --yes --app --no-src-dir",
+            "vue": "npx -y create-vue@latest . --default",
+            "python": None,  # Python doesn't need npm scaffolding
+        }
+        return commands.get(framework, commands["react-vite"])
+    
+    def build_scaffolding_prompt(
+        self,
+        folder_map: Dict[str, Any],
+        project_path: str,
+        existing_files: List[str] = None
+    ) -> str:
+        """
+        Build the prompt for the scaffolding agent.
+        
+        Args:
+            folder_map: The FolderMap artifact from planning
+            project_path: Path to the project directory
+            existing_files: List of existing files in project
+            
+        Returns:
+            Prompt string for the scaffolding agent
+        """
+        framework = self.detect_framework(folder_map)
+        scaffold_cmd = self.get_scaffold_command(framework)
+        
+        # Build folder creation list
+        folders_to_create = []
+        files_to_create = []
+        
+        for entry in folder_map.get("entries", []):
+            path = entry.get("path", "")
+            is_dir = entry.get("is_directory", False) or path.endswith("/")
+            
+            if is_dir:
+                folders_to_create.append(path.rstrip("/"))
+            elif path.endswith("__init__.py") or "stub" in entry.get("role", ""):
+                files_to_create.append(path)
+        
+        prompt_parts = [
+            f"You are scaffolding a {framework} project at: {project_path}",
+            "",
+            "EXECUTE THESE STEPS IN ORDER:",
+            "",
+            "STEP 1: Check if project is already scaffolded",
+            '- Call list_directory(".") to see current files',
+            "- If package.json already exists, SKIP step 2",
+            "",
+        ]
+        
+        if scaffold_cmd:
+            prompt_parts.extend([
+                "STEP 2: Run framework scaffolding (ONLY if no package.json)",
+                f'- Call run_terminal_command("{scaffold_cmd}")',
+                '- Then call run_terminal_command("npm install")',
+                "",
+            ])
+        
+        if folders_to_create:
+            prompt_parts.extend([
+                "STEP 3: Create folder structure",
+                "Create these folders using create_directory:",
+            ])
+            for folder in folders_to_create[:10]:  # Limit to prevent token explosion
+                prompt_parts.append(f'  - create_directory("{folder}")')
+            prompt_parts.append("")
+        
+        if files_to_create:
+            prompt_parts.extend([
+                "STEP 4: Create empty placeholder files",
+                "Create these files using write_file_to_disk:",
+            ])
+            for file in files_to_create[:10]:  # Limit
+                if file.endswith("__init__.py"):
+                    prompt_parts.append(f'  - write_file_to_disk("{file}", "# {file}\\n")')
+                else:
+                    prompt_parts.append(f'  - write_file_to_disk("{file}", "// TODO: Implement\\n")')
+            prompt_parts.append("")
+        
+        prompt_parts.extend([
+            "STEP 5: Verify scaffolding",
+            '- Call list_directory(".") to confirm structure',
+            "",
+            "IMPORTANT:",
+            "- Use -y or --yes flags to avoid interactive prompts",
+            "- If a command fails, log the error and continue",
+            "- Do NOT write actual code - just create structure",
+        ])
+        
+        return "\n".join(prompt_parts)
+    
+    def check_needs_scaffolding(self, existing_files: List[str]) -> bool:
+        """Check if project needs scaffolding based on existing files."""
+        scaffolding_indicators = [
+            "package.json",
+            "requirements.txt",
+            "pyproject.toml",
+            "Cargo.toml",
+            "go.mod",
+        ]
+        return not any(ind in existing_files for ind in scaffolding_indicators)
+    
+    def process(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process context and return scaffolding configuration.
+        
+        Returns:
+            Dict with scaffolding info (prompt, needs_scaffolding, framework)
+        """
+        folder_map = context.get("folder_map", {})
+        project_path = context.get("project_path", ".")
+        existing_files = context.get("existing_files", [])
+        
+        needs_scaffolding = self.check_needs_scaffolding(existing_files)
+        framework = self.detect_framework(folder_map)
+        
+        result = {
+            "needs_scaffolding": needs_scaffolding,
+            "framework": framework,
+            "scaffold_command": self.get_scaffold_command(framework),
+        }
+        
+        if needs_scaffolding:
+            result["scaffolding_prompt"] = self.build_scaffolding_prompt(
+                folder_map, project_path, existing_files
+            )
+        
+        return result
+
+
 __all__ = [
     "Scoper",
     "FolderArchitect",
@@ -485,4 +654,6 @@ __all__ = [
     "DependencyPlanner",
     "TestDesigner",
     "RiskAssessor",
+    "Scaffolder",
 ]
+

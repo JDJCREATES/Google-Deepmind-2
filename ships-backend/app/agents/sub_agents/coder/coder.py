@@ -377,6 +377,9 @@ REMEMBER: You are judged by how SMALL and CORRECT your diffs are, not how much c
         context: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Use LLM for actual code generation."""
+        import logging
+        logger = logging.getLogger("ships.coder")
+        
         prompt = self._build_coding_prompt(task, context)
         
         messages = [
@@ -386,8 +389,34 @@ REMEMBER: You are judged by how SMALL and CORRECT your diffs are, not how much c
         
         try:
             response = await self.llm.ainvoke(messages)
-            return self._parse_code_response(response.content)
+            
+            # Defensive: Check for None response
+            if response is None:
+                logger.error("[CODER] LLM returned None response")
+                return {"error": "LLM returned None", "files": []}
+            
+            # Defensive: Check for None content
+            content = response.content
+            if content is None:
+                logger.warning("[CODER] LLM response.content is None, checking for tool calls")
+                # Could be tool calls instead of content
+                if hasattr(response, 'tool_calls') and response.tool_calls:
+                    logger.info(f"[CODER] Found {len(response.tool_calls)} tool calls")
+                    return {"error": "Tool-based response", "files": [], "tool_calls": response.tool_calls}
+                return {"error": "Empty LLM response", "files": []}
+            
+            # Handle list content (Gemini format)
+            if isinstance(content, list):
+                text_parts = [p.get('text', '') if isinstance(p, dict) else str(p) for p in content]
+                content = ''.join(text_parts)
+            
+            if not content:
+                logger.warning("[CODER] LLM returned empty content")
+                return {"error": "Empty content", "files": []}
+            
+            return self._parse_code_response(content)
         except Exception as e:
+            logger.error(f"[CODER] LLM generation failed: {e}")
             return {"error": str(e), "files": []}
     
     def _build_coding_prompt(
@@ -518,7 +547,17 @@ REMEMBER: You are judged by how SMALL and CORRECT your diffs are, not how much c
         parameters = state.get("parameters", {})
         
         # Get task from parameters or artifacts
-        task = parameters.get("task") or artifacts.get("current_task") or {}
+        task = parameters.get("task") or artifacts.get("current_task")
+        
+        # If no structured task, create one from user_request
+        if not task:
+            user_request = parameters.get("user_request", "")
+            task = {
+                "id": f"task_{uuid.uuid4().hex[:8]}",
+                "title": user_request[:100] if user_request else "Implementation Task",
+                "description": user_request,
+                "acceptance_criteria": ["Code should work as requested"],
+            }
         
         folder_map = artifacts.get("folder_map")
         api_contracts = artifacts.get("api_contracts")
