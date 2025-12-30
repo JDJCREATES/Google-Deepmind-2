@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pydantic import BaseModel, Field
 import uuid
 
-from app.orchestrator.state_machine import OrchestratorState
+from .state_machine import OrchestratorState
 
 
 class GateCheckStatus(str, Enum):

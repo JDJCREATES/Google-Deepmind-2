@@ -36,12 +36,13 @@ from app.agents.sub_agents.coder.models import (
     FollowUpTasks, FollowUpTask,
     CoderOutput, CoderMetadata,
 )
-from app.agents.sub_agents.coder.components import (
-    CoderComponentConfig, TaskInterpreter, ContextConsumer,
-    StyleEnforcer, ImplementationSynthesizer, DependencyVerifier,
-    TestAuthor, PreflightChecker,
+
+# Tools are in central location: app/agents/tools/coder/
+from app.agents.tools.coder import (
+    generate_file_diff,
+    detect_language,
+    assess_change_risk,
 )
-from app.agents.sub_agents.coder.tools import CodeTools, DiffGenerator
 
 
 class Coder(BaseAgent):

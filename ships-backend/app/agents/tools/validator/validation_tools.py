@@ -1,8 +1,8 @@
 """
-ShipS* Validator Tools
+ShipS* Validator Tool Functions
 
-LangChain tools for the Validator agent using @tool decorator.
-These are used with LangGraph's create_react_agent.
+@tool decorated LangChain tools for the Validator agent.
+Uses the validation layers from layers.py to perform checks.
 """
 
 from typing import Dict, Any, List
@@ -12,7 +12,6 @@ from app.agents.sub_agents.validator.models import (
     ValidationStatus, FailureLayer, ViolationSeverity,
     Violation, ValidationReport, ValidatorConfig,
 )
-# layers.py is now in the central tools folder
 from app.agents.tools.validator.layers import (
     StructuralLayer, CompletenessLayer, DependencyLayer, ScopeLayer,
 )
@@ -219,13 +218,3 @@ def create_validation_report(
         "recommended_action": action,
         "task_id": task_id
     }
-
-
-# Export all tools for the Validator agent
-VALIDATOR_TOOLS = [
-    validate_structural,
-    validate_completeness,
-    validate_dependencies,
-    validate_scope,
-    create_validation_report,
-]

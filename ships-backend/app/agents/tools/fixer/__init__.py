@@ -13,7 +13,8 @@ from app.agents.sub_agents.fixer.models import (
     FixScope, FixApproach, FixRisk, FixResult,
     ViolationFix, ReplanRequest,
 )
-from app.agents.sub_agents.fixer.strategies import (
+# strategies.py is now in the central tools folder
+from app.agents.tools.fixer.strategies import (
     StructuralFixer, CompletenessFixer, DependencyFixer, ScopeFixer,
     FixerConfig,
 )

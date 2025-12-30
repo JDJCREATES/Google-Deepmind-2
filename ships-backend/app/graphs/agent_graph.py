@@ -33,39 +33,6 @@ from app.agents.sub_agents import (
 from app.agents.orchestrator import MasterOrchestrator  # The Brain
 from app.agents.tools.coder import set_project_root  # Secure project path context
 
-# ... [State Definition omitted for brevity, keeping existing code] ...
-
-# ============================================================================
-# NODE FUNCTIONS
-# ============================================================================
-
-import logging
-logger = logging.getLogger("ships.agent")
-
-# ... [planner_node, coder_node, validator_node, fixer_node kept as is] ...
-
-async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
-    """
-    MASTER ORCHESTRATOR NODE
-    Delegates decision making to the MasterOrchestrator class.
-    """
-    logger.info("[ORCHESTRATOR] 🧠 Starting orchestrator node...")
-    
-    # Instantiate the Brain (lightweight, no heavy init)
-    orchestrator = MasterOrchestrator()
-    
-    # Invoke the Brain with current state
-    # MasterOrchestrator handles all context building, prompting, and parsing
-    result = await orchestrator.invoke(state)
-    
-    decision = result.get("phase", "planner")
-    logger.info(f"[ORCHESTRATOR] 🧠 Decision: {decision}")
-    
-    return {
-        "phase": decision  # This will drive the conditional edges
-    }
-
-
 # ============================================================================
 # STATE DEFINITION  
 # ============================================================================
@@ -117,6 +84,28 @@ class AgentGraphState(TypedDict):
 
 import logging
 logger = logging.getLogger("ships.agent")
+
+async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
+    """
+    MASTER ORCHESTRATOR NODE
+    Delegates decision making to the MasterOrchestrator class.
+    """
+    logger.info("[ORCHESTRATOR] 🧠 Starting orchestrator node...")
+    
+    # Instantiate the Brain (lightweight, no heavy init)
+    orchestrator = MasterOrchestrator()
+    
+    # Invoke the Brain with current state
+    # MasterOrchestrator handles all context building, prompting, and parsing
+    result = await orchestrator.invoke(state)
+    
+    decision = result.get("phase", "planner")
+    logger.info(f"[ORCHESTRATOR] 🧠 Decision: {decision}")
+    
+    return {
+        "phase": decision  # This will drive the conditional edges
+    }
+
 
 async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
     """
