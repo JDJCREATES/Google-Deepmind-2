@@ -53,29 +53,37 @@ class LLMFactory:
         temperature = 0.7
         thinking_level = "low"
         
-        # Configure based on agent type
+        # Configure based on agent type (Gemini 3 Flash optimized)
+        # thinking_level: minimal (fast) < low < medium < high (deep reasoning)
+        # NOTE: Gemini 3 recommends temperature=1.0 - changing can cause loops/degraded performance
         if agent_type == "mini":
-            # Fast validation - use Flash with low reasoning
+            # Fast validation - minimal reasoning
             model_name = MODEL_FLASH
-            temperature = 0.5
-            thinking_level = "low"
+            temperature = 1.0  # Per Gemini 3 guidance
+            thinking_level = "minimal"
             
         elif agent_type == "orchestrator":
-            # Orchestrator needs DEEP reasoning for routing decisions
+            # Routing needs solid reasoning, not max
             model_name = MODEL_FLASH
-            temperature = 0.5
-            thinking_level = "high"
+            temperature = 1.0  # Per Gemini 3 guidance
+            thinking_level = "medium"
             
         elif agent_type == "planner":
-            # Complex planning requires deep reasoning
+            # Planning needs good reasoning for architecture
             model_name = MODEL_FLASH
-            temperature = 0.7
+            temperature = 1.0  # Per Gemini 3 guidance
+            thinking_level = "medium"
+            
+        elif agent_type == "coder":
+            # Code generation needs high reasoning for correctness
+            model_name = MODEL_FLASH
+            temperature = 1.0  # Per Gemini 3 guidance
             thinking_level = "high"
             
-        elif agent_type in ["coder", "fixer"]:
-            # Code generation/fixing needs careful reasoning
+        elif agent_type == "fixer":
+            # Fixing bugs needs high reasoning
             model_name = MODEL_FLASH
-            temperature = 0.2
+            temperature = 1.0  # Per Gemini 3 guidance
             thinking_level = "high"
         
         # Override if explicit high reasoning requested

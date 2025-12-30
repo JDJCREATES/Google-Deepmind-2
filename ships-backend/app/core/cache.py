@@ -15,16 +15,18 @@ from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger("ships.cache")
 
-# Try importing SDKs
+# Try importing SDKs (prefer newer google.genai)
 try:
-    import google.generativeai as genai
-    from google.generativeai import caching
-    SDK_VERSION = "legacy"
+    from google import genai
+    from google.genai import types
+    SDK_VERSION = "v1"
 except ImportError:
     try:
-        from google import genai
-        from google.genai import types
-        SDK_VERSION = "v1"
+        import warnings
+        warnings.filterwarnings('ignore', category=FutureWarning)
+        import google.generativeai as genai
+        from google.generativeai import caching
+        SDK_VERSION = "legacy"
     except ImportError:
         SDK_VERSION = None
         logger.warning("No Gemini SDK found. Explicit caching disabled.")

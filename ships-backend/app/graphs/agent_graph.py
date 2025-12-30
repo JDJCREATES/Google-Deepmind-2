@@ -41,6 +41,8 @@ from app.agents.sub_agents.planner.formatter import (
     format_api_contracts,
     format_dependency_plan,
 )
+from app.core.cache import cache_manager # Explicit Caching
+
 
 
 # ============================================================================
@@ -58,6 +60,9 @@ class AgentGraphState(TypedDict):
     
     # Artifacts produced by agents
     artifacts: Dict[str, Any]
+    
+    # Explicit Cache Name (Gemini)
+    cache_name: Optional[str]
     
     # Tool results stored separately from messages (token optimization)
     # Only metadata/references go in messages, full results here
@@ -127,7 +132,9 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
     logger.info(f"[PLANNER] 📝 User request: {user_request[:100]}...")
     
     # Create the mature Planner instance
-    planner = Planner()
+    # Use existing cache if available (from previous turn)
+    cache_name = state.get("cache_name")
+    planner = Planner(cached_content=cache_name)
     
     # Build intent dict from user request
     intent = {
@@ -190,12 +197,36 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
                         f.write(dp_md)
                 
                 logger.info(f"[PLANNER] 💾 Saved artifacts to {dot_ships}")
+                
             except Exception as io_e:
                 logger.error(f"[PLANNER] ❌ Failed to save artifacts: {io_e}")
+
+            # CREATE/UPDATE GEMINI EXPLICIT CACHE
+            # We use the formatted markdown content for best context
+            if cache_manager.enabled:
+                cache_artifacts = {}
+                if "folder_map" in merged_artifacts and folder_map:
+                    cache_artifacts["folder_map"] = format_folder_map(folder_map)
+                if "api_contracts" in merged_artifacts and api_contracts:
+                    cache_artifacts["api_contracts"] = format_api_contracts(api_contracts)
+                if "dependency_plan" in merged_artifacts and deps:
+                    cache_artifacts["dependencies"] = format_dependency_plan(deps)
+                
+                # Create cache if we have meaningful context
+                if cache_artifacts:
+                    new_cache_name = cache_manager.create_project_context_cache(
+                        project_id=os.path.basename(project_path) if project_path else "default",
+                        artifacts=cache_artifacts
+                    )
+                    if new_cache_name:
+                         # Update state with new cache name
+                         cache_name = new_cache_name
+                         logger.info(f"[PLANNER] 🧠 Created Explicit Cache: {new_cache_name}")
         
         return {
             "phase": "plan_ready",
             "artifacts": merged_artifacts,
+            "cache_name": cache_name, # Propagate cache name
             "messages": [AIMessage(content="Planning complete. Ready for coding.")]
         }
     except Exception as e:
@@ -342,11 +373,7 @@ ACTUAL FILE STRUCTURE (Disk State):
 "Created: [file]" or "Implementation complete."
 </output_format>"""
 
-    # 5. Create Coder and invoke
-    # Note: The Coder class expects a state dict with artifacts
-    coder = Coder()
-    
-    # Add context to state for Coder
+    # 5. Build state for Coder
     coder_state = {
         **state,
         "artifacts": {
@@ -361,7 +388,11 @@ ACTUAL FILE STRUCTURE (Disk State):
         }
     }
     
-    logger.info(f"[CODER] Invoking Coder with {len(unique_completed)} files completed")
+    # 6. Invoke Coder with cached context
+    cache_name = state.get("cache_name")
+    coder = Coder(cached_content=cache_name)
+    
+    logger.info(f"[CODER] 🚀 Invoking Coder (Cache: {cache_name})...")
     
     try:
         result = await coder.invoke(coder_state)
