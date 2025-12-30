@@ -199,6 +199,7 @@ Produce a JSON object with the following structure:
         
         # Step 1: Use LLM for high-level planning
         llm_plan = await self._generate_llm_plan(intent, context)
+        context["llm_plan"] = llm_plan
         
         # Step 2: Run subcomponents to produce artifacts
         # Scoper: Task decomposition

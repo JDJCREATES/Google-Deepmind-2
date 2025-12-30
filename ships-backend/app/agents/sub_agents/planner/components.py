@@ -3,6 +3,7 @@ ShipS* Planner Subcomponents
 
 Subcomponents that produce individual planning artifacts.
 Each component is responsible for one artifact type.
+Now fully dynamic using LLM plan data.
 
 Components:
 - Scoper: Task decomposition → TaskList
@@ -13,7 +14,7 @@ Components:
 - RiskAssessor: Risk identification → RiskReport
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from app.agents.sub_agents.planner.models import (
     TaskList, Task, TaskComplexity, TaskPriority, TaskStatus,
     AcceptanceCriterion, TaskDependency, ExpectedOutput,
@@ -45,7 +46,7 @@ class Scoper:
             Dict with 'task_list' key containing TaskList
         """
         intent = context.get("intent", {})
-        description = intent.get("description", "")
+        llm_plan = context.get("llm_plan", {})
         
         task_list = TaskList(
             metadata=ArtifactMetadata(
@@ -53,24 +54,56 @@ class Scoper:
             )
         )
         
-        # Create a main implementation task
-        main_task = Task(
-            id="task_main_001",
-            title="Implement Core Features",
-            description=f"Implement: {description[:200]}",
-            complexity=TaskComplexity.MEDIUM,
-            priority=TaskPriority.HIGH,
-            status=TaskStatus.PENDING,
-            estimated_minutes=120,
-            acceptance_criteria=[
-                AcceptanceCriterion(
-                    given="the application is running",
-                    when="user interacts with it",
-                    then="expected behavior occurs"
+        # Use LLM plan tasks if available
+        llm_tasks = llm_plan.get("tasks", [])
+        if llm_tasks:
+            for i, t_data in enumerate(llm_tasks):
+                # Create structured AcceptanceCriterion objects
+                criteria = []
+                for ac_text in t_data.get("acceptance_criteria", []):
+                    criteria.append(AcceptanceCriterion(description=ac_text))
+                
+                # Parse output files
+                outputs = []
+                for out in t_data.get("expected_outputs", []):
+                    outputs.append(ExpectedOutput(
+                        path=out.get("path", ""),
+                        description=out.get("description", "Created file")
+                    ))
+                
+                task = Task(
+                    id=t_data.get("id", f"task_{i+1:03d}"),
+                    title=t_data.get("title", "Untitled Task"),
+                    description=t_data.get("description", ""),
+                    complexity=TaskComplexity(t_data.get("complexity", "medium")),
+                    priority=TaskPriority(t_data.get("priority", "medium")),
+                    status=TaskStatus.PENDING,
+                    estimated_minutes=t_data.get("estimated_minutes", 60),
+                    acceptance_criteria=criteria,
+                    expected_outputs=outputs,
+                    order=i + 1
                 )
-            ]
-        )
-        task_list.add_task(main_task)
+                task_list.add_task(task)
+        else:
+            # Fallback if no LLM plan (should rare)
+            description = intent.get("description", "")
+            main_task = Task(
+                id="task_main_001",
+                title="Implement Core Features",
+                description=f"Implement: {description[:200]}",
+                complexity=TaskComplexity.MEDIUM,
+                priority=TaskPriority.HIGH,
+                status=TaskStatus.PENDING,
+                estimated_minutes=120,
+                acceptance_criteria=[
+                    AcceptanceCriterion(
+                        given="the application is running",
+                        when="user interacts with it",
+                        then="expected behavior occurs"
+                    )
+                ]
+            )
+            task_list.add_task(main_task)
         
         return {"task_list": task_list}
 
@@ -92,8 +125,8 @@ class FolderArchitect:
         Returns:
             Dict with 'folder_map' key containing FolderMap
         """
-        framework = context.get("framework", "react")
         intent = context.get("intent", {})
+        llm_plan = context.get("llm_plan", {})
         
         folder_map = FolderMap(
             metadata=ArtifactMetadata(
@@ -102,24 +135,41 @@ class FolderArchitect:
             project_root=self.config.project_root
         )
         
-        # Standard React/Vite structure
-        if framework in ["react", "vite"]:
-            entries = [
-                FolderEntry(path="src", is_directory=True, description="Source code", role=FileRole.SOURCE),
-                FolderEntry(path="src/components", is_directory=True, description="React components", role=FileRole.COMPONENT),
-                FolderEntry(path="src/components/ui", is_directory=True, description="Base UI components", role=FileRole.COMPONENT),
-                FolderEntry(path="src/hooks", is_directory=True, description="Custom React hooks", role=FileRole.UTILITY),
-                FolderEntry(path="src/lib", is_directory=True, description="Utilities and helpers", role=FileRole.UTILITY),
-                FolderEntry(path="src/types", is_directory=True, description="TypeScript types", role=FileRole.MODEL),
-                FolderEntry(path="src/App.tsx", is_directory=False, description="Main App component", role=FileRole.COMPONENT),
-                FolderEntry(path="src/main.tsx", is_directory=False, description="Entry point", role=FileRole.SOURCE),
-                FolderEntry(path="src/index.css", is_directory=False, description="Global styles", role=FileRole.STYLE),
-            ]
-        else:
-            # Generic structure
-            entries = [
-                FolderEntry(path="src", is_directory=True, description="Source code", role=FileRole.SOURCE),
-            ]
+        entries = []
+        
+        # 1. Use LLM suggested folders
+        llm_folders = llm_plan.get("folders", [])
+        existing_paths = set()
+        
+        for f_data in llm_folders:
+            path = f_data.get("path", "")
+            if path and path not in existing_paths:
+                role = FileRole.SOURCE
+                if "component" in path.lower(): role = FileRole.COMPONENT
+                elif "hook" in path.lower(): role = FileRole.UTILITY
+                elif "test" in path.lower(): role = FileRole.TEST
+                
+                entries.append(FolderEntry(
+                    path=path,
+                    is_directory=f_data.get("is_directory", True),
+                    description=f_data.get("description", ""),
+                    role=role
+                ))
+                existing_paths.add(path)
+                
+        # 2. If no LLM folders, use framework defaults
+        if not entries:
+            framework = context.get("framework", "react")
+            if framework in ["react", "vite"]:
+                 entries = [
+                    FolderEntry(path="src", is_directory=True, description="Source code", role=FileRole.SOURCE),
+                    FolderEntry(path="src/components", is_directory=True, description="React components", role=FileRole.COMPONENT),
+                    FolderEntry(path="src/App.tsx", is_directory=False, description="Main App component", role=FileRole.COMPONENT),
+                ]
+            else:
+                 entries = [
+                    FolderEntry(path="src", is_directory=True, description="Source code", role=FileRole.SOURCE),
+                ]
         
         folder_map.entries = entries
         return {"folder_map": folder_map}
@@ -143,6 +193,7 @@ class ContractAuthor:
             Dict with 'api_contracts' key containing APIContracts
         """
         intent = context.get("intent", {})
+        llm_plan = context.get("llm_plan", {})
         
         api_contracts = APIContracts(
             metadata=ArtifactMetadata(
@@ -150,8 +201,16 @@ class ContractAuthor:
             )
         )
         
-        # No endpoints by default (frontend-only)
-        # LLM will enrich if needed
+        # Use LLM suggested endpoints
+        llm_endpoints = llm_plan.get("api_endpoints", [])
+        for ep_data in llm_endpoints:
+            api_contracts.endpoints.append(APIEndpoint(
+                path=ep_data.get("path", "/"),
+                method=HTTPMethod(ep_data.get("method", "GET")),
+                description=ep_data.get("description", ""),
+                request_schema=PayloadSchema(fields=[]), # Simplified
+                response_schema=PayloadSchema(fields=[])
+            ))
         
         return {"api_contracts": api_contracts}
 
@@ -175,6 +234,7 @@ class DependencyPlanner:
         """
         framework = context.get("framework", "react")
         intent = context.get("intent", {})
+        llm_plan = context.get("llm_plan", {})
         
         dependency_plan = DependencyPlan(
             metadata=ArtifactMetadata(
@@ -183,7 +243,7 @@ class DependencyPlanner:
             package_manager="npm"
         )
         
-        # React/Vite defaults
+        # 1. Start with framework defaults
         if framework in ["react", "vite"]:
             dependency_plan.runtime_dependencies = [
                 PackageDependency(name="react", version="^18.2.0", purpose="UI library"),
@@ -199,6 +259,31 @@ class DependencyPlanner:
             RunCommand(name="dev", command="npm run dev", description="Start dev server"),
             RunCommand(name="build", command="npm run build", description="Build for production"),
         ]
+        
+        # 2. Add LLM suggested dependencies
+        llm_deps = llm_plan.get("dependencies", {})
+        
+        # Runtime
+        existing_runtime = {d.name for d in dependency_plan.runtime_dependencies}
+        for dep in llm_deps.get("runtime", []):
+            name = dep.get("name", "")
+            if name and name not in existing_runtime:
+                dependency_plan.runtime_dependencies.append(PackageDependency(
+                    name=name,
+                    version=dep.get("version", "latest"),
+                    purpose="Added by planner"
+                ))
+        
+        # Dev
+        existing_dev = {d.name for d in dependency_plan.dev_dependencies}
+        for dep in llm_deps.get("dev", []):
+            name = dep.get("name", "")
+            if name and name not in existing_dev:
+                dependency_plan.dev_dependencies.append(PackageDependency(
+                    name=name,
+                    version=dep.get("version", "latest"),
+                    purpose="Added by planner"
+                ))
         
         return {"dependency_plan": dependency_plan}
 
@@ -221,7 +306,6 @@ class TestDesigner:
             Dict with 'validation_checklist' key containing ValidationChecklist
         """
         intent = context.get("intent", {})
-        task_list = context.get("task_list")
         
         validation_checklist = ValidationChecklist(
             metadata=ArtifactMetadata(
@@ -273,6 +357,7 @@ class RiskAssessor:
         """
         intent = context.get("intent", {})
         scaffolding = context.get("scaffolding", {})
+        llm_plan = context.get("llm_plan", {})
         
         risk_report = RiskReport(
             metadata=ArtifactMetadata(
@@ -280,7 +365,7 @@ class RiskAssessor:
             )
         )
         
-        # Check for scaffolding needs (potential setup issues)
+        # 1. Scaffolding Risks
         if scaffolding.get("needs_scaffolding"):
             risk_report.add_risk(RiskItem(
                 title="Project Setup Required",
@@ -289,6 +374,28 @@ class RiskAssessor:
                 description="Project needs initial scaffolding",
                 mitigation="Scaffold task added to plan",
                 requires_human_input=False
+            ))
+            
+        # 2. LLM Identified Risks
+        for risk in llm_plan.get("risks", []):
+            risk_report.add_risk(RiskItem(
+                title=risk.get("title", "Identified Risk"),
+                category="general",
+                risk_level=RiskLevel(risk.get("level", "medium")),
+                description=risk.get("description", ""),
+                mitigation=risk.get("mitigation", "")
+            ))
+        
+        # 3. Clarifying Questions
+        questions = llm_plan.get("clarifying_questions", [])
+        if questions:
+            risk_report.add_risk(RiskItem(
+                title="Clarification Needed",
+                category="ambiguity",
+                risk_level=RiskLevel.HIGH,
+                description="The following questions need answers:",
+                requires_human_input=True,
+                clarifying_questions=questions
             ))
         
         return {"risk_report": risk_report}

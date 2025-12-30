@@ -483,7 +483,8 @@ Output a JSON fix plan:
                 failure_layer=FailureLayer(validation_report_dict.get("failure_layer", "none")),
                 violations=violations,
                 task_id=validation_report_dict.get("task_id", ""),
-                plan_id=validation_report_dict.get("plan_id")
+                plan_id=validation_report_dict.get("plan_id"),
+                recommended_action=RecommendedAction(validation_report_dict.get("recommended_action", "fix"))
             )
         else:
             validation_report = validation_report_dict

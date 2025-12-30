@@ -45,6 +45,13 @@ from app.agents.tools.coder import (
     assess_change_risk,
 )
 
+# Subcomponents for code generation
+from app.agents.sub_agents.coder.components import (
+    TaskInterpreter, ContextConsumer, StyleEnforcer,
+    ImplementationSynthesizer, DependencyVerifier,
+    TestAuthor, PreflightChecker, CodeTools,
+)
+
 
 class Coder(BaseAgent):
     """

@@ -181,9 +181,17 @@ async def run_agent(request: Request, body: PromptRequest):
                             node_name = metadata.get('langgraph_node', 'agent') if isinstance(metadata, dict) else 'agent'
                         
                         # FILTER: Skip HumanMessage types (internal prompts)
-                        msg_type = type(message_chunk).__name__
                         if msg_type in ['HumanMessage', 'HumanMessageChunk']:
                             continue
+                        
+                        # SPECIAL: Stream Tool Start events (AIMessage with tool_calls)
+                        if getattr(message_chunk, 'tool_calls', None):
+                            for tc in message_chunk.tool_calls:
+                                yield json.dumps({
+                                    "type": "tool_start",
+                                    "tool": tc.get('name', 'unknown_tool'),
+                                    "content": str(tc.get('args', {}))
+                                }) + "\n"
                         
                         # SPECIAL: Stream ToolMessage results to frontend
                         if msg_type in ['ToolMessage', 'ToolMessageChunk']:
@@ -290,6 +298,33 @@ async def run_agent(request: Request, body: PromptRequest):
                         # Skip if nothing to display
                         if not display_content:
                             continue
+                        
+                        # IMPROVED: Parse JSON content to avoid streaming raw data
+                        # This catches Orchestrator thinking and Planner artifacts
+                        if isinstance(display_content, str) and display_content.strip().startswith('{'):
+                            try:
+                                import json as json_mod
+                                parsed = json_mod.loads(display_content)
+                                
+                                # Case 1: Orchestrator Decision
+                                if 'observations' in parsed and 'decision' in parsed:
+                                    decision = parsed.get('decision', 'thinking')
+                                    reasoning = parsed.get('reasoning', '')
+                                    # Format as a thought bubble or simple status update
+                                    display_content = f"**🧠 Orchestrator:** {decision}\n_{reasoning}_"
+                                
+                                # Case 2: Planner Output (Plan Manifest)
+                                elif 'tasks' in parsed and 'folders' in parsed:
+                                    summary = parsed.get('summary', 'Plan generated')
+                                    task_count = len(parsed.get('tasks', []))
+                                    display_content = f"**📋 Plan Created:** {summary}\n• {task_count} tasks defined\n• {len(parsed.get('folders', []))} folders structured"
+                                    
+                                # Case 3: Validation Result
+                                elif 'validation_results' in parsed:
+                                    display_content = "**✅ Validation Complete**"
+                                
+                            except Exception:
+                                pass # Fallback to raw content if parsing fails
                         
                         # Stream the content to frontend
                         logger.debug(f"[STREAM] Chunk from {node_name}: {str(display_content)[:50]}...")
