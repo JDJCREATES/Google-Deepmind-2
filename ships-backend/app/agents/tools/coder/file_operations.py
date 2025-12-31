@@ -217,6 +217,48 @@ def create_directory(dir_path: str) -> Dict[str, Any]:
 
 
 @tool
+def create_directories(dir_paths: list[str]) -> Dict[str, Any]:
+    """
+    Create multiple directories in a single call.
+    
+    Use this to set up folder structure efficiently. All directories are created
+    with their parent directories (similar to `mkdir -p`).
+    
+    Args:
+        dir_paths: List of relative paths for directories (e.g., ["src/components", "src/hooks", "src/lib"])
+        
+    Returns:
+        Dict with overall success, list of created paths, and any errors
+    """
+    project_root = get_project_root()
+    created = []
+    errors = []
+    
+    for dir_path in dir_paths:
+        try:
+            is_safe, error = is_path_safe(dir_path)
+            if not is_safe:
+                errors.append({"path": dir_path, "error": error})
+                continue
+            
+            resolved_path = (Path(project_root) / dir_path).resolve()
+            resolved_path.mkdir(parents=True, exist_ok=True)
+            created.append(dir_path)
+            
+        except Exception as e:
+            errors.append({"path": dir_path, "error": str(e)})
+    
+    logger.info(f"[PLANNER] 📁 Created directories: {' '.join(created)}")
+    
+    return {
+        "success": len(errors) == 0,
+        "created": created,
+        "errors": errors,
+        "total": len(dir_paths)
+    }
+
+
+@tool
 def view_source_code(
     path: str,
     start_line: int = 1,

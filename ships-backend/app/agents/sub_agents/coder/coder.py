@@ -552,7 +552,10 @@ REMEMBER: You are judged by how SMALL and CORRECT your diffs are, not how much c
         from app.agents.tools.coder import CODER_TOOLS
         from app.prompts import AGENT_PROMPTS
         from app.core.llm_factory import LLMFactory
+        from app.core.llm_factory import LLMFactory
         from pathlib import Path
+        import os
+        import os
         
         artifacts = state.get("artifacts", {})
         parameters = state.get("parameters", {})
@@ -595,9 +598,38 @@ REMEMBER: You are judged by how SMALL and CORRECT your diffs are, not how much c
         completed_files = state.get("completed_files", [])
         
         # ================================================================
+        # OPTIMIZATION: Generate File Tree Context
+        # ================================================================
+        file_tree_context = ""
+        if project_path and Path(project_path).exists():
+            try:
+                tree_lines = []
+                for root, dirs, files in os.walk(project_path):
+                    # Skip hidden/ignored folders
+                    dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['node_modules', '__pycache__', 'dist', 'build']]
+                    
+                    level = root.replace(project_path, '').count(os.sep)
+                    indent = ' ' * 4 * (level)
+                    tree_lines.append(f"{indent}{os.path.basename(root)}/")
+                    subindent = ' ' * 4 * (level + 1)
+                    for f in files:
+                        if not f.startswith('.'):
+                            tree_lines.append(f"{subindent}{f}")
+                
+                # Limit size
+                file_tree_context = "\n".join(tree_lines[:200]) # First 200 lines
+                if len(tree_lines) > 200:
+                    file_tree_context += "\n... (truncated)"
+            except Exception as e:
+                file_tree_context = f"Error reading structure: {e}"
+
+        # ================================================================
         # Build coding prompt with full context
         # ================================================================
         coder_prompt = f"""PROJECT PATH: {project_path}
+
+CURRENT FILE STRUCTURE (Do not call list_directory):
+{file_tree_context}
 
 IMPLEMENTATION PLAN:
 {plan_content[:4000] if plan_content else 'No plan provided - implement based on task description.'}
@@ -609,18 +641,18 @@ FILES ALREADY CREATED:
 {chr(10).join(['- ' + f for f in completed_files]) if completed_files else '- None yet'}
 
 YOUR INSTRUCTIONS:
-1. Analyze the task and implementation plan
-2. Write the NEXT file that needs to be created using write_file_to_disk
-3. Write COMPLETE, WORKING code - no TODOs or placeholders
-4. After each file, check if more files need to be created
+1. Analyze the task and implementation plan.
+2. CHECK "CURRENT FILE STRUCTURE" ABOVE.
+   - If a file exists -> Use `apply_source_edits` (Low Token Cost).
+   - If a file is NEW -> Use `write_file_to_disk` (Full Creation).
+3. Do NOT rewrite entire files to change a few lines.
+4. After each file, check if more files need to be created/edited.
 5. When ALL files from the plan are done, respond with "Implementation complete."
 
 IMPORTANT:
-- Check what files exist before writing
-- Write complete React/TypeScript/Python code
-- Follow the folder structure in the plan
-- Include all necessary imports
-- Each file should be self-contained and work correctly"""
+- Use `apply_source_edits` for ALL modifications.
+- Write complete working code.
+- Follow the folder structure in the plan."""
 
         # ================================================================
         # Execute using create_react_agent with CODER_TOOLS

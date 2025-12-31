@@ -79,6 +79,19 @@ Before returning, verify:
 - `// @ts-ignore`
 - Creating folders outside plan structure
 
+# Token Efficiency & Best Practices
+## 1. Do NOT Rewrite Files
+- If a file exists, use `apply_source_edits` to change ONLY what is needed.
+- Usage of `write_file_to_disk` on existing files is a FAILURE of efficiency.
+
+## 2. Context Logic
+- You have the file structure in your prompt. Do NOT call `list_directory`.
+- You have the file content if you read it. Do NOT read it again unnecessarily.
+
+## 3. Editing Rules
+- Provide UNIQUE context for search blocks.
+- Verify that your search block exists exactly in the file.
+
 # Output
 After each file: `{"status": "in_progress", "file": "path/file.tsx", "remaining": N}`
 When done: `{"status": "complete", "files_created": [...], "message": "Implementation complete."}`"""

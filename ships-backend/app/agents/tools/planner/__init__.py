@@ -16,6 +16,7 @@ from app.agents.tools.coder import (
     write_file_to_disk, 
     list_directory, 
     create_directory,
+    create_directories,
 )
 from app.agents.tools.coder.terminal_operations import run_terminal_command
 
@@ -24,7 +25,8 @@ from app.agents.tools.coder.terminal_operations import run_terminal_command
 PLANNER_TOOLS = [
     list_directory,          # Check if project exists
     run_terminal_command,    # npx create-vite, npm install (first time only)
-    create_directory,        # Create folder structure from plan
+    create_directory,        # Create single folder
+    create_directories,      # Create multiple folders at once (PREFERRED)
     write_file_to_disk,      # Write plan artifacts
 ]
 
@@ -39,5 +41,6 @@ __all__ = [
     "list_directory",
     "run_terminal_command",
     "create_directory",
+    "create_directories",
     "write_file_to_disk",
 ]

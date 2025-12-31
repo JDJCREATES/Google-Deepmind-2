@@ -25,6 +25,7 @@ from .file_operations import (
     read_file_from_disk,
     list_directory,
     create_directory,
+    create_directories,
     view_source_code,
     FILE_OPERATION_TOOLS,
 )
@@ -89,6 +90,8 @@ __all__ = [
     "write_file_to_disk",
     "read_file_from_disk", 
     "list_directory",
+    "create_directory",
+    "create_directories",
     "view_source_code",
     # Terminal operations
     "run_terminal_command",

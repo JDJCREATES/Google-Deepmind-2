@@ -50,6 +50,10 @@ Default commands:
 - Next.js: `npx -y create-next-app@latest . --typescript --yes --app`
 Wait for completion before continuing.
 
+## Step 4.5: CREATE FOLDERS (Batch)
+Use `create_directories(["src/components/ui", "src/hooks", "src/lib", ...])` to create ALL folders in ONE call.
+NEVER call `create_directory` multiple times sequentially - this wastes tokens!
+
 ## Step 5: WRITE IMPLEMENTATION PLAN
 Create `.ships/implementation_plan.md` with:
 
