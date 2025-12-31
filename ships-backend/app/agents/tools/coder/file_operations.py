@@ -101,11 +101,17 @@ def read_file_from_disk(file_path: str) -> Dict[str, Any]:
         
         logger.info(f"[CODER] 📖 Read file: {file_path} ({len(content)} bytes)")
         
+        # Return truncated preview to save tokens - full content is on disk
+        # LLM can use edit_file_content for targeted changes without full read
+        preview = content[:500] + "\n...[truncated]..." if len(content) > 500 else content
+        
         return {
             "success": True,
-            "content": content,
-            "lines": content.count("\n") + 1,
-            "bytes": len(content)
+            "content": preview,
+            "full_lines": content.count("\n") + 1,
+            "bytes": len(content),
+            "truncated": len(content) > 500,
+            "note": "Use edit_file_content for targeted changes instead of read+write"
         }
         
     except Exception as e:
@@ -174,9 +180,107 @@ def list_directory(path: str = ".") -> Dict[str, Any]:
         return {"success": False, "error": str(e), "path": path}
 
 
-# Export all file operation tools
+@tool
+def create_directory(dir_path: str) -> Dict[str, Any]:
+    """
+    Create a directory (and any parent directories) in the project.
+    
+    Use this to set up folder structure before writing files.
+    
+    Args:
+        dir_path: Relative path for the directory (e.g., "src/components")
+        
+    Returns:
+        Dict with success status and path created
+    """
+    try:
+        is_safe, error = is_path_safe(dir_path)
+        if not is_safe:
+            return {"success": False, "error": error, "path": dir_path}
+        
+        project_root = get_project_root()
+        resolved_path = (Path(project_root) / dir_path).resolve()
+        
+        resolved_path.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"[PLANNER] 📁 Created directory: {dir_path}")
+        
+        return {
+            "success": True,
+            "path": dir_path,
+            "created": True
+        }
+        
+    except Exception as e:
+        logger.error(f"[PLANNER] ❌ Failed to create {dir_path}: {e}")
+        return {"success": False, "error": str(e), "path": dir_path}
+
+
+@tool
+def view_source_code(
+    path: str,
+    start_line: int = 1,
+    end_line: int = -1,
+    show_lines: bool = True
+) -> str:
+    """
+    Read file content with line numbers. Essential for using line-based edits.
+    
+    Args:
+        path: Relative path to file.
+        start_line: Start line (1-indexed).
+        end_line: End line (inclusive). -1 for end of file.
+        show_lines: Whether to prepend line numbers (e.g., "1: import os").
+    
+    Returns:
+        String content of the file (or slice).
+    """
+    try:
+        project_root = get_project_root()
+        if not project_root:
+            return "Error: Project root not set."
+            
+        is_safe, error = is_path_safe(path)
+        if not is_safe:
+            return f"Error: {error}"
+            
+        from pathlib import Path
+        full_path = Path(project_root) / path
+        
+        if not full_path.exists():
+            return f"Error: File not found: {path}"
+            
+        content = full_path.read_text(encoding='utf-8')
+        lines = content.splitlines()
+        
+        total_lines = len(lines)
+        start = max(1, start_line)
+        end = total_lines if end_line == -1 else min(total_lines, end_line)
+        
+        # Adjust to 0-indexed for slicing
+        # lines[0] is line 1
+        relevant_lines = lines[start-1 : end]
+        
+        output = []
+        if show_lines:
+            # Calculate padding based on max line number
+            padding = len(str(end))
+            for idx, line in enumerate(relevant_lines):
+                line_num = start + idx
+                output.append(f"{str(line_num).rjust(padding)}: {line}")
+        else:
+            output = relevant_lines
+            
+        return "\n".join(output)
+
+    except Exception as e:
+        return f"Error reading file: {str(e)}"
+
+# Export tools
 FILE_OPERATION_TOOLS = [
     write_file_to_disk,
     read_file_from_disk,
     list_directory,
+    create_directory,
+    view_source_code,
 ]

@@ -20,6 +20,7 @@ class PreviewManager:
         self.is_running: bool = False
         self.current_project_path: Optional[str] = None  # Track the current project path
         self._url_pattern = re.compile(r'http://localhost:\d+')
+        self.focus_requested: bool = False  # Flag for frontend to request electron focus
 
     def start_dev_server(self, project_path: str) -> Dict[str, Any]:
         """
@@ -135,5 +136,13 @@ class PreviewManager:
             # Ensure process is marked logs finished if it dies
             if self.process and self.process.poll() is not None:
                 self.logs.append("[System] Process exited.")
+
+    def request_focus(self):
+        """Set the focus request flag."""
+        self.focus_requested = True
+
+    def clear_focus_request(self):
+        """Clear the focus request flag."""
+        self.focus_requested = False
 
 preview_manager = PreviewManager()

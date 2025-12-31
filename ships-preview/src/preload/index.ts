@@ -94,4 +94,22 @@ contextBridge.exposeInMainWorld('electron', {
         ipcRenderer.on('pty-exit', listener);
         return () => ipcRenderer.removeListener('pty-exit', listener);
     },
+    
+    // === Preview ===
+    /**
+     * Open a preview URL in the preview panel.
+     */
+    openPreview: (url: string) => ipcRenderer.invoke('open-preview', url),
+    
+    /**
+     * Listen for preview URL events from main process.
+     */
+    onPreviewUrl: (callback: (url: string) => void) => {
+        const listener = (_: any, url: string) => callback(url);
+        ipcRenderer.on('preview-url', listener);
+        return () => ipcRenderer.removeListener('preview-url', listener);
+    },
+
+    // Window Management
+    focusWindow: () => ipcRenderer.invoke('focus-window'),
 });

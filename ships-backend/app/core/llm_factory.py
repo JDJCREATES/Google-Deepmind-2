@@ -31,7 +31,8 @@ class LLMFactory:
     @staticmethod
     def get_model(
         agent_type: Literal["orchestrator", "planner", "coder", "fixer", "mini"],
-        reasoning_level: Literal["standard", "high"] = "standard"
+        reasoning_level: Literal["standard", "high"] = "standard",
+        cached_content: str = None  # Explicit caching support
     ) -> ChatGoogleGenerativeAI:
         """
         Returns a configured ChatGoogleGenerativeAI instance.
@@ -52,23 +53,37 @@ class LLMFactory:
         temperature = 0.7
         thinking_level = "low"
         
-        # Configure based on agent type
-        if agent_type in ["orchestrator", "mini"]:
-            # Fast routing/validation - use Flash with low reasoning
+        # Configure based on agent type (Gemini 3 Flash optimized)
+        # thinking_level: minimal (fast) < low < medium < high (deep reasoning)
+        # NOTE: Gemini 3 recommends temperature=1.0 - changing can cause loops/degraded performance
+        if agent_type == "mini":
+            # Fast validation - minimal reasoning
             model_name = MODEL_FLASH
-            temperature = 0.5
-            thinking_level = "low"
+            temperature = 1.0  # Per Gemini 3 guidance
+            thinking_level = "minimal"
+            
+        elif agent_type == "orchestrator":
+            # Routing needs solid reasoning, not max
+            model_name = MODEL_FLASH
+            temperature = 1.0  # Per Gemini 3 guidance
+            thinking_level = "medium"
             
         elif agent_type == "planner":
-            # Complex planning requires deep reasoning
-            model_name = MODEL_PRO
-            temperature = 0.7
+            # Planning needs good reasoning for architecture
+            model_name = MODEL_FLASH
+            temperature = 1.0  # Per Gemini 3 guidance
+            thinking_level = "medium"
+            
+        elif agent_type == "coder":
+            # Code generation needs high reasoning for correctness
+            model_name = MODEL_FLASH
+            temperature = 1.0  # Per Gemini 3 guidance
             thinking_level = "high"
             
-        elif agent_type in ["coder", "fixer"]:
-            # Code generation/fixing needs careful reasoning
-            model_name = MODEL_PRO
-            temperature = 0.2
+        elif agent_type == "fixer":
+            # Fixing bugs needs high reasoning
+            model_name = MODEL_FLASH
+            temperature = 1.0  # Per Gemini 3 guidance
             thinking_level = "high"
         
         # Override if explicit high reasoning requested
@@ -91,6 +106,8 @@ class LLMFactory:
             convert_system_message_to_human=True,
             # Gemini 3 thinking_level for built-in reasoning
             thinking_level=thinking_level,
+            cached_content=cached_content, # Pass explicit cache name
+            max_retries=30, # Aggressive retries for Hackathon rate limits
         )
         
         return llm

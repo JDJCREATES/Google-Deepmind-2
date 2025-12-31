@@ -5,7 +5,7 @@
  * Shows files being created, commands running, etc.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FiChevronDown, FiChevronRight, FiCheck, FiLoader, FiX, FiFile, FiTerminal, FiEdit } from 'react-icons/fi';
 import './ToolProgress.css';
 
@@ -60,6 +60,11 @@ const getToolDisplayName = (tool: string): string => {
 
 export function ToolProgress({ events, isCollapsed = false, onToggleCollapse }: ToolProgressProps) {
   const [expanded, setExpanded] = useState(!isCollapsed);
+  
+  // Sync state with prop if it changes (e.g., auto-collapse on done)
+  useEffect(() => {
+    setExpanded(!isCollapsed);
+  }, [isCollapsed]);
   
   // Group events by completion status
   const completedCount = events.filter(e => e.type === 'tool_result' && e.success).length;
@@ -130,22 +135,9 @@ export function ToolProgress({ events, isCollapsed = false, onToggleCollapse }: 
             </div>
           ))}
           
-          {/* Show any pending items */}
-          {events
-            .filter(e => e.type === 'tool_start' && !fileResults.has(e.file || e.tool))
-            .map((event, idx) => (
-              <div key={`pending-${idx}`} className="tool-progress-item pending">
-                <span className="tool-item-status">
-                  <FiLoader className="status-icon pending spinning" />
-                </span>
-                <span className="tool-item-icon">
-                  {getToolIcon(event.tool)}
-                </span>
-                <span className="tool-item-file">
-                  {event.file || getToolDisplayName(event.tool)}...
-                </span>
-              </div>
-            ))}
+          {fileResults.size === 0 && (
+             <div className="tool-progress-empty">No files created yet.</div>
+          )}
         </div>
       )}
     </div>

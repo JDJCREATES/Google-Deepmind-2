@@ -30,6 +30,7 @@ ALLOWED_COMMANDS: List[AllowedCommand] = [
     AllowedCommand(prefix="py", description="Python interpreter (Windows)", max_timeout=60, requires_approval=True),
     AllowedCommand(prefix="pip", description="Python package manager", max_timeout=300, requires_approval=True),
     AllowedCommand(prefix="node", description="Node.js runtime", max_timeout=60, requires_approval=True),
+    AllowedCommand(prefix="mkdir", description="Create directory", max_timeout=10, requires_approval=False),
 ]
 
 

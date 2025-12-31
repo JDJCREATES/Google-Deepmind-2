@@ -31,12 +31,17 @@ from app.agents.sub_agents.planner.models import (
     PlanManifest, TaskList, FolderMap, APIContracts,
     DependencyPlan, ValidationChecklist, RiskReport,
     ArtifactMetadata, Task, TaskComplexity, TaskPriority,
+    PlannerComponentConfig,
 )
+
+# Tools are in central location: app/agents/tools/planner/
+from app.agents.tools.planner import PlannerTools
+
+# Subcomponents for artifact production
 from app.agents.sub_agents.planner.components import (
-    PlannerComponentConfig, Scoper, FolderArchitect,
-    ContractAuthor, DependencyPlanner, TestDesigner, RiskAssessor,
+    Scoper, FolderArchitect, ContractAuthor,
+    DependencyPlanner, TestDesigner, RiskAssessor,
 )
-from app.agents.sub_agents.planner.tools import PlannerTools
 
 
 class Planner(BaseAgent):
@@ -56,7 +61,8 @@ class Planner(BaseAgent):
     def __init__(
         self,
         artifact_manager: Optional[ArtifactManager] = None,
-        config: Optional[PlannerComponentConfig] = None
+        config: Optional[PlannerComponentConfig] = None,
+        cached_content: Optional[str] = None
     ):
         """
         Initialize the Planner.
@@ -68,8 +74,9 @@ class Planner(BaseAgent):
         super().__init__(
             name="Planner",
             agent_type="planner",  # Uses Pro model
-            reasoning_level="standard",
-            artifact_manager=artifact_manager
+            reasoning_level="high",  # Planner needs deep thought
+            artifact_manager=artifact_manager,
+            cached_content=cached_content
         )
         
         self.config = config or PlannerComponentConfig()
@@ -89,28 +96,86 @@ class Planner(BaseAgent):
         """Get the system prompt for planning."""
         return """You are the Planner for ShipS*, an AI coding system that SHIPS WORKING CODE.
 
-Your job is to convert Intent Specs into actionable Plans.
+Your job is to convert Intent Specs into actionable Plans with GRANULAR, STEP-BY-STEP tasks.
+
+==========================================================================
+🚨 CRITICAL: TASK GRANULARITY REQUIREMENTS 🚨
+==========================================================================
+
+You MUST generate **4-6 granular tasks minimum** for any request. 
+Each task should be:
+- Completable in ONE coding session (under 2 hours)
+- Focused on ONE specific feature or file group
+- Have CONCRETE file outputs (not abstract goals)
+- Independently testable
+
+❌ BAD TASK (too vague):
+{
+  "title": "Implement Core Features",
+  "description": "Implement the core features of the application"
+}
+
+✅ GOOD TASKS (granular):
+[
+  {
+    "title": "Create Calculator Display Component",
+    "description": "Build the display component that shows current input and result",
+    "expected_outputs": [{"path": "src/components/Display.tsx", "action": "create"}]
+  },
+  {
+    "title": "Create Number Button Grid",
+    "description": "Build the 0-9 number buttons with click handlers",
+    "expected_outputs": [{"path": "src/components/NumberPad.tsx", "action": "create"}]
+  },
+  {
+    "title": "Create Operation Buttons",
+    "description": "Build +, -, *, / buttons with operation logic",
+    "expected_outputs": [{"path": "src/components/OperationButtons.tsx", "action": "create"}]
+  },
+  {
+    "title": "Implement Calculator State Logic",
+    "description": "Create state management for calculator operations",
+    "expected_outputs": [{"path": "src/hooks/useCalculator.ts", "action": "create"}]
+  },
+  {
+    "title": "Assemble Main Calculator UI",
+    "description": "Combine all components into the main calculator layout",
+    "expected_outputs": [{"path": "src/App.tsx", "action": "modify"}]
+  },
+  {
+    "title": "Add Calculator Styling",
+    "description": "Apply CSS styling for the calculator appearance",
+    "expected_outputs": [{"path": "src/index.css", "action": "modify"}]
+  }
+]
+
+==========================================================================
 
 CORE RULES:
 1. ARTIFACT-FIRST: Output machine-readable, verifiable artifacts
-2. VERTICAL-SLICE BIAS: Always structure for earliest runnable preview
-3. CONSERVATIVE INFERENCE: Mark inferred items with confidence < 1.0
-4. DETERMINISTIC: Behaviors driven by explicit heuristics, not creativity
-5. TRACEABLE: Every decision must be explainable in one sentence
+2. GRANULAR TASKS: Break down into 4-6+ specific, actionable tasks
+3. VERTICAL-SLICE BIAS: Structure for earliest runnable preview
+4. CONSERVATIVE INFERENCE: Mark inferred items with confidence < 1.0
+5. DETERMINISTIC: Behaviors driven by explicit heuristics, not creativity
+6. TRACEABLE: Every decision must be explainable in one sentence
 
 DO NOT generate implementation code. You produce PLANS, not CODE.
 
 TASK SIZING RULES:
-- TINY: < 30 minutes
-- SMALL: 30 min - 2 hours
-- MEDIUM: 2-4 hours
-- LARGE: 4-8 hours (should be decomposed)
+- TINY: < 30 minutes (single file, simple change)
+- SMALL: 30 min - 2 hours (2-3 files, one feature)
+- MEDIUM: 2-4 hours (decompose further if possible)
+- LARGE: 4-8 hours (MUST be decomposed into smaller tasks)
 
-PRIORITIZATION:
-1. Setup/boilerplate tasks first (critical)
-2. Core functionality (high)
-3. Integration/wiring (high)
-4. Testing/polish (medium)
+TASK ORDERING:
+1. Setup/scaffolding (critical) - project initialization
+2. Core data models/types (high) - TypeScript interfaces
+3. State management (high) - hooks, stores
+4. UI components (high) - individual components
+5. Component composition (medium) - assembling components
+6. Styling (medium) - CSS, themes
+7. Integration/wiring (medium) - connecting parts
+8. Testing/polish (low) - tests, edge cases
 
 OUTPUT FORMAT:
 Produce a JSON object with the following structure:
@@ -118,14 +183,22 @@ Produce a JSON object with the following structure:
     "summary": "One-line plan summary",
     "tasks": [
         {
-            "title": "Task title",
-            "description": "Detailed description",
-            "complexity": "tiny|small|medium|large",
+            "id": "task_001",
+            "title": "Specific, actionable task title",
+            "description": "Detailed description of what to implement",
+            "complexity": "tiny|small|medium",
             "priority": "critical|high|medium|low",
             "target_area": "frontend|backend|database|full-stack|config",
-            "acceptance_criteria": ["Criterion 1", "Criterion 2"],
-            "expected_outputs": [{"path": "path/to/file", "action": "create|modify"}],
-            "estimated_minutes": 60
+            "acceptance_criteria": [
+                "Component renders without errors",
+                "Clicking button triggers expected action",
+                "State updates correctly"
+            ],
+            "expected_outputs": [
+                {"path": "src/components/Feature.tsx", "action": "create"},
+                {"path": "src/hooks/useFeature.ts", "action": "create"}
+            ],
+            "estimated_minutes": 45
         }
     ],
     "folders": [
@@ -143,7 +216,9 @@ Produce a JSON object with the following structure:
     ],
     "clarifying_questions": ["Question if needed"],
     "decision_notes": ["Rationale for key decision"]
-}"""
+}
+
+REMEMBER: If you generate fewer than 4 tasks, you are doing it WRONG. Break it down further!"""
     
     async def plan(
         self,
@@ -192,6 +267,7 @@ Produce a JSON object with the following structure:
         
         # Step 1: Use LLM for high-level planning
         llm_plan = await self._generate_llm_plan(intent, context)
+        context["llm_plan"] = llm_plan
         
         # Step 2: Run subcomponents to produce artifacts
         # Scoper: Task decomposition
@@ -211,22 +287,19 @@ Produce a JSON object with the following structure:
                 description=scaffolding_task_dict.get("description", ""),
                 complexity=TaskComplexity.SMALL,
                 priority=TaskPriority.CRITICAL,
-                order=0,
                 estimated_minutes=5,
             )
             
-            # Store terminal commands in metadata for coder to use
-            scaffold_task.metadata = {
-                "terminal_commands": scaffolding_task_dict.get("terminal_commands", []),
-                "is_scaffolding_task": True,
-            }
+            # Store terminal commands in description for visibility
+            cmds = scaffolding_task_dict.get("terminal_commands", [])
+            if cmds:
+                 scaffold_task.description += f"\n\nCommands to run: {', '.join(cmds)}"
             
             # Insert at beginning of task list
             task_list.tasks.insert(0, scaffold_task)
             
-            # Reorder all other tasks
-            for i, task in enumerate(task_list.tasks[1:], start=1):
-                task.order = i
+            # Reorder not needed - list order implies execution order
+
         
         # Enrich task list with LLM insights
         self._enrich_task_list(task_list, llm_plan)
@@ -486,36 +559,135 @@ Produce a JSON object with the following structure:
         """
         Invoke the Planner as part of orchestrator workflow.
         
+        TWO-PHASE EXECUTION:
+        1. Generate plan artifacts (tasks, folders, deps, etc.)
+        2. Execute scaffolding using create_react_agent with tools
+        
         Args:
             state: Current agent state
             
         Returns:
             Dict with 'artifacts' key containing all plan artifacts
         """
+        from langgraph.prebuilt import create_react_agent
+        from app.agents.tools.planner import PLANNER_TOOLS
+        from app.prompts import AGENT_PROMPTS
+        from app.core.llm_factory import LLMFactory
+        from pathlib import Path
+        import os
+        
         artifacts = state.get("artifacts", {})
         parameters = state.get("parameters", {})
+        project_path = artifacts.get("project_path")
         
-        # Get structured intent
+        # Get structured intent or build from raw request
         intent = artifacts.get("structured_intent", {})
+        if not intent:
+            # Get raw request from messages
+            messages = state.get("messages", [])
+            raw_request = ""
+            for m in messages:
+                if hasattr(m, 'content'):
+                    raw_request = m.content
+                    break
+            intent = {
+                "description": raw_request,
+                "id": str(uuid.uuid4()),
+            }
+        
         app_blueprint = artifacts.get("app_blueprint")
         constraints = artifacts.get("constraints")
+        environment = {"project_path": project_path}
         
-        # Generate plan
+        # ================================================================
+        # PHASE 1: Generate Plan Artifacts
+        # ================================================================
         plan_result = await self.plan(
             intent=intent,
             app_blueprint=app_blueprint,
-            constraints=constraints
+            constraints=constraints,
+            environment=environment
         )
         
         # Convert to serializable dict
-        return {
-            "artifacts": {
-                "plan_manifest": plan_result["plan_manifest"].model_dump(),
-                "task_list": plan_result["task_list"].model_dump(),
-                "folder_map": plan_result["folder_map"].model_dump(),
-                "api_contracts": plan_result["api_contracts"].model_dump(),
-                "dependency_plan": plan_result["dependency_plan"].model_dump(),
-                "validation_checklist": plan_result["validation_checklist"].model_dump(),
-                "risk_report": plan_result["risk_report"].model_dump(),
-            }
+        plan_artifacts = {
+            "plan_manifest": plan_result["plan_manifest"].model_dump(),
+            "task_list": plan_result["task_list"].model_dump(),
+            "folder_map": plan_result["folder_map"].model_dump(),
+            "api_contracts": plan_result["api_contracts"].model_dump(),
+            "dependency_plan": plan_result["dependency_plan"].model_dump(),
+            "validation_checklist": plan_result["validation_checklist"].model_dump(),
+            "risk_report": plan_result["risk_report"].model_dump(),
         }
+        
+        # ================================================================
+        # PHASE 2: Execute Scaffolding using create_react_agent
+        # ================================================================
+        if project_path:
+            try:
+                # Check if scaffolding is needed
+                project_dir = Path(project_path)
+                scaffolding_indicators = [
+                    project_dir / "package.json",
+                    project_dir / "requirements.txt",
+                    project_dir / "pyproject.toml",
+                ]
+                needs_scaffolding = not any(ind.exists() for ind in scaffolding_indicators)
+                
+                if needs_scaffolding:
+                    # Build scaffolding prompt from plan
+                    folder_map = plan_result["folder_map"]
+                    folders_to_create = [
+                        entry.path for entry in folder_map.entries 
+                        if getattr(entry, 'is_directory', False)
+                    ]
+                    
+                    scaffold_prompt = f"""PROJECT PATH: {project_path}
+
+SCAFFOLDING REQUIRED: Execute these steps in order:
+
+1. First, check what exists: call list_directory(".")
+
+2. If no package.json exists, scaffold the project:
+   - For React/Vite: run_terminal_command("npx -y create-vite@latest . --template react")
+   - Then: run_terminal_command("npm install")
+
+3. Create these folders from the plan using create_directory:
+{chr(10).join(['   - ' + f for f in folders_to_create[:15]])}
+
+4. Write the implementation plan to .ships/implementation_plan.md using write_file_to_disk
+
+5. Verify scaffolding: call list_directory(".") to confirm structure
+
+IMPORTANT:
+- Use -y flags to avoid prompts
+- If a command fails, log and continue
+- Do NOT write actual code - just structure"""
+
+                    # Create ReAct agent with planner tools
+                    llm = LLMFactory.get_model("planner")
+                    planner_agent = create_react_agent(
+                        model=llm,
+                        tools=PLANNER_TOOLS,
+                        prompt=AGENT_PROMPTS.get("planner", "You are a project scaffolder."),
+                    )
+                    
+                    # Execute scaffolding
+                    scaffold_result = await planner_agent.ainvoke(
+                        {"messages": [HumanMessage(content=scaffold_prompt)]},
+                        config={"recursion_limit": 30}
+                    )
+                    
+                    plan_artifacts["scaffolding_complete"] = True
+                    plan_artifacts["scaffolding_messages"] = len(scaffold_result.get("messages", []))
+                else:
+                    plan_artifacts["scaffolding_complete"] = True
+                    plan_artifacts["scaffolding_skipped"] = True
+                    
+            except Exception as scaffold_error:
+                # Don't fail planning if scaffolding fails
+                plan_artifacts["scaffolding_complete"] = False
+                plan_artifacts["scaffolding_error"] = str(scaffold_error)
+        
+        return {"artifacts": plan_artifacts}
+

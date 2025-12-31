@@ -36,6 +36,8 @@ interface XTerminalProps {
   onClose: () => void;
   onToggleCollapse?: () => void;
   isCollapsed?: boolean;
+  /** External output to write (from agent backend) */
+  externalOutput?: string;
 }
 
 export function XTerminal({ 
@@ -43,7 +45,8 @@ export function XTerminal({
   isVisible, 
   onClose, 
   onToggleCollapse,
-  isCollapsed = false 
+  isCollapsed = false,
+  externalOutput,
 }: XTerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
@@ -133,10 +136,17 @@ export function XTerminal({
     return () => window.removeEventListener('resize', handleResize);
   }, [isVisible, isCollapsed, sessionId]);
 
-  // Spawn PTY session when project path is available
+  // Spawn PTY session when project path is available (Electron only)
   const spawnTerminal = useCallback(async () => {
-    if (!projectPath || !window.electron) {
-      setError('Terminal requires Electron environment');
+    if (!window.electron) {
+      // Don't show error - just note that interactive terminal needs Electron
+      // External output from agent still works without Electron
+      setError('Interactive terminal requires Electron (agent output still works)');
+      return;
+    }
+    
+    if (!projectPath) {
+      setError('No project path available');
       return;
     }
 
@@ -200,12 +210,25 @@ export function XTerminal({
     };
   }, [sessionId]);
 
-  // Auto-spawn on first visibility
+  // Auto-spawn on first visibility (only if Electron is available)
   useEffect(() => {
-    if (isVisible && projectPath && !sessionId && !isConnected) {
+    if (isVisible && projectPath && !sessionId && !isConnected && window.electron) {
       spawnTerminal();
     }
   }, [isVisible, projectPath, sessionId, isConnected, spawnTerminal]);
+
+  // Write external output (from agent backend) to terminal
+  useEffect(() => {
+    if (externalOutput && xtermRef.current) {
+      // Write with proper formatting
+      xtermRef.current.writeln('\r\n\x1b[36m[Agent Command Output]\x1b[0m');
+      // Split output by newlines and write each line
+      const lines = externalOutput.split('\n');
+      lines.forEach(line => {
+        xtermRef.current?.writeln(line);
+      });
+    }
+  }, [externalOutput]);
 
   if (!isVisible) return null;
 

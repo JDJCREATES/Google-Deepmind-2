@@ -35,13 +35,23 @@ from app.agents.sub_agents.coder.models import (
     PreflightCheck, CheckResult, CheckStatus,
     FollowUpTasks, FollowUpTask,
     CoderOutput, CoderMetadata,
+    CoderComponentConfig,
 )
+
+# Tools are in central location: app/agents/tools/coder/
+from app.agents.tools.coder import (
+    generate_file_diff,
+    detect_language,
+    assess_change_risk,
+    create_file_change,
+)
+
+# Subcomponents for code generation
 from app.agents.sub_agents.coder.components import (
-    CoderComponentConfig, TaskInterpreter, ContextConsumer,
-    StyleEnforcer, ImplementationSynthesizer, DependencyVerifier,
-    TestAuthor, PreflightChecker,
+    TaskInterpreter, ContextConsumer, StyleEnforcer,
+    ImplementationSynthesizer, DependencyVerifier,
+    TestAuthor, PreflightChecker, CodeTools,
 )
-from app.agents.sub_agents.coder.tools import CodeTools, DiffGenerator
 
 
 class Coder(BaseAgent):
@@ -62,7 +72,8 @@ class Coder(BaseAgent):
     def __init__(
         self,
         artifact_manager: Optional[ArtifactManager] = None,
-        config: Optional[CoderComponentConfig] = None
+        config: Optional[CoderComponentConfig] = None,
+        cached_content: Optional[str] = None
     ):
         """
         Initialize the Coder.
@@ -74,8 +85,9 @@ class Coder(BaseAgent):
         super().__init__(
             name="Coder",
             agent_type="coder",  # Uses Pro model
-            reasoning_level="standard",
-            artifact_manager=artifact_manager
+            reasoning_level="high",  # Coder needs high reasoning
+            artifact_manager=artifact_manager,
+            cached_content=cached_content
         )
         
         self.config = config or CoderComponentConfig()
@@ -160,8 +172,8 @@ CODE QUALITY REQUIREMENTS:
 
 AVAILABLE TOOLS:
 ⭐ PREFERRED FOR MODIFICATIONS (saves tokens!):
-- edit_file_content: Search/replace edits - USE THIS FOR EXISTING FILES!
-- insert_at_line: Insert code at line number
+- apply_source_edits: Robust Search/Replace blocks (Fuzzy Matched). USE THIS FOR EDITS!
+- insert_content: Insert new code after a unique context block.
 
 📁 FILE OPERATIONS:
 - write_file_to_disk: Create NEW files or full rewrites only
@@ -174,13 +186,14 @@ AVAILABLE TOOLS:
 
 TOKEN EFFICIENCY RULES:
 1. For NEW files → use write_file_to_disk
-2. For EDITING existing files → use edit_file_content (SAVES TOKENS!)
+2. For EDITING existing files → use apply_source_edits (SAVES TOKENS!)
 3. Don't rewrite entire files when you can do targeted edits
 
 OUTPUT FORMAT:
 Use the tools directly to write/edit files.
 For scaffolding, call run_terminal_command FIRST.
-For modifications, use edit_file_content instead of rewriting.
+For modifications, use apply_source_edits.
+ALWAYS provide unique surrounding context in your "search" blocks.
 
 REMEMBER: You are judged by how SMALL and CORRECT your diffs are, not how much code you write."""
     
@@ -256,12 +269,18 @@ REMEMBER: You are judged by how SMALL and CORRECT your diffs are, not how much c
             new_content = file_info.get("content", "")
             original = existing_code.get(path, "") if existing_code else ""
             
-            change = DiffGenerator.create_file_change(
-                path=path,
-                operation=operation,
-                original_content=original if operation == FileOperation.MODIFY else None,
-                new_content=new_content,
-                reason=file_info.get("reason", ""),
+            # Use the tool to generate diff and analysis
+            change_data = create_file_change.invoke({
+                "path": path,
+                "operation": operation.value,
+                "new_content": new_content,
+                "original_content": original if operation == FileOperation.MODIFY else None,
+                "reason": file_info.get("reason", "")
+            })
+            
+            # Create the model
+            change = FileChange(
+                **change_data,
                 acceptance_criteria_ids=file_info.get("acceptance_criteria", [])
             )
             changes.append(change)
@@ -359,6 +378,9 @@ REMEMBER: You are judged by how SMALL and CORRECT your diffs are, not how much c
         context: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Use LLM for actual code generation."""
+        import logging
+        logger = logging.getLogger("ships.coder")
+        
         prompt = self._build_coding_prompt(task, context)
         
         messages = [
@@ -368,8 +390,34 @@ REMEMBER: You are judged by how SMALL and CORRECT your diffs are, not how much c
         
         try:
             response = await self.llm.ainvoke(messages)
-            return self._parse_code_response(response.content)
+            
+            # Defensive: Check for None response
+            if response is None:
+                logger.error("[CODER] LLM returned None response")
+                return {"error": "LLM returned None", "files": []}
+            
+            # Defensive: Check for None content
+            content = response.content
+            if content is None:
+                logger.warning("[CODER] LLM response.content is None, checking for tool calls")
+                # Could be tool calls instead of content
+                if hasattr(response, 'tool_calls') and response.tool_calls:
+                    logger.info(f"[CODER] Found {len(response.tool_calls)} tool calls")
+                    return {"error": "Tool-based response", "files": [], "tool_calls": response.tool_calls}
+                return {"error": "Empty LLM response", "files": []}
+            
+            # Handle list content (Gemini format)
+            if isinstance(content, list):
+                text_parts = [p.get('text', '') if isinstance(p, dict) else str(p) for p in content]
+                content = ''.join(text_parts)
+            
+            if not content:
+                logger.warning("[CODER] LLM returned empty content")
+                return {"error": "Empty content", "files": []}
+            
+            return self._parse_code_response(content)
         except Exception as e:
+            logger.error(f"[CODER] LLM generation failed: {e}")
             return {"error": str(e), "files": []}
     
     def _build_coding_prompt(
@@ -490,41 +538,141 @@ REMEMBER: You are judged by how SMALL and CORRECT your diffs are, not how much c
         """
         Invoke the Coder as part of orchestrator workflow.
         
+        TWO-PHASE EXECUTION:
+        1. Analyze task and plan implementation approach
+        2. Execute file writing using create_react_agent with CODER_TOOLS
+        
         Args:
             state: Current agent state
             
         Returns:
             Dict with 'artifacts' key containing all coder artifacts
         """
+        from langgraph.prebuilt import create_react_agent
+        from app.agents.tools.coder import CODER_TOOLS
+        from app.prompts import AGENT_PROMPTS
+        from app.core.llm_factory import LLMFactory
+        from pathlib import Path
+        
         artifacts = state.get("artifacts", {})
         parameters = state.get("parameters", {})
+        project_path = artifacts.get("project_path")
         
         # Get task from parameters or artifacts
-        task = parameters.get("task") or artifacts.get("current_task", {})
-        folder_map = artifacts.get("folder_map")
-        api_contracts = artifacts.get("api_contracts")
-        dependency_plan = artifacts.get("dependency_plan")
+        task = parameters.get("task") or artifacts.get("current_task")
         
-        # Generate code
-        result = await self.code(
-            task=task,
-            folder_map=folder_map,
-            api_contracts=api_contracts,
-            dependency_plan=dependency_plan
-        )
+        # If no structured task, create one from user_request
+        if not task:
+            user_request = parameters.get("user_request", "")
+            # Also check messages for user request
+            messages = state.get("messages", [])
+            for m in messages:
+                if hasattr(m, 'content') and m.content:
+                    user_request = m.content
+                    break
+            
+            task = {
+                "id": f"task_{uuid.uuid4().hex[:8]}",
+                "title": user_request[:100] if user_request else "Implementation Task",
+                "description": user_request,
+                "acceptance_criteria": ["Code should work as requested"],
+            }
         
-        # Convert to serializable dict
-        return {
-            "artifacts": {
-                "file_change_set": result.file_change_set.model_dump() if result.file_change_set else None,
-                "test_bundle": result.test_bundle.model_dump() if result.test_bundle else None,
-                "commit_intent": result.commit_intent.model_dump() if result.commit_intent else None,
-                "implementation_report": result.implementation_report.model_dump() if result.implementation_report else None,
-                "preflight_check": result.preflight_check.model_dump() if result.preflight_check else None,
-                "follow_up_tasks": result.follow_up_tasks.model_dump() if result.follow_up_tasks else None,
-            },
-            "success": result.success,
-            "is_blocking": result.is_blocking,
-            "blocking_reasons": result.blocking_reasons,
-            "recommended_next_agent": result.recommended_next_agent
-        }
+        folder_map = artifacts.get("folder_map", {})
+        plan_content = artifacts.get("plan_content", "")
+        
+        # Get implementation plan from disk if not in artifacts
+        if not plan_content and project_path:
+            plan_path = Path(project_path) / ".ships" / "implementation_plan.md"
+            if plan_path.exists():
+                try:
+                    plan_content = plan_path.read_text(encoding="utf-8")
+                except Exception:
+                    pass
+        
+        # Get project structure for context
+        project_structure = artifacts.get("project_structure", "")
+        completed_files = state.get("completed_files", [])
+        
+        # ================================================================
+        # Build coding prompt with full context
+        # ================================================================
+        coder_prompt = f"""PROJECT PATH: {project_path}
+
+IMPLEMENTATION PLAN:
+{plan_content[:4000] if plan_content else 'No plan provided - implement based on task description.'}
+
+CURRENT TASK:
+{json.dumps(task, indent=2) if isinstance(task, dict) else str(task)}
+
+FILES ALREADY CREATED:
+{chr(10).join(['- ' + f for f in completed_files]) if completed_files else '- None yet'}
+
+YOUR INSTRUCTIONS:
+1. Analyze the task and implementation plan
+2. Write the NEXT file that needs to be created using write_file_to_disk
+3. Write COMPLETE, WORKING code - no TODOs or placeholders
+4. After each file, check if more files need to be created
+5. When ALL files from the plan are done, respond with "Implementation complete."
+
+IMPORTANT:
+- Check what files exist before writing
+- Write complete React/TypeScript/Python code
+- Follow the folder structure in the plan
+- Include all necessary imports
+- Each file should be self-contained and work correctly"""
+
+        # ================================================================
+        # Execute using create_react_agent with CODER_TOOLS
+        # ================================================================
+        try:
+            llm = LLMFactory.get_model("coder")
+            coder_agent = create_react_agent(
+                model=llm,
+                tools=CODER_TOOLS,
+                prompt=AGENT_PROMPTS.get("coder", "You are a code implementation agent."),
+            )
+            
+            result = await coder_agent.ainvoke(
+                {"messages": [HumanMessage(content=coder_prompt)]},
+                config={"recursion_limit": 50}  # Allow many file writes
+            )
+            
+            # Extract completion status from messages
+            new_messages = result.get("messages", [])
+            implementation_complete = False
+            files_written = []
+            
+            for msg in new_messages:
+                if hasattr(msg, 'content') and msg.content:
+                    content = str(msg.content).lower()
+                    if "implementation complete" in content:
+                        implementation_complete = True
+                
+                # Track tool calls for file writes
+                if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        if tc.get("name") == "write_file_to_disk":
+                            path = tc.get("args", {}).get("file_path", "")
+                            if path:
+                                files_written.append(path)
+            
+            return {
+                "artifacts": {
+                    "files_written": files_written,
+                    "message_count": len(new_messages),
+                },
+                "status": "complete" if implementation_complete else "in_progress",
+                "success": True,
+                "implementation_complete": implementation_complete,
+                "completed_files": files_written,
+            }
+            
+        except Exception as e:
+            return {
+                "artifacts": {},
+                "status": "error",
+                "success": False,
+                "error": str(e),
+            }
+

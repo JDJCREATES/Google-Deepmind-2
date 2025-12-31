@@ -1,0 +1,57 @@
+.activity-indicator-container {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+  animation: slideUp 0.3s ease-out;
+}
+
+.activity-indicator-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background-color: var(--editor-bg, #1e1e1e);
+  border: 1px solid var(--border-color, #333);
+  padding: 8px 16px;
+  border-radius: 20px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  max-width: 90%;
+}
+
+.activity-icon-wrapper {
+  color: var(--primary-color, #ff5e57);
+  display: flex;
+  align-items: center;
+}
+
+.activity-text {
+  font-size: 13px;
+  color: var(--primary-color, #ff5e57);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.activity-icon-spin {
+  animation: spin 1.5s linear infinite;
+}
+
+.activity-icon-pulse {
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0% { opacity: 0.6; transform: scale(0.95); }
+  50% { opacity: 1; transform: scale(1.05); }
+  100% { opacity: 0.6; transform: scale(0.95); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}

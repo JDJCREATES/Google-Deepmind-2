@@ -35,17 +35,12 @@ from app.agents.sub_agents.planner.models import (
     PackageDependency,
     EnvironmentVariable,
     RunCommand,
-)
-from app.agents.sub_agents.planner.components import (
+    # Config is now in models
     PlannerComponentConfig,
-    Scoper,
-    FolderArchitect,
-    ContractAuthor,
-    DependencyPlanner,
-    TestDesigner,
-    RiskAssessor,
 )
-from app.agents.sub_agents.planner.tools import PlannerTools
+
+# Tools are in central location: app/agents/tools/planner/
+from app.agents.tools.planner import PlannerTools
 
 __all__ = [
     # Main agent
@@ -56,14 +51,6 @@ __all__ = [
     
     # Tools
     "PlannerTools",
-    
-    # Components
-    "Scoper",
-    "FolderArchitect",
-    "ContractAuthor",
-    "DependencyPlanner",
-    "TestDesigner",
-    "RiskAssessor",
     
     # Artifacts
     "PlanManifest",

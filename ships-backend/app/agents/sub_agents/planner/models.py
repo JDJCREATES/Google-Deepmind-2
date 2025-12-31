@@ -88,11 +88,41 @@ class HTTPMethod(str, Enum):
 # ============================================================================
 
 class ArtifactMetadata(BaseModel):
-    """Common metadata for all planner artifacts."""
+    """
+    Common metadata for all planner artifacts.
+    Supports versioning and change tracking per ShipS* framework.
+    """
+    # Version tracking (mandatory for change management)
     schema_version: str = Field(default="1.0.0")
     planner_version: str = Field(default="1.0.0")
+    artifact_version: str = Field(
+        default="1.0.0",
+        description="Version of this specific artifact (semver)"
+    )
+    previous_version: Optional[str] = Field(
+        default=None,
+        description="Previous version if this is an update"
+    )
+    
+    # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Change tracking
+    change_reason: Optional[str] = Field(
+        default=None,
+        description="Reason for version change (required for updates)"
+    )
+    changed_by: str = Field(
+        default="planner",
+        description="Agent or human that made the change"
+    )
+    is_human_override: bool = Field(
+        default=False,
+        description="True if a human forced this change"
+    )
+    
+    # Confidence and traceability
     confidence: float = Field(
         default=1.0, 
         ge=0.0, 
@@ -103,10 +133,106 @@ class ArtifactMetadata(BaseModel):
         default=None,
         description="ID of originating Intent Spec"
     )
+    plan_id: Optional[str] = Field(
+        default=None,
+        description="ID of parent plan manifest"
+    )
     decision_notes: List[str] = Field(
         default_factory=list,
         description="Short decision rationale notes"
     )
+    
+    def increment_version(self, reason: str, changed_by: str = "planner") -> None:
+        """Increment version and track the change."""
+        import re
+        self.previous_version = self.artifact_version
+        # Parse semver and increment patch
+        match = re.match(r"(\d+)\.(\d+)\.(\d+)", self.artifact_version)
+        if match:
+            major, minor, patch = map(int, match.groups())
+            self.artifact_version = f"{major}.{minor}.{patch + 1}"
+        else:
+            self.artifact_version = "1.0.1"
+        self.change_reason = reason
+        self.changed_by = changed_by
+        self.updated_at = datetime.utcnow()
+
+
+class PlanAssumptions(BaseModel):
+    """
+    Explicit assumptions and defaults for the plan.
+    Makes implicit decisions visible and auditable.
+    """
+    # Framework defaults
+    framework: str = Field(
+        default="Vite + React + TypeScript",
+        description="Default frontend framework"
+    )
+    language: str = Field(
+        default="TypeScript",
+        description="Primary programming language"
+    )
+    styling: str = Field(
+        default="TailwindCSS",
+        description="CSS framework/approach"
+    )
+    state_management: str = Field(
+        default="Zustand",
+        description="State management library"
+    )
+    
+    # Runtime versions
+    node_version: str = Field(default="18.x")
+    python_version: Optional[str] = Field(default=None)
+    
+    # Package management
+    package_manager: Literal["npm", "pnpm", "yarn", "bun"] = "npm"
+    
+    # Auth
+    default_auth: str = Field(
+        default="none",
+        description="Default auth model (none, session, jwt, oauth)"
+    )
+    
+    # Automation thresholds
+    auto_apply_threshold: float = Field(
+        default=0.85,
+        ge=0.0,
+        le=1.0,
+        description="Confidence required for auto-apply fixes"
+    )
+    auto_scaffold: bool = Field(
+        default=True,
+        description="Allow scaffolding without confirmation"
+    )
+    
+    # Testing
+    test_runner: str = Field(default="vitest")
+    e2e_runner: Optional[str] = Field(default="playwright")
+    coverage_threshold: float = Field(
+        default=0.50,
+        description="Minimum coverage for critical modules"
+    )
+    
+    # Behavior flags
+    allow_assumptions: bool = Field(
+        default=True,
+        description="Allow Planner to make reasonable assumptions"
+    )
+    strict_mode: bool = Field(
+        default=False,
+        description="Require confirmation for every decision"
+    )
+
+
+class PlannerComponentConfig(BaseModel):
+    """Configuration for planner components."""
+    max_tokens: int = 4000
+    temperature: float = 1.0  # Gemini 3 recommended
+    enable_web_search: bool = False
+    project_root: str = "."
+    assumptions: PlanAssumptions = Field(default_factory=PlanAssumptions)
+
 
 
 # ============================================================================
@@ -114,9 +240,33 @@ class ArtifactMetadata(BaseModel):
 # ============================================================================
 
 class AcceptanceCriterion(BaseModel):
-    """Single acceptance criterion for a task."""
+    """
+    Single acceptance criterion for a task.
+    Supports Gherkin format (Given/When/Then) for testability.
+    """
     id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
-    description: str = Field(..., description="What must be true")
+    
+    # Gherkin format (preferred - structured)
+    given: Optional[str] = Field(
+        default=None,
+        description="Given... (precondition)"
+    )
+    when: Optional[str] = Field(
+        default=None,
+        description="When... (action)"
+    )
+    then: Optional[str] = Field(
+        default=None,
+        description="Then... (expected result)"
+    )
+    
+    # Free-text format (fallback)
+    description: str = Field(
+        default="",
+        description="What must be true (use Gherkin fields when possible)"
+    )
+    
+    # Validation
     is_automated: bool = Field(
         default=True, 
         description="Can be validated automatically"
@@ -125,6 +275,16 @@ class AcceptanceCriterion(BaseModel):
         default=None,
         description="Command to validate (if automated)"
     )
+    validator_check_id: Optional[str] = Field(
+        default=None,
+        description="ID of corresponding validator check"
+    )
+    
+    def to_gherkin(self) -> str:
+        """Convert to Gherkin format string."""
+        if self.given and self.when and self.then:
+            return f"Given {self.given}, When {self.when}, Then {self.then}"
+        return self.description
 
 
 class TaskDependency(BaseModel):
@@ -234,7 +394,10 @@ class TaskList(BaseModel):
 # ============================================================================
 
 class FolderEntry(BaseModel):
-    """Single entry in the folder map."""
+    """
+    Single entry in the folder map.
+    Supports immutability protection per ShipS* framework.
+    """
     path: str = Field(..., description="Relative path from project root")
     is_directory: bool = Field(default=False)
     description: str = Field(default="", description="One-line purpose")
@@ -249,6 +412,16 @@ class FolderEntry(BaseModel):
         description="Already exists in codebase"
     )
     action: Literal["create", "modify", "keep", "delete"] = "create"
+    
+    # Immutability protection (Coder cannot modify if True)
+    is_immutable: bool = Field(
+        default=False,
+        description="Protected from modification by Coder"
+    )
+    immutable_reason: Optional[str] = Field(
+        default=None,
+        description="Why this is protected (e.g., 'core config')"
+    )
 
 
 class FolderMap(BaseModel):
@@ -517,9 +690,12 @@ class PlanManifest(BaseModel):
     """
     # Identity
     id: str = Field(default_factory=lambda: f"plan_{uuid.uuid4().hex[:12]}")
-    version: str = Field(default="1")
+    version: str = Field(
+        default="1.0.0",
+        description="Plan version (semver, incremented on replan)"
+    )
     
-    # Metadata
+    # Metadata (includes change tracking)
     metadata: ArtifactMetadata = Field(default_factory=ArtifactMetadata)
     
     # Origin
@@ -528,6 +704,23 @@ class PlanManifest(BaseModel):
     # Summary
     summary: str = Field(..., description="One-line plan summary")
     detailed_description: str = Field(default="")
+    
+    # Explicit assumptions
+    assumptions: PlanAssumptions = Field(default_factory=PlanAssumptions)
+    
+    # Minimal Vertical Slice (MVS) - smallest end-to-end demo
+    mvs_steps: List[str] = Field(
+        default_factory=list,
+        description="Steps to produce MVS (e.g., 'npm install', 'npm run dev')"
+    )
+    mvs_expected_files: List[str] = Field(
+        default_factory=list,
+        description="Files that must exist for MVS to work"
+    )
+    mvs_verification: Optional[str] = Field(
+        default=None,
+        description="How to verify MVS works (e.g., 'open http://localhost:3000')"
+    )
     
     # Produced artifacts
     artifacts: List[ArtifactReference] = Field(default_factory=list)
@@ -553,3 +746,100 @@ class PlanManifest(BaseModel):
     
     # Clarification (if blocked)
     clarifying_questions: List[str] = Field(default_factory=list)
+    
+    def increment_version(self, reason: str) -> None:
+        """Increment plan version and track change."""
+        import re
+        match = re.match(r"(\d+)\.(\d+)\.(\d+)", self.version)
+        if match:
+            major, minor, patch = map(int, match.groups())
+            self.version = f"{major}.{minor}.{patch + 1}"
+        else:
+            self.version = "1.0.1"
+        self.metadata.increment_version(reason, "planner")
+
+
+# ============================================================================
+# REPO PROFILE (Discovery Artifact)
+# ============================================================================
+
+class RepoPattern(BaseModel):
+    """Detected pattern in existing codebase."""
+    pattern_type: Literal[
+        "naming", "async", "state", "styling", 
+        "testing", "structure", "imports"
+    ]
+    value: str = Field(..., description="Detected pattern value")
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    examples: List[str] = Field(
+        default_factory=list,
+        description="Example file paths demonstrating this pattern"
+    )
+
+
+class ReuseCandidate(BaseModel):
+    """File or component identified for potential reuse."""
+    path: str
+    reusability: Literal["reuse", "adapt", "replace"] = "reuse"
+    description: str = ""
+    reason: str = Field(
+        default="",
+        description="Why this classification was made"
+    )
+
+
+class ConflictItem(BaseModel):
+    """Conflict between existing repo and plan constraints."""
+    category: Literal[
+        "framework", "version", "pattern", "structure", "dependency"
+    ]
+    existing_value: str
+    planned_value: str
+    severity: Literal["low", "medium", "high"] = "medium"
+    resolution: Optional[str] = None
+
+
+class RepoProfile(BaseModel):
+    """
+    Discovery artifact for existing codebases.
+    
+    Produced during 'Check Existing' phase to capture:
+    - Current versions and tools
+    - Detected patterns and conventions
+    - Reuse candidates
+    - Conflicts with plan
+    """
+    metadata: ArtifactMetadata = Field(default_factory=ArtifactMetadata)
+    
+    # Versions and tools
+    node_version: Optional[str] = None
+    python_version: Optional[str] = None
+    package_manager: Optional[str] = None
+    framework: Optional[str] = None
+    test_runner: Optional[str] = None
+    linter: Optional[str] = None
+    
+    # Detected patterns
+    patterns: List[RepoPattern] = Field(default_factory=list)
+    
+    # Reuse analysis
+    reuse_candidates: List[ReuseCandidate] = Field(default_factory=list)
+    
+    # Conflicts with plan
+    conflicts: List[ConflictItem] = Field(default_factory=list)
+    
+    # Summary
+    is_empty_project: bool = Field(default=False)
+    has_conflicts: bool = Field(default=False)
+    suggested_approach: Literal[
+        "scaffold", "extend", "adapt", "replace"
+    ] = "scaffold"
+    
+    def get_patterns_by_type(self, pattern_type: str) -> List[RepoPattern]:
+        """Get all patterns of a specific type."""
+        return [p for p in self.patterns if p.pattern_type == pattern_type]
+    
+    def get_reusable_files(self) -> List[str]:
+        """Get paths of files marked as reusable."""
+        return [c.path for c in self.reuse_candidates if c.reusability == "reuse"]
+

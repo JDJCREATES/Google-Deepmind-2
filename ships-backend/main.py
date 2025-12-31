@@ -53,8 +53,19 @@ async def get_status():
         "is_running": preview_manager.is_running,
         "logs": preview_manager.logs[-50:],
         "url": preview_manager.current_url,
-        "project_path": preview_manager.current_project_path
+        "project_path": preview_manager.current_project_path,
+        "focus_requested": preview_manager.focus_requested
     }
+
+@preview_router.post("/request-focus")
+async def request_focus():
+    preview_manager.request_focus()
+    return {"status": "success"}
+
+@preview_router.post("/ack-focus")
+async def ack_focus():
+    preview_manager.clear_focus_request()
+    return {"status": "success"}
 
 @preview_router.post("/set-path")
 async def set_project_path(project: ProjectPath):
@@ -185,6 +196,24 @@ async def run_agent(request: Request, body: PromptRequest):
                         if msg_type in ['HumanMessage', 'HumanMessageChunk']:
                             continue
                         
+                        # SPECIAL: Stream Tool Start events (AIMessage with tool_calls)
+                        if getattr(message_chunk, 'tool_calls', None):
+                            for tc in message_chunk.tool_calls:
+                                tool_name = tc.get('name', 'unknown_tool')
+                                args = tc.get('args', {})
+                                
+                                # Extract file path from arguments for file operations
+                                file_path = None
+                                if isinstance(args, dict):
+                                    file_path = args.get('file_path') or args.get('path') or args.get('filename')
+                                
+                                yield json.dumps({
+                                    "type": "tool_start",
+                                    "tool": tool_name,
+                                    "file": file_path,
+                                    "content": str(args)[:200]  # Truncate for safety
+                                }) + "\n"
+                        
                         # SPECIAL: Stream ToolMessage results to frontend
                         if msg_type in ['ToolMessage', 'ToolMessageChunk']:
                             try:
@@ -196,12 +225,29 @@ async def run_agent(request: Request, body: PromptRequest):
                                     parsed = json_mod.loads(tool_content) if isinstance(tool_content, str) else tool_content
                                     if isinstance(parsed, dict):
                                         is_success = parsed.get('success', False)
+                                        
+                                        # TERMINAL OUTPUT: Stream full output for terminal commands
+                                        if tool_name == 'run_terminal_command':
+                                            output = parsed.get('output') or parsed.get('stdout') or ''
+                                            stderr = parsed.get('stderr') or ''
+                                            yield json.dumps({
+                                                "type": "terminal_output",
+                                                "command": parsed.get('command', ''),
+                                                "output": output,
+                                                "stderr": stderr,
+                                                "success": is_success,
+                                                "exit_code": parsed.get('exit_code'),
+                                                "duration_ms": parsed.get('duration_ms', 0),
+                                                "execution_mode": parsed.get('execution_mode', 'unknown')
+                                            }) + "\n"
+                                        
+                                        # Also send generic tool_result for UI
                                         yield json.dumps({
                                             "type": "tool_result",
                                             "tool": tool_name,
                                             "success": is_success,
                                             "file": parsed.get('relative_path') or parsed.get('path', ''),
-                                            "preview": str(tool_content)[:100]
+                                            "preview": str(tool_content)[:200]
                                         }) + "\n"
                                 except:
                                     pass
@@ -224,12 +270,6 @@ async def run_agent(request: Request, body: PromptRequest):
                         # Skip empty content
                         if not content:
                             continue
-                            
-                        # FILTER: Skip internal control messages
-                        if isinstance(content, str):
-                            skip_patterns = ['EXECUTE NOW', 'Start creating files NOW', 'Use the write_file_to_disk', 'ACTION REQUIRED', 'MANDATORY FIRST STEP', 'SCAFFOLDING CHECK']
-                            if any(pattern in content for pattern in skip_patterns):
-                                continue
                         
                         # Track node changes and emit phase events
                         if node_name != current_node:
@@ -251,37 +291,34 @@ async def run_agent(request: Request, body: PromptRequest):
                                 }) + "\n"
                         
                         # ============================================================
-                        # CRITICAL: Convert content to displayable string
+                        # FUNDAMENTAL FIX: DO NOT stream raw LLM content to chat
+                        # Only emit structured events - never raw AI text/JSON
                         # ============================================================
-                        display_content = content
+                        # 
+                        # The previous approach tried to filter out JSON/code patterns,
+                        # but this was a losing battle (whack-a-mole).
+                        # 
+                        # NEW APPROACH: Only log raw content for debugging, never send it.
+                        # The frontend gets information through:
+                        #   - phase events (planning/coding/validating)
+                        #   - tool_start events (when tools are called)
+                        #   - tool_result events (when tools complete)
+                        #   - terminal_output events (for terminal commands)
+                        #   - complete event (final status)
+                        #
+                        # This keeps the UI clean and focused on actions, not AI thinking.
                         
-                        # Handle list content (e.g., [{'type': 'text', 'text': '...'}])
-                        if isinstance(content, list):
-                            text_parts = []
-                            for item in content:
-                                if isinstance(item, dict) and 'text' in item:
-                                    text_parts.append(item['text'])
-                                elif isinstance(item, str):
-                                    text_parts.append(item)
-                            display_content = "".join(text_parts) if text_parts else None
-                        
-                        # Handle dict content (shouldn't display as object)
+                        # Log for debugging only
+                        if isinstance(content, str) and content:
+                            preview = content[:100].replace('\n', ' ')
+                            logger.debug(f"[STREAM] AI content from {node_name} (not displayed): {preview}...")
+                        elif isinstance(content, list):
+                            logger.debug(f"[STREAM] AI list content from {node_name} (not displayed): {len(content)} items")
                         elif isinstance(content, dict):
-                            # Try to get text from common fields
-                            display_content = content.get('text') or content.get('content') or None
+                            logger.debug(f"[STREAM] AI dict content from {node_name} (not displayed): {list(content.keys())}")
                         
-                        # Skip if nothing to display
-                        if not display_content:
-                            continue
-                        
-                        # Stream the content to frontend
-                        logger.debug(f"[STREAM] Chunk from {node_name}: {str(display_content)[:50]}...")
-                        chunk = {
-                            "type": "message",
-                            "node": node_name,
-                            "content": str(display_content)  # Ensure string
-                        }
-                        yield json.dumps(chunk) + "\n"
+                        # DO NOT YIELD RAW CONTENT - that's what caused the wall of JSON!
+                        # The continue here is intentional - we've already emitted tool events above
                     
                     # Handle dict format (other stream modes)
                     elif isinstance(event, dict):
@@ -313,7 +350,27 @@ async def run_agent(request: Request, body: PromptRequest):
                     continue
                     
             logger.info("[STREAM] Pipeline completed successfully")
-            yield json.dumps({"type": "complete", "content": "Pipeline completed successfully"}) + "\n"
+            
+            # Try to get preview_url from the final state
+            # This is set by complete_node when it starts the dev server
+            preview_url = None
+            try:
+                # Get final state from the graph
+                final_state = await graph.aget_state(config)
+                if final_state and hasattr(final_state, 'values'):
+                    result = final_state.values.get('result', {})
+                    if result:
+                        preview_url = result.get('preview_url')
+                        logger.info(f"[STREAM] Preview URL from state: {preview_url}")
+            except Exception as e:
+                logger.debug(f"[STREAM] Could not get preview from state: {e}")
+            
+            # Emit completion with preview_url for Electron to display
+            yield json.dumps({
+                "type": "complete", 
+                "content": "Pipeline completed successfully",
+                "preview_url": preview_url
+            }) + "\n"
             
         except Exception as e:
             logger.error(f"[STREAM] Pipeline error: {e}", exc_info=True)

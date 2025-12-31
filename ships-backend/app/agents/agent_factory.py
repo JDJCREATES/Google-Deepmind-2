@@ -9,115 +9,66 @@ Each agent is created with:
 - Agent-specific tools
 - System prompt as first message
 - Optional checkpointing for state persistence
+- Message trimming to control token usage
 """
 
 from typing import Optional, Dict, Any, List, Literal
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.messages import trim_messages
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 
 from app.core.llm_factory import LLMFactory
-from app.agents.tools import (
-    PLANNER_TOOLS,
-    CODER_TOOLS,
-    VALIDATOR_TOOLS,
-    FIXER_TOOLS,
-)
+from app.agents.tools.planner import PLANNER_TOOLS
+from app.agents.tools.coder import CODER_TOOLS
+from app.agents.tools.validator import VALIDATOR_TOOLS
+from app.agents.tools.fixer import FIXER_TOOLS
 
 
-# System prompts for each agent type
-AGENT_PROMPTS = {
-    "planner": """You are the Planner for ShipS*, an AI coding system that SHIPS WORKING CODE.
-
-Your job is to convert a StructuredIntent into 7 plan artifacts:
-1. plan_manifest - Top-level plan descriptor
-2. task_list - Prioritized tasks with acceptance criteria
-3. folder_map - Directory/file structure
-4. api_contracts - Endpoint definitions (if needed)
-5. dependency_plan - Required packages
-6. validation_checklist - Test targets
-7. risk_report - Blockers and risks
-
-CRITICAL RULES:
-- Be specific and actionable
-- Every task must have acceptance criteria
-- Folder map must be comprehensive
-- Dependencies must be real packages
-- Identify all risks upfront
-
-IMPORTANT: You must valid JSON plan first only to verify internally, BUT THEN:
-YOU MUST WRITE THE FINAL PLAN TO DISK in the `.ships/` subfolder:
-
-Use `write_file_to_disk` to save these files:
-- `.ships/implementation_plan.md`: The full detailed plan (Markdown)
-- `.ships/task.md`: The checklist of tasks (Markdown checkboxes)
-
-Do NOT output the full JSON in the chat. Just say "Plan created and saved to disk."
-""",
-
-    "coder": """You are the Coder for ShipS*, an AI coding system that SHIPS WORKING CODE.
-
-YOUR ONLY JOB: Use the write_file_to_disk tool to CREATE FILES.
-
-DO NOT just acknowledge the plan. DO NOT say "ready for execution".
-You MUST IMMEDIATELY call write_file_to_disk for each file needed.
-
-AVAILABLE TOOL - write_file_to_disk:
-- file_path: relative path like "index.html" or "src/App.tsx"
-- content: the COMPLETE file content
-
-EXAMPLE - Creating an HTML file:
-Call write_file_to_disk with:
-  file_path = "index.html"
-  content = "<!DOCTYPE html><html>...</html>"
-
-RULES:
-1. IMMEDIATELY call write_file_to_disk - no discussion first
-2. Write COMPLETE code - no TODOs, no placeholders
-3. Create ALL files needed for the task
-4. If the user wants a calculator - write the full calculator code
-
-START WRITING FILES NOW using write_file_to_disk.""",
-
-    "validator": """You are the Validator for ShipS*, an AI coding system that SHIPS WORKING CODE.
-
-Your job is to answer ONE question only:
-"Is the system safe to proceed?"
-
-NOT: "Is this elegant?"
-NOT: "Is this optimal?"
-NOT: "Is this finished?"
-ONLY: "Can the system move forward without lying?"
-
-Run validation in 4 layers (stop on first failure):
-1. Structural - Did Coder obey Folder Map?
-2. Completeness - Are there TODOs/placeholders?
-3. Dependency - Do imports resolve?
-4. Scope - Does implementation match Blueprint?
-
-You PASS or FAIL. You do NOT negotiate.""",
-
-    "fixer": """You are the Fixer for ShipS*, an AI coding system that SHIPS WORKING CODE.
-
-Your job is to produce the SMALLEST SAFE fix that makes validation pass.
-
-CRITICAL RULES:
-1. MINIMAL FIXES - Smallest change that fixes the violation
-2. NO ARCHITECTURE CHANGES - If fix requires folder/plan changes, escalate to Planner
-3. ARTIFACT-FIRST - All fixes are persisted artifacts
-4. EXPLAINABILITY - Every fix includes rationale
-5. SAFETY FIRST - No secrets, no banned packages
-
-WHAT YOU CAN FIX:
-- TODOs → Convert to stubs with follow-up tasks
-- Empty functions → Add minimal implementation
-- Missing imports → Add if package is allowed
-
-WHAT YOU MUST ESCALATE:
-- Folder map violations → Replan
-- Scope exceeded → Replan
-- Security issues → User review"""
+# Token limits for message trimming (per agent type)
+TOKEN_LIMITS = {
+    "planner": 15000,   # Planning needs context
+    "coder": 10000,      # Coding focuses in tight loop: plan -> file -> done
+    "validator": 6000,  # Validation is quick
+    "fixer": 8000,      # Fixing needs context of errors
 }
+
+
+def create_message_trimmer(max_tokens: int = 20000):
+    """
+    Create a pre_model_hook that trims messages to stay under token limit.
+    
+    Args:
+        max_tokens: Maximum tokens to keep in message history
+        
+    Returns:
+        A callable pre_model_hook function
+    """
+    def pre_model_hook(state):
+        """Trim messages before each LLM call to control tokens."""
+        messages = state.get("messages", [])
+        
+        # Use trim_messages to keep most recent, staying under limit
+        # Token approximation: ~4 characters = 1 token
+        trimmed = trim_messages(
+            messages,
+            strategy="last",
+            max_tokens=max_tokens,
+            token_counter=lambda msgs: sum(len(str(m.content)) // 4 for m in msgs),
+            start_on="human",   # Keep starting from a human message
+            include_system=True,
+        )
+        
+        # Return trimmed messages under llm_input_messages key
+        # This sends trimmed to LLM without modifying state
+        return {"llm_input_messages": trimmed}
+    
+    return pre_model_hook
+
+
+# Import prompts from centralized prompts module
+from app.prompts import AGENT_PROMPTS
+
 
 
 class AgentFactory:
@@ -141,7 +92,9 @@ class AgentFactory:
         cls,
         agent_type: Literal["planner", "coder", "validator", "fixer"],
         checkpointer: Optional[MemorySaver] = None,
-        additional_tools: Optional[List] = None
+        additional_tools: Optional[List] = None,
+        override_system_prompt: Optional[str] = None,
+        cached_content: Optional[str] = None, # NEW: Explicit Cache Support
     ):
         """
         Create a modern LangGraph agent using create_react_agent.
@@ -150,6 +103,8 @@ class AgentFactory:
             agent_type: Type of agent to create
             checkpointer: Optional checkpointer for state persistence
             additional_tools: Optional extra tools to add
+            override_system_prompt: Optional dynamic system prompt to use
+            cached_content: Optional Gemini explicit cache name to use
             
         Returns:
             A compiled LangGraph agent
@@ -159,27 +114,49 @@ class AgentFactory:
             "planner": "planner",
             "coder": "coder",
             "validator": "mini",  # Validator uses Flash for speed
-            "fixer": "fixer"
+            "planner": "planner",
+            "coder": "coder",
+            "validator": "mini",  # Validator uses Flash for speed
+            "fixer": "fixer",
+            "orchestrator": "mini" # Orchestrator uses fast reasoning
         }
         
         # Create the LLM using LLMFactory (handles model names and API key)
-        llm = LLMFactory.get_model(llm_type_map.get(agent_type, "mini"))
+        llm = LLMFactory.get_model(
+            llm_type_map.get(agent_type, "mini"),
+            cached_content=cached_content
+        )
         
         # Get tools for this agent
         tools = list(cls.AGENT_TOOLS.get(agent_type, []))
         if additional_tools:
             tools.extend(additional_tools)
         
-        # Get system prompt
-        prompt = AGENT_PROMPTS.get(agent_type, "You are a helpful assistant.")
+        # Get system prompt (dynamic override or static default)
+        prompt = override_system_prompt or AGENT_PROMPTS.get(agent_type, "You are a helpful assistant.")
         
-        # Create the modern ReAct agent
+        # Get token limit for this agent type
+        max_tokens = TOKEN_LIMITS.get(agent_type, 20000)
+        
+        # Create the modern ReAct agent with message trimming
+        # Note: Sequential tool execution is enforced via prompt constraints
+        # (Gemini API does not support parallel_tool_calls parameter)
         agent = create_react_agent(
             model=llm,
             tools=tools,
             prompt=prompt,
-            checkpointer=checkpointer
+            checkpointer=checkpointer,
+            # trim messages to keep context under control
+            pre_model_hook=create_message_trimmer(max_tokens),
+            # prevent infinite loops
+            # Note: newer LangGraph versions support recursion_limit in create_react_agent
+            debug=False,
         )
+        # Note: recursion limit is set in invoke/stream config, but can be defaulted here in newer versions.
+        # For LangGraph prebuilt, recursion_limit is a runtime config, not compile time.
+        # We'll set it in run_agent instead.
+        
+        return agent
         
         return agent
     
@@ -189,9 +166,9 @@ class AgentFactory:
         return cls.create_agent("planner", checkpointer)
     
     @classmethod
-    def create_coder(cls, checkpointer: Optional[MemorySaver] = None):
+    def create_coder(cls, checkpointer: Optional[MemorySaver] = None, cached_content: Optional[str] = None):
         """Create a Coder agent."""
-        return cls.create_agent("coder", checkpointer)
+        return cls.create_agent("coder", checkpointer, cached_content=cached_content)
     
     @classmethod
     def create_validator(cls, checkpointer: Optional[MemorySaver] = None):
@@ -202,6 +179,11 @@ class AgentFactory:
     def create_fixer(cls, checkpointer: Optional[MemorySaver] = None):
         """Create a Fixer agent."""
         return cls.create_agent("fixer", checkpointer)
+    
+    @classmethod
+    def create_orchestrator(cls, checkpointer: Optional[MemorySaver] = None, override_system_prompt: Optional[str] = None):
+        """Create an Orchestrator agent."""
+        return cls.create_agent("orchestrator", checkpointer, override_system_prompt=override_system_prompt)
     
     @classmethod
     def create_all(cls, shared_checkpointer: bool = False) -> Dict[str, Any]:
@@ -251,9 +233,14 @@ async def run_agent(
             lc_messages.append(SystemMessage(content=msg["content"]))
     
     # Run the agent
+    # Enforce recursion limit to prevent token explosions
+    run_config = config or {}
+    if "recursion_limit" not in run_config:
+        run_config["recursion_limit"] = 15
+
     result = await agent.ainvoke(
         {"messages": lc_messages},
-        config=config or {}
+        config=run_config
     )
     
     return result
@@ -279,9 +266,14 @@ async def stream_agent(
     
     lc_messages = [HumanMessage(content=m["content"]) for m in messages if m.get("role") == "user"]
     
+    # Enforce recursion limit
+    run_config = config or {}
+    if "recursion_limit" not in run_config:
+        run_config["recursion_limit"] = 15
+
     async for event in agent.astream(
         {"messages": lc_messages},
-        config=config or {},
+        config=run_config,
         stream_mode="values"
     ):
         yield event

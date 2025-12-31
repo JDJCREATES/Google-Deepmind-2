@@ -3,9 +3,12 @@ ShipS* Fixer Sub-Agent Package
 
 The Fixer produces the smallest safe, auditable remediation
 that moves the system toward Validator: pass.
+
+Note: Strategies are now in central location: app/agents/tools/fixer/
+Import them directly from there if needed.
 """
 
-from app.agents.sub_agents.fixer.fixer import Fixer
+# Import models FIRST (no dependencies on other modules)
 from app.agents.sub_agents.fixer.models import (
     # Core artifacts
     FixPlan,
@@ -27,13 +30,9 @@ from app.agents.sub_agents.fixer.models import (
     FixResult,
     ApprovalType,
 )
-from app.agents.sub_agents.fixer.strategies import (
-    FixStrategy,
-    StructuralFixer,
-    CompletenessFixer,
-    DependencyFixer,
-    ScopeFixer,
-)
+
+# Import Fixer (depends on models and uses strategies from tools internally)
+from app.agents.sub_agents.fixer.fixer import Fixer
 
 __all__ = [
     # Main agent
@@ -41,13 +40,6 @@ __all__ = [
     
     # Config
     "FixerConfig",
-    
-    # Strategies
-    "FixStrategy",
-    "StructuralFixer",
-    "CompletenessFixer",
-    "DependencyFixer",
-    "ScopeFixer",
     
     # Artifacts
     "FixPlan",

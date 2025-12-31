@@ -1,10 +1,8 @@
 """
-ShipS* Planner Tools
+ShipS* Planner Tool Functions
 
-Tools for the Planner agent to interact with:
-- Artifact assembly
-- Project analysis
-- Schema validation
+Helper functions for the Planner agent.
+These include artifact assembly, project analysis, and validation utilities.
 """
 
 from typing import Dict, Any, List, Optional

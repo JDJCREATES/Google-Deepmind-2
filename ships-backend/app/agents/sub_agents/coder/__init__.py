@@ -2,6 +2,9 @@
 ShipS* Coder Sub-Agent Package
 
 The Coder converts Planner tasks into minimal, reviewable code changes.
+
+Note: Tools are in the central location: app/agents/tools/coder/
+This __init__.py only exports the Coder agent and its models.
 """
 
 from app.agents.sub_agents.coder.coder import Coder
@@ -19,6 +22,7 @@ from app.agents.sub_agents.coder.models import (
     FollowUpTask,
     CoderOutput,
     CoderMetadata,
+    CoderComponentConfig,
     
     # Enums
     FileOperation,
@@ -33,44 +37,10 @@ from app.agents.sub_agents.coder.models import (
     EdgeCase,
     TestAssertion,
 )
-from app.agents.sub_agents.coder.components import (
-    CoderComponentConfig,
-    TaskInterpreter,
-    ContextConsumer,
-    StyleEnforcer,
-    ImplementationSynthesizer,
-    DependencyVerifier,
-    TestAuthor,
-    PreflightChecker,
-)
-from app.agents.sub_agents.coder.tools import (
-    CodeTools,
-    DiffGenerator,
-    CommitBuilder,
-    ReportBuilder,
-)
 
 __all__ = [
     # Main agent
     "Coder",
-    
-    # Config
-    "CoderComponentConfig",
-    
-    # Tools
-    "CodeTools",
-    "DiffGenerator",
-    "CommitBuilder",
-    "ReportBuilder",
-    
-    # Components
-    "TaskInterpreter",
-    "ContextConsumer",
-    "StyleEnforcer",
-    "ImplementationSynthesizer",
-    "DependencyVerifier",
-    "TestAuthor",
-    "PreflightChecker",
     
     # Artifacts
     "FileChangeSet",
@@ -85,6 +55,7 @@ __all__ = [
     "FollowUpTask",
     "CoderOutput",
     "CoderMetadata",
+    "CoderComponentConfig",
     
     # Enums
     "FileOperation",

@@ -22,6 +22,7 @@ import { XTerminal } from './components/terminal/XTerminal';
 import { BiBox } from 'react-icons/bi';
 import { agentService, type AgentChunk } from './services/agentService';
 import { ToolProgress, type ToolEvent, PhaseIndicator, type AgentPhase } from './components/streaming';
+import { ActivityIndicator } from './components/streaming/ActivityIndicator';
 import './App.css';
 
 type SidebarView = 'files' | 'artifacts' | 'search';
@@ -32,6 +33,9 @@ function App() {
   const [activeSidebarView, setActiveSidebarView] = useState<SidebarView>('files');
   const { currentProjectId } = useArtifactStore();
   const { refreshFileTree } = useFileSystem();
+  
+  // Define API URL for component usage
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
   
   // Toggle sidebar or switch view
   const handleSidebarClick = (view: SidebarView) => {
@@ -54,6 +58,13 @@ function App() {
   // Streaming state
   const [agentPhase, setAgentPhase] = useState<AgentPhase>('idle');
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
+  const [currentActivity, setCurrentActivity] = useState<string>('');
+  const [activityType, setActivityType] = useState<any>('thinking');
+  
+  // Terminal output from agent commands
+  const [terminalOutput, setTerminalOutput] = useState<string>('');
+  // Preview URL from completed agent (for auto-launching preview)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   // Get project path from Electron (if available)
   const [electronProjectPath, setElectronProjectPath] = useState<string | null>(null);
   
@@ -63,7 +74,6 @@ function App() {
   // Sync project path with backend
   const syncProjectPathWithBackend = async (path: string) => {
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
       await fetch(`${API_URL}/preview/set-path`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -176,6 +186,8 @@ function App() {
     // Reset streaming state for new request
     setAgentPhase('planning');
     setToolEvents([]);
+    setCurrentActivity('Initializing...');
+    setActivityType('thinking');
 
     // Create a placeholder AI message
     const aiMessageId = (Date.now() + 1).toString();
@@ -199,10 +211,32 @@ function App() {
         // Handle phase changes
         if (chunk.type === 'phase' && chunk.phase) {
           setAgentPhase(chunk.phase);
+          if (chunk.phase === 'planning') setCurrentActivity('Planning approach...');
+          else if (chunk.phase === 'coding') setCurrentActivity('Writing code...');
+          else if (chunk.phase === 'validating') setCurrentActivity('Verifying changes...');
+          else if (chunk.phase === 'fixing') setCurrentActivity('Fixing issues...');
         }
         
         // Handle tool start (show spinner)
         else if (chunk.type === 'tool_start') {
+          const toolName = chunk.tool || 'unknown';
+          let activityText = `Running ${toolName}...`;
+          let type: any = 'working';
+          
+          if (toolName === 'write_file_to_disk') {
+             activityText = `Writing ${chunk.file || 'file'}...`;
+             type = 'writing';
+          } else if (toolName === 'run_terminal_command') {
+             activityText = `Running command...`;
+             type = 'command';
+          } else if (toolName === 'read_file_from_disk') {
+             activityText = `Reading ${chunk.file || 'file'}...`;
+             type = 'reading';
+          }
+          
+          setCurrentActivity(activityText);
+          setActivityType(type);
+
           setToolEvents(prev => [...prev, {
             id: `${Date.now()}-${chunk.tool}`,
             type: 'tool_start',
@@ -214,6 +248,10 @@ function App() {
         
         // Handle tool result (show checkmark/X)
         else if (chunk.type === 'tool_result') {
+          // Reset activity to generic thinking after tool is done
+          setCurrentActivity('Thinking...');
+          setActivityType('thinking');
+
           setToolEvents(prev => [...prev, {
             id: `${Date.now()}-${chunk.tool}-result`,
             type: 'tool_result',
@@ -237,6 +275,34 @@ function App() {
         // Handle files created event (explorer refresh)
         else if (chunk.type === 'files_created') {
           filesCreated = true;
+        }
+        
+        // Handle plan created event (display nicely instead of JSON dump)
+        else if (chunk.type === 'plan_created') {
+          const summary = (chunk as any).summary || 'Plan created';
+          const taskCount = (chunk as any).task_count || 0;
+          const folderCount = (chunk as any).folders || 0;
+          
+          setMessages(prev => prev.map(msg => {
+            if (msg.id === aiMessageId) {
+              const planText = `📋 **Plan Created:** ${summary}\n• ${taskCount} tasks defined\n• ${folderCount} folders structured`;
+              return { 
+                ...msg, 
+                content: msg.content + (msg.content ? '\n\n' : '') + planText
+              };
+            }
+            return msg;
+          }));
+        }
+        
+        // Handle terminal output from agent commands
+        else if (chunk.type === 'terminal_output') {
+          const output = chunk.output || '';
+          const stderr = chunk.stderr || '';
+          const command = chunk.command || '';
+          const fullOutput = `$ ${command}\n${output}${stderr ? '\nSTDERR: ' + stderr : ''}`;
+          setTerminalOutput(fullOutput);
+          setShowTerminal(true);
         }
         
         // Handle AI text messages (filter noise)
@@ -266,6 +332,22 @@ function App() {
           }));
         }
         
+        // Handle pipeline completion with preview URL
+        else if (chunk.type === 'complete') {
+          setAgentPhase('done');
+          
+          // If we have a preview URL, store it and trigger Electron preview
+          if (chunk.preview_url) {
+            setPreviewUrl(chunk.preview_url);
+            console.log('[App] Preview ready at:', chunk.preview_url);
+            
+            // Tell Electron to open the preview (if available)
+            if (window.electronAPI?.openPreview) {
+              window.electronAPI.openPreview(chunk.preview_url);
+            }
+          }
+        }
+        
         // Handle errors
         else if (chunk.type === 'error') {
           setAgentPhase('error');
@@ -291,6 +373,7 @@ function App() {
     
     setIsAgentRunning(false);
     setAgentPhase('done');
+    setCurrentActivity(''); // Clear activity indicator when done
     
     // Refresh file explorer if files were created
     if (filesCreated) {
@@ -403,6 +486,7 @@ function App() {
                 isCollapsed={terminalCollapsed}
                 onClose={() => setShowTerminal(false)}
                 onToggleCollapse={() => setTerminalCollapsed(!terminalCollapsed)}
+                externalOutput={terminalOutput}
               />
             </>
           )}
@@ -420,9 +504,20 @@ function App() {
           <div className="chat-header-center">
             <button 
               className="preview-btn"
-              onClick={() => {
-                // Try to open the Electron app via custom protocol
-                window.location.href = 'ships://preview';
+              onClick={async () => {
+                const targetUrl = `ships://preview?path=${encodeURIComponent(electronProjectPath || '')}`;
+                if (window.electronAPI?.openPreview) {
+                  // If running inside Electron, use IPC
+                  window.electronAPI.openPreview(targetUrl);
+                } else {
+                  // If running in browser, ask Backend to focus the external Electron app
+                  try {
+                      await fetch(`${API_URL}/preview/request-focus`, { method: 'POST' });
+                  } catch (e) {
+                      console.error("Failed to request focus", e);
+                      // Silent failure - user can switch manually
+                  }
+                }
               }}
               style={{
                 background: 'var(--primary-color, #ff5e57)',
@@ -448,14 +543,25 @@ function App() {
           {isAgentRunning && agentPhase !== 'idle' && (
             <PhaseIndicator phase={agentPhase} />
           )}
-          
+
           {messages.map((message) => (
             <ChatMessage key={message.id} message={message} />
           ))}
+
+          {/* Real-time Activity Indicator */}
+          <div className="activity-section">
+             <ActivityIndicator 
+                activity={currentActivity} 
+                type={activityType} 
+             />
+          </div>
           
-          {/* Tool progress card when there are tool events */}
+          {/* Tool progress card (History) */}
           {toolEvents.length > 0 && (
-            <ToolProgress events={toolEvents} />
+            <ToolProgress 
+              events={toolEvents} 
+              isCollapsed={agentPhase === 'done' || agentPhase === 'idle'}
+            />
           )}
           
           <div ref={messagesEndRef} />

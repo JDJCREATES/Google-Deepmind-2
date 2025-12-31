@@ -76,7 +76,8 @@ class BaseAgent(ABC):
         name: str, 
         agent_type: Literal["orchestrator", "planner", "coder", "fixer", "mini"],
         reasoning_level: Literal["standard", "high"] = "standard",
-        artifact_manager: Optional[ArtifactManager] = None
+        artifact_manager: Optional[ArtifactManager] = None,
+        cached_content: Optional[str] = None # NEW: Explicit Caching
     ):
         """
         Initialize the base agent.
@@ -90,7 +91,11 @@ class BaseAgent(ABC):
         self.name = name
         self.agent_type = agent_type
         self.reasoning_level = reasoning_level
-        self.llm = LLMFactory.get_model(agent_type, reasoning_level)
+        self.llm = LLMFactory.get_model(
+            agent_type, 
+            reasoning_level,
+            cached_content=cached_content
+        )
         self.system_prompt = self._get_system_prompt()
         self._artifact_manager = artifact_manager
         
@@ -162,8 +167,21 @@ class BaseAgent(ABC):
                 if role == 'user':
                     messages.append(HumanMessage(content=content))
                 elif role == 'assistant':
-                    messages.append(AIMessage(content=content))
-                # Skip system messages as we already have our own
+                    # CRITICAL: Preserve tool_calls and additional_kwargs for thought signatures
+                    messages.append(AIMessage(
+                        content=content,
+                        tool_calls=msg.get('tool_calls', []),
+                        additional_kwargs=msg.get('additional_kwargs', {}),
+                        response_metadata=msg.get('response_metadata', {})
+                    ))
+                elif role == 'tool':
+                    from langchain_core.messages import ToolMessage
+                    messages.append(ToolMessage(
+                        content=content,
+                        tool_call_id=msg.get('tool_call_id', ''),
+                        name=msg.get('name', ''),
+                        additional_kwargs=msg.get('additional_kwargs', {})
+                    ))
             else:
                 # Assume it's already a BaseMessage
                 messages.append(msg)
