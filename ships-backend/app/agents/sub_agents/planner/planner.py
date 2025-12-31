@@ -98,9 +98,7 @@ class Planner(BaseAgent):
 
 Your job is to convert Intent Specs into actionable Plans with GRANULAR, STEP-BY-STEP tasks.
 
-==========================================================================
-🚨 CRITICAL: TASK GRANULARITY REQUIREMENTS 🚨
-==========================================================================
+ CRITICAL: TASK GRANULARITY REQUIREMENTS
 
 You MUST generate **4-6 granular tasks minimum** for any request. 
 Each task should be:
@@ -148,8 +146,6 @@ Each task should be:
     "expected_outputs": [{"path": "src/index.css", "action": "modify"}]
   }
 ]
-
-==========================================================================
 
 CORE RULES:
 1. ARTIFACT-FIRST: Output machine-readable, verifiable artifacts
