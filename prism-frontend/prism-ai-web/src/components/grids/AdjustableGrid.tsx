@@ -1,7 +1,12 @@
 import './AdjustableGrid.css'
 
 export interface AdjustableGridProps {
-  
+  gridWidth: number,
+  gridHeight: number,
+  cellData: [],
+  renderCell: = () => void,
+  onCellClick: = () => void,
+  cellClassName: string
 }
 
 const AdjustableGrid = ({
