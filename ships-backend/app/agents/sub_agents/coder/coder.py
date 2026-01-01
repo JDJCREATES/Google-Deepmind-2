@@ -105,7 +105,7 @@ class Coder(BaseAgent):
     
     def _get_system_prompt(self) -> str:
         """Get the system prompt for code generation."""
-        return "CODER_SYSTEM_PROMPT"
+        return CODER_SYSTEM_PROMPT
     
     async def code(
         self,

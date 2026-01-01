@@ -55,6 +55,7 @@ from .edit_operations import (
 
 # Combined export of all tools for the Coder agent
 # Edit tools listed FIRST as they are preferred for modifications
+# NOTE: Terminal commands removed - Validator handles build/test
 CODER_TOOLS = [
     # Edit operations (preferred for modifying existing files - saves tokens!)
     apply_source_edits,
@@ -64,17 +65,9 @@ CODER_TOOLS = [
     write_file_to_disk,
     read_file_from_disk,
     list_directory,
-    # Terminal operations (for npm, git, etc.)
-    run_terminal_command,
-    get_allowed_terminal_commands,
-    # Code analysis
-    analyze_task,
+    # Code analysis (minimal - most is done in prompt)
     generate_file_diff,
     detect_language,
-    assess_change_risk,
-    create_file_change,
-    build_commit_message,
-    check_imports,
 ]
 
 __all__ = [

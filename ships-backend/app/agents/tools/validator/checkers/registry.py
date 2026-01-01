@@ -88,13 +88,19 @@ class CheckerRegistry:
         from app.agents.tools.validator.checkers.go import GoChecker
         from app.agents.tools.validator.checkers.css import CSSChecker
         from app.agents.tools.validator.checkers.eslint import ESLintChecker
+        from app.agents.tools.validator.checkers.build import BuildChecker, TestChecker
         
+        # Language checkers (lint/type errors)
         self.register(TypeScriptChecker())
         self.register(PythonChecker())
         self.register(RustChecker())
         self.register(GoChecker())
         self.register(CSSChecker())
         self.register(ESLintChecker())
+        
+        # Build/Test checkers (compilation and test verification)
+        self.register(BuildChecker())
+        self.register(TestChecker())
     
     def register(self, checker: BaseChecker) -> None:
         """
