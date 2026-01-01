@@ -135,45 +135,70 @@ class CheckerRegistry:
         self, 
         checker_names: List[str], 
         project_path: str,
-        report_diagnostics: bool = True
+        report_diagnostics: bool = True,
+        max_errors_per_checker: int = 20
     ) -> RegistryResult:
         """
-        Run specific checkers on a project.
+        Run specific checkers on a project (in parallel for performance).
         
         Args:
             checker_names: List of checker names to run
             project_path: Absolute path to project root
             report_diagnostics: Whether to report errors to diagnostics store
+            max_errors_per_checker: Limit errors per checker (prevents token bloat)
             
         Returns:
             RegistryResult with aggregated results
         """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
         start = datetime.utcnow()
         registry_result = RegistryResult()
         
+        # Build list of checkers to run
+        checkers_to_run = []
         for name in checker_names:
             checker = self._checkers.get(name)
-            if not checker:
+            if checker:
+                checkers_to_run.append((name, checker))
+            else:
                 logger.warning(f"Unknown checker: {name}")
-                continue
+        
+        # Run checkers in parallel (max 4 threads to avoid overwhelming system)
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {
+                executor.submit(checker.check, project_path): name 
+                for name, checker in checkers_to_run
+            }
             
-            result = checker.check(project_path)
-            registry_result.results[name] = result
-            
-            if not result.skipped:
-                registry_result.total_errors += result.error_count
-                if not result.passed:
-                    registry_result.passed = False
+            for future in as_completed(futures):
+                name = futures[future]
+                try:
+                    result = future.result(timeout=60)
+                    
+                    # Limit errors per checker to prevent token bloat
+                    if result.errors and len(result.errors) > max_errors_per_checker:
+                        result.errors = result.errors[:max_errors_per_checker]
+                    
+                    registry_result.results[name] = result
+                    
+                    if not result.skipped:
+                        registry_result.total_errors += result.error_count
+                        if not result.passed:
+                            registry_result.passed = False
+                except Exception as e:
+                    logger.error(f"Checker {name} failed: {e}")
         
         registry_result.duration_ms = int(
             (datetime.utcnow() - start).total_seconds() * 1000
         )
         
-        # Report all errors to diagnostics store
+        # Report all errors to diagnostics store (non-blocking)
         if report_diagnostics:
             all_errors = registry_result.get_all_errors()
             if all_errors:
-                self._report_all_errors(project_path, all_errors)
+                # Fire-and-forget async report
+                self._report_all_errors_async(project_path, all_errors)
         
         return registry_result
     
@@ -202,23 +227,28 @@ class CheckerRegistry:
         
         return self.run(detected, project_path, report_diagnostics)
     
-    def _report_all_errors(
+    def _report_all_errors_async(
         self, 
         project_path: str, 
         errors: List[CheckerError]
-    ) -> bool:
-        """Report all errors to the diagnostics store."""
-        try:
-            import httpx
-            response = httpx.post(
-                f"{self.api_url}/diagnostics/report",
-                json={
-                    "project_path": project_path,
-                    "errors": [e.to_dict() for e in errors]
-                },
-                timeout=5.0
-            )
-            return response.status_code == 200
-        except Exception as e:
-            logger.warning(f"Failed to report diagnostics: {e}")
-            return False
+    ) -> None:
+        """Report all errors to the diagnostics store (fire-and-forget)."""
+        import threading
+        
+        def _do_report():
+            try:
+                import httpx
+                httpx.post(
+                    f"{self.api_url}/diagnostics/report",
+                    json={
+                        "project_path": project_path,
+                        "errors": [e.to_dict() for e in errors[:50]]  # Max 50 errors
+                    },
+                    timeout=5.0
+                )
+            except Exception as e:
+                logger.warning(f"Failed to report diagnostics: {e}")
+        
+        # Run in background thread (non-blocking)
+        thread = threading.Thread(target=_do_report, daemon=True)
+        thread.start()

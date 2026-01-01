@@ -582,152 +582,78 @@ class ScopeLayer(ValidationLayer):
 
 
 # ============================================================================
-# LAYER 5: TYPESCRIPT VALIDATION (tsc --noEmit)
+# LAYER 5: UNIFIED LANGUAGE CHECKER (TypeScript, Python, Rust, Go, CSS, ESLint)
 # ============================================================================
 
-class TypeScriptLayer(ValidationLayer):
+class LanguageCheckerLayer(ValidationLayer):
     """
-    Layer 5: Does the TypeScript code compile?
+    Unified language checker layer.
     
-    Runs `tsc --noEmit` to check for type errors without producing output.
-    Results are stored in the diagnostics endpoint for Fixer to consume.
+    Uses the CheckerRegistry to auto-detect project types and run
+    all applicable language checkers (TypeScript, Python, Rust, Go, CSS, ESLint).
     
-    This layer catches:
-    - Type errors
-    - Syntax errors
-    - Missing imports
-    - Incorrect function signatures
+    Results are aggregated and reported to the diagnostics store.
+    Performance: Registry is cached, checkers run in parallel.
     """
+    
+    # Class-level registry cache (shared across instances)
+    _registry = None
     
     def __init__(self, config: Optional[ValidatorConfig] = None):
         super().__init__(config)
-        self.layer_name = FailureLayer.DEPENDENCY  # Reuse Dependency for now
+        self.layer_name = FailureLayer.DEPENDENCY
+        
+        # Lazy-init registry once
+        if LanguageCheckerLayer._registry is None:
+            from app.agents.tools.validator.checkers import CheckerRegistry
+            LanguageCheckerLayer._registry = CheckerRegistry()
     
     def validate(self, context: Dict[str, Any]) -> LayerResult:
-        """Run TypeScript compiler and parse errors."""
-        import subprocess
-        import json as json_mod
-        import httpx
-        
+        """Run all applicable language checkers (parallel execution)."""
         start = datetime.utcnow()
         violations = []
-        checks_run = 1  # One check: tsc --noEmit
+        checks_run = 0
         
         project_path = context.get("project_path", "")
-        
         if not project_path:
-            return self._create_result(True, [], checks_run, 0)
+            return self._create_result(True, [], 0, 0)
         
-        # Check if TypeScript project
-        tsconfig_path = os.path.join(project_path, "tsconfig.json")
-        if not os.path.exists(tsconfig_path):
-            # Not a TypeScript project - skip
-            return self._create_result(True, [], checks_run, 0)
+        # Run all applicable checkers via cached registry
+        result = self._registry.run_all(project_path, report_diagnostics=True)
         
-        try:
-            # Run tsc --noEmit with pretty output for parsing
-            result = subprocess.run(
-                ["npx", "tsc", "--noEmit", "--pretty", "false"],
-                cwd=project_path,
-                capture_output=True,
-                text=True,
-                timeout=60  # Timeout after 60 seconds
-            )
+        # Convert checker errors to validation violations (limit to 50 total)
+        total_violations = 0
+        MAX_VIOLATIONS = 50
+        
+        for checker_name, checker_result in result.results.items():
+            if checker_result.skipped:
+                continue
             
-            # Parse tsc output
-            # Format: file(line,col): error TS1234: message
-            tsc_errors = self._parse_tsc_output(result.stdout + result.stderr)
+            checks_run += 1
             
-            # Convert to violations
-            for error in tsc_errors:
+            for error in checker_result.errors:
+                if total_violations >= MAX_VIOLATIONS:
+                    break
+                    
                 violations.append(Violation(
-                    id=f"ts_{error['code']}_{error['line']}",
-                    rule="typescript_error",
-                    message=f"TS{error['code']}: {error['message']}",
-                    file_path=error['file'],
-                    line_number=error['line'],
+                    id=f"{error.source}_{error.code or 'err'}_{error.line}",
+                    rule=f"{checker_name}_error",
+                    message=f"[{error.source.upper()}] {error.code or ''}: {error.message}",
+                    file_path=error.file,
+                    line_number=error.line,
                     severity=ViolationSeverity.MAJOR,
                     layer=FailureLayer.DEPENDENCY,
-                    fix_hint=f"Fix TypeScript error: {error['message'][:100]}"
+                    fix_hint=f"Fix {checker_name} error: {error.message[:80]}"
                 ))
-            
-            # Report to diagnostics store
-            if violations and project_path:
-                self._report_to_diagnostics(project_path, tsc_errors)
-            
-        except subprocess.TimeoutExpired:
-            violations.append(Violation(
-                id="ts_timeout",
-                rule="typescript_timeout",
-                message="TypeScript compilation timed out (60s)",
-                severity=ViolationSeverity.MAJOR,
-                layer=FailureLayer.DEPENDENCY,
-                fix_hint="Check for infinite type recursion or very large files"
-            ))
-        except FileNotFoundError:
-            # npx/tsc not found - skip (not a node project or no tsc)
-            return self._create_result(True, [], checks_run, 0)
-        except Exception as e:
-            # Log but don't fail for other errors
-            print(f"[TypeScriptLayer] Error running tsc: {e}")
-            return self._create_result(True, [], checks_run, 0)
+                total_violations += 1
         
         duration = int((datetime.utcnow() - start).total_seconds() * 1000)
         passed = len(violations) == 0
         
         return self._create_result(passed, violations, checks_run, duration)
-    
-    def _parse_tsc_output(self, output: str) -> list:
-        """
-        Parse TypeScript compiler output.
-        
-        Format: file(line,col): error TS1234: message
-        """
-        errors = []
-        # Pattern: path/file.ts(10,5): error TS2339: Property 'x' does not exist
-        pattern = r"([^(]+)\((\d+),(\d+)\):\s*error\s+TS(\d+):\s*(.+)"
-        
-        for line in output.split("\n"):
-            match = re.match(pattern, line.strip())
-            if match:
-                errors.append({
-                    "file": match.group(1).strip(),
-                    "line": int(match.group(2)),
-                    "column": int(match.group(3)),
-                    "code": match.group(4),
-                    "message": match.group(5).strip()
-                })
-        
-        return errors
-    
-    def _report_to_diagnostics(self, project_path: str, errors: list) -> None:
-        """Report errors to the diagnostics store via HTTP."""
-        try:
-            # Format errors for diagnostics endpoint
-            diagnostic_errors = [
-                {
-                    "file": e["file"],
-                    "line": e["line"],
-                    "column": e["column"],
-                    "message": f"TS{e['code']}: {e['message']}",
-                    "severity": "error",
-                    "code": f"TS{e['code']}",
-                    "source": "typescript"
-                }
-                for e in errors
-            ]
-            
-            # POST to diagnostics endpoint (sync call, blocking)
-            import httpx
-            httpx.post(
-                "http://localhost:8001/diagnostics/report",
-                json={
-                    "project_path": project_path,
-                    "errors": diagnostic_errors
-                },
-                timeout=5.0
-            )
-        except Exception as e:
-            # Don't fail validation if diagnostics report fails
-            print(f"[TypeScriptLayer] Failed to report diagnostics: {e}")
+
+
+# Keep TypeScriptLayer as an alias for backwards compatibility
+TypeScriptLayer = LanguageCheckerLayer
+
 

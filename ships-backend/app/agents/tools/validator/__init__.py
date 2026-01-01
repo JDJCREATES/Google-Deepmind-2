@@ -17,6 +17,7 @@ from app.agents.tools.validator.layers import (
     DependencyLayer,
     ScopeLayer,
     TypeScriptLayer,
+    LanguageCheckerLayer,
 )
 
 # Export @tool decorated functions
