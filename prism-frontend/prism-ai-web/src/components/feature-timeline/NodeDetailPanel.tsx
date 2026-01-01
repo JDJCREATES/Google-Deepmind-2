@@ -88,21 +88,6 @@ export function NodeDetailPanel({
           </div>
         </div>
 
-        {/* Agent Flow */}
-        {node.agents_used.length > 0 && (
-          <div className="detail-section">
-            <div className="section-label">Agent Pipeline:</div>
-            <div className="agent-flow">
-              {node.agents_used.map((agent, idx) => (
-                <span key={idx} className="agent-badge">
-                  {agent}
-                  {idx < node.agents_used.length - 1 && ' → '}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Files Changed */}
         {node.files_changed.length > 0 && (
           <div className="detail-section">

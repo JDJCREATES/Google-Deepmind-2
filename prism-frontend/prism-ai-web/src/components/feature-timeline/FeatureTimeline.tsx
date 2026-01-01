@@ -1,22 +1,22 @@
 /**
- * Agent Timeline Component
+ * Feature Timeline Component
  * 
- * Main timeline view showing the history of agent actions and features built.
+ * Main timeline view showing the history of feature implementations and development.
  * Displays a horizontal timeline with nodes representing different stages of development.
  */
 
 import { useState, useEffect } from 'react';
 import { TimelineContainer } from './TimelineContainer';
 import type { TimelineNode, TimelineState } from '../../types/timeline';
-import './AgentTimeline.css';
+import './FeatureTimeline.css';
 
-interface AgentTimelineProps {
+interface FeatureTimelineProps {
   // Optional: Can receive nodes from parent or manage internally
   initialNodes?: TimelineNode[];
   onNodeAction?: (action: string, nodeId: string) => void;
 }
 
-export function AgentTimeline({ initialNodes = [], onNodeAction }: AgentTimelineProps) {
+export function FeatureTimeline({ initialNodes = [], onNodeAction }: FeatureTimelineProps) {
   const [timelineState, setTimelineState] = useState<TimelineState>({
     nodes: initialNodes,
     current_node_id: '',
@@ -53,7 +53,7 @@ export function AgentTimeline({ initialNodes = [], onNodeAction }: AgentTimeline
   };
 
   return (
-    <section className="agent-timeline-wrapper">
+    <section className="feature-timeline-wrapper">
       <TimelineContainer
         nodes={timelineState.nodes}
         currentNodeId={timelineState.current_node_id}
@@ -67,4 +67,4 @@ export function AgentTimeline({ initialNodes = [], onNodeAction }: AgentTimeline
   );
 }
 
-export default AgentTimeline;
+export default FeatureTimeline;
