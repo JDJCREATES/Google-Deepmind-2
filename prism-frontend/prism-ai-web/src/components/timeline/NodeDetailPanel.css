@@ -2,30 +2,32 @@
 
 .node-detail-overlay {
   position: fixed;
-  top: 0;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: 150px; /* Position above the timeline (which is 150px tall) */
+  top: 0;
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  z-index: 1000;
+  z-index: 100; /* Higher than timeline (z-index: 50) but not too high */
   animation: fadeIn 0.2s ease-out;
+  pointer-events: auto;
 }
 
 .node-detail-panel {
   background: var(--bg-sidebar, #252526);
   border: 1px solid var(--border-color, #3e3e42);
-  border-bottom: none;
+  border-bottom: 1px solid var(--border-color, #3e3e42);
   border-radius: 16px 16px 0 0;
   width: 100%;
   max-width: 800px;
   max-height: 70vh;
   overflow-y: auto;
-  animation: slideUp 0.25s ease-out;
+  animation: slideUpFromTimeline 0.25s ease-out;
   box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.4);
+  margin-bottom: 0; /* Align with bottom of overlay which is above timeline */
 }
 
 /* Header */
@@ -329,7 +331,7 @@
   to { opacity: 1; }
 }
 
-@keyframes slideUp {
+@keyframes slideUpFromTimeline {
   from { 
     transform: translateY(100px);
     opacity: 0;
@@ -356,8 +358,22 @@
 
 /* Responsive */
 @media (max-width: 768px) {
+  .node-detail-overlay {
+    bottom: 120px; /* Adjust for smaller timeline on mobile if needed */
+  }
+  
   .node-detail-panel {
-    max-height: 80vh;
+    max-height: 60vh; /* Less screen space on mobile */
+    max-width: 100%;
+    border-radius: 12px 12px 0 0; /* Smaller radius on mobile */
+  }
+  
+  .detail-panel-header {
+    padding: 16px 20px;
+  }
+  
+  .detail-section {
+    padding: 12px 20px;
   }
   
   .phases-grid {
@@ -366,5 +382,32 @@
   
   .detail-actions {
     flex-direction: column;
+    padding: 16px 20px;
+  }
+  
+  .action-btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .node-detail-overlay {
+    bottom: 100px; /* Even smaller timeline on very small screens */
+  }
+  
+  .node-detail-panel {
+    max-height: 50vh;
+  }
+  
+  .detail-panel-header {
+    padding: 12px 16px;
+  }
+  
+  .detail-title {
+    font-size: 18px;
+  }
+  
+  .detail-section {
+    padding: 10px 16px;
   }
 }

@@ -6,6 +6,7 @@
   height: 100%;
   background: var(--bg-sidebar, #252526);
   border-top: 1px solid var(--border-color, #3e3e42);
+  position: relative; /* Make this a positioning context for the detail panel */
 }
 
 /* Timeline Track */
