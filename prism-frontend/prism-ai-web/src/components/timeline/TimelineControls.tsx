@@ -67,14 +67,15 @@ export function TimelineControls({
       </div>
 
       {/* Search */}
-      <form className="timeline-search" onSubmit={handleSearch}>
-        <FiSearch size={14} className="search-icon" />
+      <form className="timeline-search" onSubmit={handleSearch} role="search">
+        <FiSearch size={14} className="search-icon" aria-hidden="true" />
         <input
           type="text"
           className="search-input"
           placeholder="Search timeline..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
+          aria-label="Search timeline"
         />
       </form>
 
@@ -83,6 +84,9 @@ export function TimelineControls({
         <button 
           className="filter-toggle-btn"
           onClick={() => setShowFilters(!showFilters)}
+          aria-label="Toggle filters"
+          aria-expanded={showFilters}
+          aria-haspopup="true"
           title="Filters"
         >
           <FiFilter size={16} />
@@ -90,7 +94,7 @@ export function TimelineControls({
         </button>
         
         {showFilters && (
-          <div className="filter-dropdown">
+          <div className="filter-dropdown" role="menu">
             {filters.map(filter => (
               <button
                 key={filter.value}
@@ -99,6 +103,8 @@ export function TimelineControls({
                   onFilterChange?.(filter.value);
                   setShowFilters(false);
                 }}
+                role="menuitem"
+                aria-current={currentFilter === filter.value ? 'true' : undefined}
               >
                 {filter.label}
               </button>

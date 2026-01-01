@@ -10,6 +10,7 @@ import { TimelineNode } from './TimelineNode';
 import { TimelineConnector } from './TimelineConnector';
 import { NodeDetailPanel } from './NodeDetailPanel';
 import { TimelineControls } from './TimelineControls';
+import { useTimelineKeyboard } from '../../hooks/useTimelineKeyboard';
 import './TimelineContainer.css';
 
 interface TimelineContainerProps {
@@ -111,6 +112,28 @@ export function TimelineContainer({
     setSelectedNode(null);
   };
 
+  // Keyboard shortcuts
+  useTimelineKeyboard({
+    onNavigateLeft: handleScrollLeft,
+    onNavigateRight: handleScrollRight,
+    onClosePanel: handleCloseDetail,
+    onViewDiff: () => {
+      if (selectedNode) {
+        onViewDiff?.(selectedNode.id);
+      }
+    },
+    onUndo: () => {
+      if (selectedNode) {
+        onUndo?.(selectedNode.id);
+      }
+    },
+    onSearch: () => {
+      // Focus search input
+      const searchInput = document.querySelector('.search-input') as HTMLInputElement;
+      searchInput?.focus();
+    }
+  }, true);
+
   // Empty state
   if (nodes.length === 0) {
     return (
@@ -127,7 +150,7 @@ export function TimelineContainer({
   }
 
   return (
-    <div className="timeline-container">
+    <div className="timeline-container" role="region" aria-label="Agent Timeline">
       <TimelineControls
         onScrollLeft={handleScrollLeft}
         onScrollRight={handleScrollRight}
@@ -138,10 +161,10 @@ export function TimelineContainer({
         canScrollRight={canScrollRight}
       />
 
-      <div className="timeline-track" ref={scrollRef}>
+      <div className="timeline-track" ref={scrollRef} role="list" aria-label="Timeline events">
         <div className="timeline-nodes">
           {filteredNodes.map((node, index) => (
-            <div key={node.id} className="timeline-item" data-node-id={node.id}>
+            <div key={node.id} className="timeline-item" data-node-id={node.id} role="listitem">
               <TimelineNode
                 node={node}
                 isActive={activeNodeId === node.id}

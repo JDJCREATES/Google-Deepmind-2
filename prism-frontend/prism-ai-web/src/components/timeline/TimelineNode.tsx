@@ -56,14 +56,30 @@ export function TimelineNode({
   const shape = getNodeShape(node.status, isCurrent);
   const emoji = getStatusEmoji(node.status);
   
+  const statusText = 
+    node.status === 'success' ? 'Completed' : 
+    node.status === 'failed' ? 'Failed' : 
+    node.status === 'in-progress' ? 'In Progress' : 
+    node.status === 'warning' ? 'Success with warnings' : 
+    'Pending';
+  
   return (
     <div 
       className={`timeline-node ${shape} ${node.status} ${isActive ? 'active' : ''} ${isCurrent ? 'current' : ''}`}
       onClick={onClick}
       onMouseEnter={() => onHover?.(true)}
       onMouseLeave={() => onHover?.(false)}
+      role="button"
+      tabIndex={0}
+      aria-label={`${node.title} - ${statusText}`}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick?.();
+        }
+      }}
     >
-      <div className="timeline-node-dot">
+      <div className="timeline-node-dot" aria-hidden="true">
         {node.status === 'in-progress' && <div className="pulse-ring" />}
         <div className="node-shape" />
       </div>
@@ -72,19 +88,15 @@ export function TimelineNode({
         {node.title}
       </div>
       
-      <div className="timeline-node-status">
-        <span className="status-emoji">{emoji}</span>
+      <div className="timeline-node-status" aria-label={statusText}>
+        <span className="status-emoji" role="img" aria-label={statusText}>{emoji}</span>
       </div>
       
       {/* Hover tooltip */}
-      <div className="timeline-node-tooltip">
+      <div className="timeline-node-tooltip" role="tooltip">
         <div className="tooltip-title">{node.title}</div>
         <div className="tooltip-status">
-          {emoji} {node.status === 'success' ? 'Completed' : 
-                    node.status === 'failed' ? 'Failed' : 
-                    node.status === 'in-progress' ? 'In Progress' : 
-                    node.status === 'warning' ? 'Success with warnings' : 
-                    'Pending'}
+          {emoji} {statusText}
         </div>
         {node.duration_ms > 0 && (
           <div className="tooltip-duration">{formatDuration(node.duration_ms)}</div>
