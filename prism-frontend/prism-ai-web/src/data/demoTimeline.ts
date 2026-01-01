@@ -6,6 +6,9 @@
 
 import type { TimelineNode } from '../types/timeline';
 
+// Constants for time calculations
+const HOUR_IN_MS = 3600000;
+
 export const demoTimelineNodes: TimelineNode[] = [
   {
     id: 'node-1',
@@ -13,7 +16,7 @@ export const demoTimelineNodes: TimelineNode[] = [
     status: 'success',
     title: 'Init',
     description: 'Project initialization',
-    timestamp: new Date(Date.now() - 3600000 * 10),
+    timestamp: new Date(Date.now() - HOUR_IN_MS * 10),
     duration_ms: 15000,
     files_changed: ['package.json', 'tsconfig.json', 'vite.config.ts'],
     lines_added: 120,
@@ -32,7 +35,7 @@ export const demoTimelineNodes: TimelineNode[] = [
     status: 'success',
     title: 'Auth',
     description: 'Authentication system',
-    timestamp: new Date(Date.now() - 3600000 * 8),
+    timestamp: new Date(Date.now() - HOUR_IN_MS * 8),
     duration_ms: 154000,
     files_changed: ['src/components/AuthModal.tsx', 'src/lib/auth.ts', 'src/types/user.ts'],
     lines_added: 245,
@@ -53,7 +56,7 @@ export const demoTimelineNodes: TimelineNode[] = [
     status: 'success',
     title: 'Login',
     description: 'Login form component',
-    timestamp: new Date(Date.now() - 3600000 * 6),
+    timestamp: new Date(Date.now() - HOUR_IN_MS * 6),
     duration_ms: 94000,
     files_changed: ['src/components/LoginForm.tsx', 'src/app/api/auth/route.ts'],
     lines_added: 127,
@@ -74,7 +77,7 @@ export const demoTimelineNodes: TimelineNode[] = [
     status: 'success',
     title: 'Dashboard',
     description: 'Main dashboard view',
-    timestamp: new Date(Date.now() - 3600000 * 4),
+    timestamp: new Date(Date.now() - HOUR_IN_MS * 4),
     duration_ms: 180000,
     files_changed: [
       'src/components/Dashboard.tsx',
@@ -97,7 +100,7 @@ export const demoTimelineNodes: TimelineNode[] = [
     status: 'warning',
     title: 'Search',
     description: 'Search functionality',
-    timestamp: new Date(Date.now() - 3600000 * 2),
+    timestamp: new Date(Date.now() - HOUR_IN_MS * 2),
     duration_ms: 125000,
     files_changed: ['src/components/SearchBar.tsx', 'src/lib/search.ts'],
     lines_added: 156,

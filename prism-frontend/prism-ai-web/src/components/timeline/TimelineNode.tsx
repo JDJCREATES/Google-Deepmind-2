@@ -104,7 +104,7 @@ export function TimelineNode({
         <div className="tooltip-files">{node.files_changed.length} files changed</div>
         {node.status !== 'pending' && (
           <div className="tooltip-action">
-            <button className="tooltip-btn">View Details</button>
+            <button className="tooltip-btn" aria-label={`View details for ${node.title}`}>View Details</button>
           </div>
         )}
       </div>

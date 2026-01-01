@@ -86,7 +86,7 @@ export function TimelineControls({
           onClick={() => setShowFilters(!showFilters)}
           aria-label="Toggle filters"
           aria-expanded={showFilters}
-          aria-haspopup="true"
+          aria-haspopup="menu"
           title="Filters"
         >
           <FiFilter size={16} />
