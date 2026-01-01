@@ -37,6 +37,9 @@ from app.agents.sub_agents.planner.models import (
     PlannerComponentConfig,
 )
 
+# Dynamic prompt builder (injects project-type-specific conventions)
+from app.prompts.planner import build_planner_prompt
+
 # Tools are in central location: app/agents/tools/planner/
 from app.agents.tools.planner import PlannerTools
 
@@ -55,6 +58,7 @@ class Planner(BaseAgent):
     Produces 7 discrete artifacts consumed by downstream agents.
     
     Features:
+    - Dynamic prompts based on project type
     - Modular subcomponents for each artifact type
     - Streaming support for real-time feedback
     - Deterministic heuristics for reproducible plans
@@ -65,7 +69,8 @@ class Planner(BaseAgent):
         self,
         artifact_manager: Optional[ArtifactManager] = None,
         config: Optional[PlannerComponentConfig] = None,
-        cached_content: Optional[str] = None
+        cached_content: Optional[str] = None,
+        project_type: str = "web_app"  # Default, can be updated from intent
     ):
         """
         Initialize the Planner.
@@ -73,7 +78,10 @@ class Planner(BaseAgent):
         Args:
             artifact_manager: Optional artifact manager
             config: Planner configuration
+            project_type: Project type for prompt template
         """
+        self.current_project_type = project_type
+        
         super().__init__(
             name="Planner",
             agent_type="planner",  # Uses Pro model
@@ -96,128 +104,38 @@ class Planner(BaseAgent):
         self.tools = PlannerTools()
     
     def _get_system_prompt(self) -> str:
-        """Get the system prompt for planning."""
-        return """You are the Planner for ShipS*, an AI coding system that SHIPS WORKING CODE.
+        """Get the system prompt with project-type-specific conventions injected."""
+        # Get base prompt with conventions for this project type
+        base_prompt = build_planner_prompt(self.current_project_type)
+        
+        # Append task granularity rules (these are project-agnostic)
+        task_rules = """
 
-Your job is to convert Intent Specs into actionable Plans with GRANULAR, STEP-BY-STEP tasks.
+# TASK GRANULARITY REQUIREMENTS (CRITICAL)
 
- CRITICAL: TASK GRANULARITY REQUIREMENTS
-
-You MUST generate **4-6 granular tasks minimum** for any request. 
+You MUST generate **4-6 granular tasks minimum** for any request.
 Each task should be:
 - Completable in ONE coding session (under 2 hours)
 - Focused on ONE specific feature or file group
 - Have CONCRETE file outputs (not abstract goals)
 - Independently testable
 
-❌ BAD TASK (too vague):
-{
-  "title": "Implement Core Features",
-  "description": "Implement the core features of the application"
-}
+TASK SIZING:
+- TINY: < 30 min (single file)
+- SMALL: 30 min - 2 hours (2-3 files)
+- MEDIUM: 2-4 hours (decompose if possible)
+- LARGE: MUST be decomposed into smaller tasks
 
-✅ GOOD TASKS (granular):
-[
-  {
-    "title": "Create Calculator Display Component",
-    "description": "Build the display component that shows current input and result",
-    "expected_outputs": [{"path": "src/components/Display.tsx", "action": "create"}]
-  },
-  {
-    "title": "Create Number Button Grid",
-    "description": "Build the 0-9 number buttons with click handlers",
-    "expected_outputs": [{"path": "src/components/NumberPad.tsx", "action": "create"}]
-  },
-  {
-    "title": "Create Operation Buttons",
-    "description": "Build +, -, *, / buttons with operation logic",
-    "expected_outputs": [{"path": "src/components/OperationButtons.tsx", "action": "create"}]
-  },
-  {
-    "title": "Implement Calculator State Logic",
-    "description": "Create state management for calculator operations",
-    "expected_outputs": [{"path": "src/hooks/useCalculator.ts", "action": "create"}]
-  },
-  {
-    "title": "Assemble Main Calculator UI",
-    "description": "Combine all components into the main calculator layout",
-    "expected_outputs": [{"path": "src/App.tsx", "action": "modify"}]
-  },
-  {
-    "title": "Add Calculator Styling",
-    "description": "Apply CSS styling for the calculator appearance",
-    "expected_outputs": [{"path": "src/index.css", "action": "modify"}]
-  }
-]
+OUTPUT: Produce JSON with tasks, folders, api_endpoints, dependencies, risks.
 
-CORE RULES:
-1. ARTIFACT-FIRST: Output machine-readable, verifiable artifacts
-2. GRANULAR TASKS: Break down into 4-6+ specific, actionable tasks
-3. VERTICAL-SLICE BIAS: Structure for earliest runnable preview
-4. CONSERVATIVE INFERENCE: Mark inferred items with confidence < 1.0
-5. DETERMINISTIC: Behaviors driven by explicit heuristics, not creativity
-6. TRACEABLE: Every decision must be explainable in one sentence
-
-DO NOT generate implementation code. You produce PLANS, not CODE.
-
-TASK SIZING RULES:
-- TINY: < 30 minutes (single file, simple change)
-- SMALL: 30 min - 2 hours (2-3 files, one feature)
-- MEDIUM: 2-4 hours (decompose further if possible)
-- LARGE: 4-8 hours (MUST be decomposed into smaller tasks)
-
-TASK ORDERING:
-1. Setup/scaffolding (critical) - project initialization
-2. Core data models/types (high) - TypeScript interfaces
-3. State management (high) - hooks, stores
-4. UI components (high) - individual components
-5. Component composition (medium) - assembling components
-6. Styling (medium) - CSS, themes
-7. Integration/wiring (medium) - connecting parts
-8. Testing/polish (low) - tests, edge cases
-
-OUTPUT FORMAT:
-Produce a JSON object with the following structure:
-{
-    "summary": "One-line plan summary",
-    "tasks": [
-        {
-            "id": "task_001",
-            "title": "Specific, actionable task title",
-            "description": "Detailed description of what to implement",
-            "complexity": "tiny|small|medium",
-            "priority": "critical|high|medium|low",
-            "target_area": "frontend|backend|database|full-stack|config",
-            "acceptance_criteria": [
-                "Component renders without errors",
-                "Clicking button triggers expected action",
-                "State updates correctly"
-            ],
-            "expected_outputs": [
-                {"path": "src/components/Feature.tsx", "action": "create"},
-                {"path": "src/hooks/useFeature.ts", "action": "create"}
-            ],
-            "estimated_minutes": 45
-        }
-    ],
-    "folders": [
-        {"path": "src/components/", "description": "React components", "is_directory": true}
-    ],
-    "api_endpoints": [
-        {"path": "/api/resource", "method": "GET", "description": "Get resources"}
-    ],
-    "dependencies": {
-        "runtime": [{"name": "react", "version": "^18.0.0"}],
-        "dev": [{"name": "typescript", "is_dev": true}]
-    },
-    "risks": [
-        {"title": "Risk title", "level": "low|medium|high", "mitigation": "How to address"}
-    ],
-    "clarifying_questions": ["Question if needed"],
-    "decision_notes": ["Rationale for key decision"]
-}
-
-REMEMBER: If you generate fewer than 4 tasks, you are doing it WRONG. Break it down further!"""
+REMEMBER: Fewer than 4 tasks = WRONG. Break it down further!"""
+        
+        return base_prompt + task_rules
+    
+    def set_project_type(self, project_type: str) -> None:
+        """Update project type and regenerate system prompt."""
+        self.current_project_type = project_type
+        self.system_prompt = self._get_system_prompt()
     
     async def plan(
         self,
