@@ -61,10 +61,25 @@ async def list_artifacts(project_id: str, type: Optional[str] = None):
                 "data": {"path": plan_path}
             })
 
-        # task.md -> task_list
-        task_path = os.path.join(dot_ships, "task.md")
-        if os.path.exists(task_path):
-            stat = os.stat(task_path)
+        # task_list.json or task.md -> task_list
+        task_json_path = os.path.join(dot_ships, "task_list.json")
+        task_md_path = os.path.join(dot_ships, "task.md")
+        
+        # Prefer JSON (structured) over MD (legacy)
+        if os.path.exists(task_json_path):
+            stat = os.stat(task_json_path)
+            artifacts.append({
+                "id": "task_list",
+                "type": "task_list",
+                "title": "Task List",
+                "projectId": project_id,
+                "createdAt": datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                "updatedAt": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "status": "active",
+                "data": {"path": task_json_path, "format": "json"}
+            })
+        elif os.path.exists(task_md_path):
+            stat = os.stat(task_md_path)
             artifacts.append({
                 "id": "task_list",
                 "type": "task_list",
@@ -73,7 +88,37 @@ async def list_artifacts(project_id: str, type: Optional[str] = None):
                 "createdAt": datetime.fromtimestamp(stat.st_ctime).isoformat(),
                 "updatedAt": datetime.fromtimestamp(stat.st_mtime).isoformat(),
                 "status": "active",
-                "data": {"path": task_path}
+                "data": {"path": task_md_path, "format": "markdown"}
+            })
+
+        # folder_map.json -> folder_map
+        folder_map_path = os.path.join(dot_ships, "folder_map.json")
+        if os.path.exists(folder_map_path):
+            stat = os.stat(folder_map_path)
+            artifacts.append({
+                "id": "folder_map",
+                "type": "folder_map",
+                "title": "Folder Structure",
+                "projectId": project_id,
+                "createdAt": datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                "updatedAt": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "status": "active",
+                "data": {"path": folder_map_path, "format": "json"}
+            })
+
+        # api_contracts.json -> api_contracts
+        api_contracts_path = os.path.join(dot_ships, "api_contracts.json")
+        if os.path.exists(api_contracts_path):
+            stat = os.stat(api_contracts_path)
+            artifacts.append({
+                "id": "api_contracts",
+                "type": "api_contracts",
+                "title": "API Contracts",
+                "projectId": project_id,
+                "createdAt": datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                "updatedAt": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "status": "active",
+                "data": {"path": api_contracts_path, "format": "json"}
             })
 
         # 2. Discover User/Agent Uploaded Artifacts in .ships/artifacts/
@@ -143,10 +188,29 @@ async def get_artifact(artifact_id: str):
                 }
 
         elif artifact_id == "task_list":
-            target_path = os.path.join(dot_ships, "task.md")
-            if os.path.exists(target_path):
-                stat = os.stat(target_path)
-                with open(target_path, "r", encoding="utf-8") as f:
+            # Check for JSON (structured) first, then MD (legacy)
+            json_path = os.path.join(dot_ships, "task_list.json")
+            md_path = os.path.join(dot_ships, "task.md")
+            
+            if os.path.exists(json_path):
+                import json
+                stat = os.stat(json_path)
+                with open(json_path, "r", encoding="utf-8") as f:
+                    task_data = json.load(f)
+                artifact_data = {
+                    "id": "task_list",
+                    "type": "task_list",
+                    "title": "Task List",
+                    "data": {
+                        "tasks": task_data.get("tasks", []),
+                        "format": "json",
+                        "total_estimated_minutes": task_data.get("total_estimated_minutes", 0)
+                    },
+                    "updatedAt": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                }
+            elif os.path.exists(md_path):
+                stat = os.stat(md_path)
+                with open(md_path, "r", encoding="utf-8") as f:
                     content = f.read()
                 artifact_data = {
                     "id": "task_list",
@@ -154,6 +218,7 @@ async def get_artifact(artifact_id: str):
                     "title": "Task Checklist",
                     "data": {
                         "content": content,
+                        "format": "markdown",
                         "language": "markdown"
                     },
                     "updatedAt": datetime.fromtimestamp(stat.st_mtime).isoformat()

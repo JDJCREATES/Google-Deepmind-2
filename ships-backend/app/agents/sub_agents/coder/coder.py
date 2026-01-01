@@ -63,7 +63,8 @@ class Coder(BaseAgent):
     Features:
     - Modular subcomponents for each responsibility
     - Streaming support for real-time feedback
-    - Deterministic outputs with 1.0 temperature
+    - Context injection from state (avoids disk I/O)
+    - Thought signature propagation for Gemini 3
     - Minimal-change bias for reviewable diffs
     - No TODO policy - creates follow-up tasks instead
     """
@@ -91,6 +92,12 @@ class Coder(BaseAgent):
         
         self.config = config or CoderComponentConfig()
         
+        # Context injection from state (populated before invoke)
+        self._injected_folder_map: Optional[Dict[str, Any]] = None
+        self._injected_api_contracts: Optional[Dict[str, Any]] = None
+        self._project_type: str = "generic"
+        self._last_thought_signature: Optional[str] = None
+        
         # Initialize subcomponents
         self.task_interpreter = TaskInterpreter(self.config)
         self.context_consumer = ContextConsumer(self.config)
@@ -103,9 +110,58 @@ class Coder(BaseAgent):
         # Tools
         self.tools = CodeTools
     
+    def inject_context_from_state(
+        self,
+        folder_map: Optional[Dict[str, Any]] = None,
+        api_contracts: Optional[Dict[str, Any]] = None,
+        project_type: str = "generic",
+        thought_signature: Optional[str] = None
+    ) -> None:
+        """
+        Inject context from LangGraph state before invoke.
+        
+        This avoids disk I/O and extra tool calls:
+        - folder_map is pre-loaded in prompt (no list_directory needed)
+        - api_contracts are available (no read_file needed)
+        - thought_signature maintains Gemini 3 reasoning context
+        """
+        self._injected_folder_map = folder_map
+        self._injected_api_contracts = api_contracts
+        self._project_type = project_type
+        self._last_thought_signature = thought_signature
+        
+        # Regenerate prompt with injected context
+        self.system_prompt = self._get_system_prompt()
+    
     def _get_system_prompt(self) -> str:
-        """Get the system prompt for code generation."""
-        return CODER_SYSTEM_PROMPT
+        """Get enhanced system prompt with injected context."""
+        base_prompt = CODER_SYSTEM_PROMPT
+        
+        # Inject folder map if available (saves list_directory calls)
+        if self._injected_folder_map:
+            import json
+            folder_str = json.dumps(self._injected_folder_map, indent=2)
+            base_prompt += f"""
+
+# Pre-Loaded Project Structure
+The following folder structure is already loaded. Do NOT call list_directory.
+```json
+{folder_str}
+```"""
+        
+        # Inject API contracts if available
+        if self._injected_api_contracts:
+            import json
+            contracts_str = json.dumps(self._injected_api_contracts, indent=2)
+            base_prompt += f"""
+
+# Pre-Loaded API Contracts
+Use these type definitions. Do NOT read from disk.
+```json
+{contracts_str}
+```"""
+        
+        return base_prompt
     
     async def code(
         self,

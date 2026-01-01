@@ -387,6 +387,46 @@ class TaskList(BaseModel):
             TaskPriority.LOW: 3,
         }
         return sorted(self.tasks, key=lambda t: priority_order.get(t.priority, 2))
+    
+    def update_task_status(self, task_id: str, status: TaskStatus) -> bool:
+        """
+        Update status of a specific task.
+        
+        Args:
+            task_id: ID of the task to update
+            status: New status
+            
+        Returns:
+            True if task was found and updated
+        """
+        for task in self.tasks:
+            if task.id == task_id:
+                task.status = status
+                return True
+        return False
+    
+    def mark_task_complete(self, task_id: str) -> bool:
+        """Mark a task as completed."""
+        return self.update_task_status(task_id, TaskStatus.COMPLETED)
+    
+    def mark_task_in_progress(self, task_id: str) -> bool:
+        """Mark a task as in progress."""
+        return self.update_task_status(task_id, TaskStatus.IN_PROGRESS)
+    
+    def get_progress(self) -> dict:
+        """Get progress summary."""
+        total = len(self.tasks)
+        completed = sum(1 for t in self.tasks if t.status == TaskStatus.COMPLETED)
+        in_progress = sum(1 for t in self.tasks if t.status == TaskStatus.IN_PROGRESS)
+        pending = sum(1 for t in self.tasks if t.status == TaskStatus.PENDING)
+        
+        return {
+            "total": total,
+            "completed": completed,
+            "in_progress": in_progress,
+            "pending": pending,
+            "percent_complete": round((completed / total * 100) if total > 0 else 0, 1)
+        }
 
 
 # ============================================================================

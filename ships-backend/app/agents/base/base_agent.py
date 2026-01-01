@@ -188,17 +188,45 @@ class BaseAgent(ABC):
         
         return messages
     
-    async def run_llm(self, messages: list) -> str:
+    async def run_llm(
+        self, 
+        messages: list,
+        return_full_response: bool = False
+    ) -> str | tuple[str, dict]:
         """
         Execute the LLM and return the response content.
         
+        For Gemini 3, also extracts thought_signature for multi-turn context.
+        
         Args:
             messages: List of LangChain messages
+            return_full_response: If True, return (content, metadata) tuple
             
         Returns:
-            The LLM response as a string
+            String content, or tuple of (content, metadata) if return_full_response=True
         """
         response = await self.llm.ainvoke(messages)
+        
+        # Extract thought signature if present (Gemini 3 feature)
+        metadata = {}
+        if hasattr(response, 'response_metadata'):
+            rm = response.response_metadata or {}
+            # Thought signature may be in various locations
+            if 'thought_signature' in rm:
+                metadata['thought_signature'] = rm['thought_signature']
+            elif 'candidates' in rm:
+                # Sometimes nested in candidates
+                for candidate in rm.get('candidates', []):
+                    if 'thought_signature' in candidate:
+                        metadata['thought_signature'] = candidate['thought_signature']
+                        break
+        
+        # Also preserve additional_kwargs for compatibility
+        if hasattr(response, 'additional_kwargs') and response.additional_kwargs:
+            metadata['additional_kwargs'] = response.additional_kwargs
+        
+        if return_full_response:
+            return response.content, metadata
         return response.content
     
     async def run_llm_with_logging(

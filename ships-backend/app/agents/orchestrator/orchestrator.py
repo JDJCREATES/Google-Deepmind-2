@@ -341,6 +341,31 @@ class ShipSOrchestrator:
         
         # Invoke Coder agent
         if "Coder" in self._agents:
+            coder = self._agents["Coder"]
+            
+            # Inject context from Planner artifacts (avoids disk I/O)
+            try:
+                folder_map = self.artifact_registry.get_data("folder_map") if self.artifact_registry.has("folder_map") else None
+                api_contracts = self.artifact_registry.get_data("api_contracts") if self.artifact_registry.has("api_contracts") else None
+                project_type = self.artifact_registry.get_data("structured_intent").get("project_type", "web_app") if self.artifact_registry.has("structured_intent") else "web_app"
+                
+                # Get thought signature from Planner if available
+                thought_sig = None
+                if hasattr(self, '_thought_signatures'):
+                    thought_sig = self._thought_signatures.get("Planner")
+                
+                # Inject context into Coder (pre-loads prompt with artifacts)
+                if hasattr(coder, 'inject_context_from_state'):
+                    coder.inject_context_from_state(
+                        folder_map=folder_map,
+                        api_contracts=api_contracts,
+                        project_type=project_type,
+                        thought_signature=thought_sig
+                    )
+                    logger.info("[ORCHESTRATOR] ✅ Injected context into Coder from state")
+            except Exception as inject_err:
+                logger.warning(f"[ORCHESTRATOR] Context injection failed: {inject_err}")
+            
             result = await self.agent_invoker.invoke(
                 agent_name="Coder",
                 required_artifacts=["plan", "pattern_registry", "contract_definitions"],
