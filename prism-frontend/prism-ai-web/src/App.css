@@ -285,6 +285,8 @@ body {
   display: flex;
   width: 100vw;
   height: 100vh;
+  position: relative;
+  padding-bottom: 150px; /* Make room for timeline at bottom */
 }
 
 /* ===== LEFT AREA (60%) ===== */

@@ -24,6 +24,8 @@ import { agentService, type AgentChunk } from './services/agentService';
 import { ToolProgress, type ToolEvent, PhaseIndicator, type AgentPhase } from './components/streaming';
 import { ActivityIndicator } from './components/streaming/ActivityIndicator';
 import { useMonacoDiagnostics } from './hooks/useMonacoDiagnostics';
+import { AgentTimeline } from './components/timeline';
+import { demoTimelineNodes } from './data/demoTimeline';
 import './App.css';
 
 type SidebarView = 'files' | 'artifacts' | 'search';
@@ -55,6 +57,9 @@ function App() {
   // Terminal state
   const [showTerminal, setShowTerminal] = useState(false);
   const [terminalCollapsed, setTerminalCollapsed] = useState(false);
+  
+  // Timeline state
+  const [showTimeline, setShowTimeline] = useState(true); // Show by default for demo
   
   // Streaming state
   const [agentPhase, setAgentPhase] = useState<AgentPhase>('idle');
@@ -594,6 +599,9 @@ function App() {
             </button>
         </div>
       </div>
+
+      {/* Agent Timeline - Fixed at bottom */}
+      {showTimeline && <AgentTimeline initialNodes={demoTimelineNodes} />}
     </div>
   );
 }
