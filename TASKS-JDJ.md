@@ -1,12 +1,15 @@
 **1-1-26** HAPPY NEW YEAR JDJ..
 
+[] implement "chats" or saved agent runs
+  > can be utilized later for 
+
 [] fix coder
   > logic
   > prompts
   > optimizations and performance
   > ensure it auto updates tasks list or Orchestrator?
-  > clearly define agent roles again, reassess need for 4..
-
+  > clearly define agent roles again, re-assess need for 4..
+  > coder takes most token usage especially with new files
 
 **12-31-25**
 
