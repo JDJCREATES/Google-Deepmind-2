@@ -1,7 +1,7 @@
 /**
- * Timeline Type Definitions
+ * Feature Timeline Type Definitions
  * 
- * Data structures for the ShipS Timeline UI system.
+ * Data structures for the ShipS Feature Timeline system.
  */
 
 export type NodeType = 'feature' | 'fix' | 'refactor' | 'deploy' | 'milestone';

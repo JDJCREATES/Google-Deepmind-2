@@ -24,8 +24,8 @@ import { agentService, type AgentChunk } from './services/agentService';
 import { ToolProgress, type ToolEvent, PhaseIndicator, type AgentPhase } from './components/streaming';
 import { ActivityIndicator } from './components/streaming/ActivityIndicator';
 import { useMonacoDiagnostics } from './hooks/useMonacoDiagnostics';
-import { AgentTimeline } from './components/timeline';
-import { demoTimelineNodes } from './data/demoTimeline';
+import { FeatureTimeline } from './components/feature-timeline';
+import { demoFeatureNodes } from './data/demoTimeline';
 import './App.css';
 
 type SidebarView = 'files' | 'artifacts' | 'search';
@@ -423,7 +423,7 @@ function App() {
       <div style={{ position: 'relative', width: '100vw', height: '100vh', paddingBottom: '150px' }}>
         <LandingPage />
         {/* Show timeline even on landing page for demo */}
-        {showTimeline && <AgentTimeline initialNodes={demoTimelineNodes} />}
+        {showTimeline && <FeatureTimeline initialNodes={demoFeatureNodes} />}
       </div>
     );
   }
@@ -606,8 +606,8 @@ function App() {
         </div>
       </div>
 
-      {/* Agent Timeline - Fixed at bottom */}
-      {showTimeline && <AgentTimeline initialNodes={demoTimelineNodes} />}
+      {/* Feature Timeline - Fixed at bottom */}
+      {showTimeline && <FeatureTimeline initialNodes={demoFeatureNodes} />}
     </div>
   );
 }

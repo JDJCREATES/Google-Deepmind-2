@@ -1,7 +1,7 @@
 /**
- * Timeline Components Index
+ * Feature Timeline Components Index
  * 
- * Central export point for all timeline-related components.
+ * Central export point for all feature timeline-related components.
  */
 
 export { TimelineContainer } from './TimelineContainer';
@@ -9,7 +9,7 @@ export { TimelineNode } from './TimelineNode';
 export { TimelineConnector } from './TimelineConnector';
 export { NodeDetailPanel } from './NodeDetailPanel';
 export { TimelineControls } from './TimelineControls';
-export { AgentTimeline } from './AgentTimeline';
+export { FeatureTimeline } from './FeatureTimeline';
 
 // Re-export types
 export type { 

@@ -1,5 +1,5 @@
 /**
- * Timeline Demo Data
+ * Feature Timeline Demo Data
  * 
  * Sample data for testing the timeline UI
  */
@@ -9,7 +9,7 @@ import type { TimelineNode } from '../types/timeline';
 // Constants for time calculations
 const HOUR_IN_MS = 3600000;
 
-export const demoTimelineNodes: TimelineNode[] = [
+export const demoFeatureNodes: TimelineNode[] = [
   {
     id: 'node-1',
     type: 'feature',

@@ -150,7 +150,7 @@ export function TimelineContainer({
   }
 
   return (
-    <div className="timeline-container" role="region" aria-label="Agent Timeline">
+    <div className="timeline-container" role="region" aria-label="Feature Timeline">
       <TimelineControls
         onScrollLeft={handleScrollLeft}
         onScrollRight={handleScrollRight}

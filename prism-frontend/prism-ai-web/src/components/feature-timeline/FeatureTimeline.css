@@ -1,6 +1,6 @@
-/* Agent Timeline Wrapper Styles */
+/* Feature Timeline Wrapper Styles */
 
-.agent-timeline-wrapper {
+.feature-timeline-wrapper {
   width: 100%;
   height: 150px;
   position: fixed;
@@ -14,6 +14,6 @@
 }
 
 /* Make sure timeline is visible but doesn't interfere with main content */
-.agent-timeline-wrapper .timeline-container {
+.feature-timeline-wrapper .timeline-container {
   height: 100%;
 }
