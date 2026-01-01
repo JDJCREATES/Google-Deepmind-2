@@ -1,0 +1,58 @@
+/* Timeline Connector Styles */
+
+.timeline-connector {
+  display: flex;
+  align-items: center;
+  min-width: 40px;
+  height: 24px;
+}
+
+.connector-line {
+  width: 100%;
+  height: 2px;
+  background: var(--border-color, #3e3e42);
+  transition: all 0.3s ease;
+}
+
+/* Status variants */
+.timeline-connector.completed .connector-line {
+  background: #4ec9b0;
+}
+
+.timeline-connector.failed .connector-line {
+  background: #f44747;
+}
+
+.timeline-connector.revert .connector-line {
+  background: #f44747;
+  border-top: 2px dashed #f44747;
+  height: 0;
+}
+
+/* Animated progress */
+.timeline-connector.animated .connector-line {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--border-color, #3e3e42) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: progress-line 2s linear infinite;
+}
+
+@keyframes progress-line {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .timeline-connector {
+    min-width: 20px;
+  }
+}

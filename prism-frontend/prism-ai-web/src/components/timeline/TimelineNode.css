@@ -1,0 +1,238 @@
+/* Timeline Node Styles */
+
+.timeline-node {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 80px;
+  padding: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.timeline-node:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+}
+
+/* Node Dot Styles */
+.timeline-node-dot {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.node-shape {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--border-color, #666);
+  background: var(--bg-editor, #1e1e1e);
+  transition: all 0.3s ease;
+  z-index: 1;
+}
+
+/* Circle filled (completed) */
+.timeline-node.circle-filled .node-shape {
+  background: #4ec9b0;
+  border-color: #4ec9b0;
+}
+
+/* Circle empty (pending) */
+.timeline-node.circle-empty .node-shape {
+  background: transparent;
+  border-color: #666;
+  border-style: dashed;
+}
+
+/* Diamond (current) */
+.timeline-node.diamond .node-shape {
+  transform: rotate(45deg);
+  background: var(--primary-color, #ff5e57);
+  border-color: var(--primary-color, #ff5e57);
+  width: 18px;
+  height: 18px;
+}
+
+/* Status Colors */
+.timeline-node.success .node-shape {
+  background: #4ec9b0;
+  border-color: #4ec9b0;
+}
+
+.timeline-node.failed .node-shape {
+  background: #f44747;
+  border-color: #f44747;
+}
+
+.timeline-node.warning .node-shape {
+  background: #ffc107;
+  border-color: #ffc107;
+}
+
+.timeline-node.in-progress .node-shape {
+  background: #57a8ff;
+  border-color: #57a8ff;
+  animation: pulse 2s infinite;
+}
+
+/* Pulse ring for in-progress */
+.pulse-ring {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid #57a8ff;
+  animation: pulse-ring 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { 
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% { 
+    opacity: 0.7;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+/* Label */
+.timeline-node-label {
+  font-size: 11px;
+  color: var(--text-secondary, #888);
+  text-align: center;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.timeline-node.active .timeline-node-label,
+.timeline-node.current .timeline-node-label {
+  color: var(--text-primary, #ccc);
+  font-weight: 600;
+}
+
+/* Status Emoji */
+.timeline-node-status {
+  font-size: 14px;
+}
+
+.status-emoji {
+  display: inline-block;
+}
+
+/* Hover Tooltip */
+.timeline-node-tooltip {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-sidebar, #252526);
+  border: 1px solid var(--border-color, #3e3e42);
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 180px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.timeline-node:hover .timeline-node-tooltip {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Tooltip arrow */
+.timeline-node-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--bg-sidebar, #252526);
+}
+
+.tooltip-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #ccc);
+  margin-bottom: 6px;
+}
+
+.tooltip-status {
+  font-size: 11px;
+  color: var(--text-secondary, #888);
+  margin-bottom: 4px;
+}
+
+.tooltip-duration {
+  font-size: 11px;
+  color: var(--text-secondary, #888);
+  margin-bottom: 4px;
+}
+
+.tooltip-files {
+  font-size: 11px;
+  color: var(--text-secondary, #888);
+  margin-bottom: 8px;
+}
+
+.tooltip-action {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color, #3e3e42);
+}
+
+.tooltip-btn {
+  background: var(--primary-color, #ff5e57);
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  width: 100%;
+  font-weight: 500;
+  transition: filter 0.2s;
+}
+
+.tooltip-btn:hover {
+  filter: brightness(1.1);
+}
+
+/* Responsive - Mobile */
+@media (max-width: 768px) {
+  .timeline-node {
+    min-width: 60px;
+  }
+  
+  .timeline-node-label {
+    font-size: 0;
+  }
+  
+  .timeline-node:hover .timeline-node-label {
+    font-size: 11px;
+  }
+}
