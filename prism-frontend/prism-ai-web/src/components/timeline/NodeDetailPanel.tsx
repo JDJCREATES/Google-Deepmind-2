@@ -4,7 +4,7 @@
  * Shows expanded details when a timeline node is clicked
  */
 
-import { TimelineNode } from '../../types/timeline';
+import type { TimelineNode } from '../../types/timeline';
 import { FiX, FiClock, FiFileText, FiGitCommit, FiAlertTriangle } from 'react-icons/fi';
 import './NodeDetailPanel.css';
 

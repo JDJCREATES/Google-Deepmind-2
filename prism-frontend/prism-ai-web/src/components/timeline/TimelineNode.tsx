@@ -4,7 +4,7 @@
  * Displays a single node in the timeline (feature, fix, deploy, etc.)
  */
 
-import { TimelineNode as TimelineNodeType, NodeStatus } from '../../types/timeline';
+import type { TimelineNode as TimelineNodeType, NodeStatus } from '../../types/timeline';
 import './TimelineNode.css';
 
 interface TimelineNodeProps {

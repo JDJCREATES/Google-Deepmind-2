@@ -6,7 +6,7 @@
 
 import { useState } from 'react';
 import { FiChevronLeft, FiChevronRight, FiSearch, FiFilter } from 'react-icons/fi';
-import { FilterType } from '../../types/timeline';
+import type { FilterType } from '../../types/timeline';
 import './TimelineControls.css';
 
 interface TimelineControlsProps {

@@ -4,7 +4,7 @@
  * Sample data for testing the timeline UI
  */
 
-import { TimelineNode } from '../types/timeline';
+import type { TimelineNode } from '../types/timeline';
 
 export const demoTimelineNodes: TimelineNode[] = [
   {

@@ -5,7 +5,7 @@
  */
 
 import { useRef, useState, useEffect } from 'react';
-import { TimelineNode as TimelineNodeType, FilterType } from '../../types/timeline';
+import type { TimelineNode as TimelineNodeType, FilterType } from '../../types/timeline';
 import { TimelineNode } from './TimelineNode';
 import { TimelineConnector } from './TimelineConnector';
 import { NodeDetailPanel } from './NodeDetailPanel';

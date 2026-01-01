@@ -417,9 +417,15 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeFile]);
 
-  // Show Landing Page if no project is opened
+  // Show Landing Page if no project is opened (with timeline visible)
   if (!rootHandle) {
-    return <LandingPage />;
+    return (
+      <div style={{ position: 'relative', width: '100vw', height: '100vh', paddingBottom: '150px' }}>
+        <LandingPage />
+        {/* Show timeline even on landing page for demo */}
+        {showTimeline && <AgentTimeline initialNodes={demoTimelineNodes} />}
+      </div>
+    );
   }
 
   return (

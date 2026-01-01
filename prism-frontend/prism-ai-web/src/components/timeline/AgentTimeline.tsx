@@ -7,7 +7,7 @@
 
 import { useState, useEffect } from 'react';
 import { TimelineContainer } from './TimelineContainer';
-import { TimelineNode, TimelineState } from '../../types/timeline';
+import type { TimelineNode, TimelineState } from '../../types/timeline';
 import './AgentTimeline.css';
 
 interface AgentTimelineProps {
