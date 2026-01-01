@@ -39,7 +39,7 @@ from app.agents.sub_agents.validator.models import (
 # Layers are in central location: app/agents/tools/validator/
 from app.agents.tools.validator.layers import (
     ValidationLayer, StructuralLayer, CompletenessLayer,
-    DependencyLayer, ScopeLayer,
+    DependencyLayer, ScopeLayer, TypeScriptLayer,
 )
 
 
@@ -93,6 +93,9 @@ class Validator(BaseAgent):
             self.layers.append(DependencyLayer(self.config))
         if self.config.run_scope:
             self.layers.append(ScopeLayer(self.config))
+        
+        # TypeScript layer always runs for TS projects (auto-detects tsconfig)
+        self.layers.append(TypeScriptLayer(self.config))
     
     def _get_system_prompt(self) -> str:
         """Get the system prompt for validation."""
@@ -129,7 +132,8 @@ Output ONLY: pass or fail, with specific violations if failing."""
         app_blueprint: Optional[Dict[str, Any]] = None,
         dependency_plan: Optional[Dict[str, Any]] = None,
         task_id: str = "",
-        plan_id: Optional[str] = None
+        plan_id: Optional[str] = None,
+        project_path: Optional[str] = None
     ) -> ValidationReport:
         """
         Validate the Coder's output.
@@ -159,7 +163,8 @@ Output ONLY: pass or fail, with specific violations if failing."""
             folder_map=folder_map,
             task=task,
             app_blueprint=app_blueprint,
-            dependency_plan=dependency_plan
+            dependency_plan=dependency_plan,
+            project_path=project_path
         )
         
         # Create report
@@ -222,7 +227,8 @@ Output ONLY: pass or fail, with specific violations if failing."""
         folder_map: Dict[str, Any],
         task: Optional[Dict[str, Any]],
         app_blueprint: Optional[Dict[str, Any]],
-        dependency_plan: Optional[Dict[str, Any]]
+        dependency_plan: Optional[Dict[str, Any]],
+        project_path: Optional[str] = None
     ) -> Dict[str, Any]:
         """Build context for validation layers."""
         # Extract file changes with content
@@ -241,7 +247,8 @@ Output ONLY: pass or fail, with specific violations if failing."""
             "folder_map": folder_map,
             "current_task": task or {},
             "app_blueprint": app_blueprint or {},
-            "dependency_plan": dependency_plan or {}
+            "dependency_plan": dependency_plan or {},
+            "project_path": project_path or ""
         }
     
     def _determine_action(self, layer_result: LayerResult) -> RecommendedAction:

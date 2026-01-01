@@ -126,7 +126,8 @@ Output a JSON fix plan:
         file_contents: Optional[Dict[str, str]] = None,
         folder_map: Optional[Dict[str, Any]] = None,
         app_blueprint: Optional[Dict[str, Any]] = None,
-        attempt_number: int = 1
+        attempt_number: int = 1,
+        project_path: Optional[str] = None
     ) -> FixerOutput:
         """
         Attempt to fix validation failures.
@@ -139,11 +140,21 @@ Output a JSON fix plan:
             folder_map: Folder structure (for checking fixes)
             app_blueprint: App context
             attempt_number: Current attempt (for retry limits)
+            project_path: Project root path (for diagnostics lookup)
             
         Returns:
             FixerOutput with fix plan, patch, and recommendations
         """
         start = datetime.utcnow()
+        
+        # Fetch diagnostics from store (TypeScript errors from Validator)
+        diagnostics_context = ""
+        if project_path:
+            ts_errors = self._fetch_diagnostics(project_path)
+            if ts_errors:
+                diagnostics_context = "\n\n## TYPESCRIPT ERRORS (from tsc):\n"
+                for err in ts_errors[:10]:  # First 10 errors
+                    diagnostics_context += f"- {err.get('file', '?')}:{err.get('line', '?')} - {err.get('message', '')}\n"
         
         # Initialize attempt log
         attempt_log = FixAttemptLog(
@@ -598,4 +609,28 @@ When done, respond with:
                 "artifacts": {},
                 "recommended_action": "error",
             }
+    
+    def _fetch_diagnostics(self, project_path: str) -> list:
+        """
+        Fetch diagnostics from the diagnostics store.
+        
+        Args:
+            project_path: Project root path
+            
+        Returns:
+            List of diagnostic errors (or empty list)
+        """
+        try:
+            import httpx
+            response = httpx.get(
+                f"http://localhost:8001/diagnostics/status",
+                params={"project_path": project_path},
+                timeout=5.0
+            )
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("errors", [])
+        except Exception as e:
+            print(f"[Fixer] Failed to fetch diagnostics: {e}")
+        return []
 

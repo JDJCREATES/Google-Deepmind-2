@@ -16,6 +16,7 @@ from app.agents.tools.validator.layers import (
     CompletenessLayer,
     DependencyLayer,
     ScopeLayer,
+    TypeScriptLayer,
 )
 
 # Export @tool decorated functions
@@ -43,6 +44,7 @@ __all__ = [
     "CompletenessLayer",
     "DependencyLayer",
     "ScopeLayer",
+    "TypeScriptLayer",
     
     # Tool functions
     "validate_structural",

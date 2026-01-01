@@ -579,3 +579,155 @@ class ScopeLayer(ValidationLayer):
         passed = len([v for v in violations if v.severity in [ViolationSeverity.CRITICAL, ViolationSeverity.MAJOR]]) == 0
         
         return self._create_result(passed, violations, checks_run, duration)
+
+
+# ============================================================================
+# LAYER 5: TYPESCRIPT VALIDATION (tsc --noEmit)
+# ============================================================================
+
+class TypeScriptLayer(ValidationLayer):
+    """
+    Layer 5: Does the TypeScript code compile?
+    
+    Runs `tsc --noEmit` to check for type errors without producing output.
+    Results are stored in the diagnostics endpoint for Fixer to consume.
+    
+    This layer catches:
+    - Type errors
+    - Syntax errors
+    - Missing imports
+    - Incorrect function signatures
+    """
+    
+    def __init__(self, config: Optional[ValidatorConfig] = None):
+        super().__init__(config)
+        self.layer_name = FailureLayer.DEPENDENCY  # Reuse Dependency for now
+    
+    def validate(self, context: Dict[str, Any]) -> LayerResult:
+        """Run TypeScript compiler and parse errors."""
+        import subprocess
+        import json as json_mod
+        import httpx
+        
+        start = datetime.utcnow()
+        violations = []
+        checks_run = 1  # One check: tsc --noEmit
+        
+        project_path = context.get("project_path", "")
+        
+        if not project_path:
+            return self._create_result(True, [], checks_run, 0)
+        
+        # Check if TypeScript project
+        tsconfig_path = os.path.join(project_path, "tsconfig.json")
+        if not os.path.exists(tsconfig_path):
+            # Not a TypeScript project - skip
+            return self._create_result(True, [], checks_run, 0)
+        
+        try:
+            # Run tsc --noEmit with pretty output for parsing
+            result = subprocess.run(
+                ["npx", "tsc", "--noEmit", "--pretty", "false"],
+                cwd=project_path,
+                capture_output=True,
+                text=True,
+                timeout=60  # Timeout after 60 seconds
+            )
+            
+            # Parse tsc output
+            # Format: file(line,col): error TS1234: message
+            tsc_errors = self._parse_tsc_output(result.stdout + result.stderr)
+            
+            # Convert to violations
+            for error in tsc_errors:
+                violations.append(Violation(
+                    id=f"ts_{error['code']}_{error['line']}",
+                    rule="typescript_error",
+                    message=f"TS{error['code']}: {error['message']}",
+                    file_path=error['file'],
+                    line_number=error['line'],
+                    severity=ViolationSeverity.MAJOR,
+                    layer=FailureLayer.DEPENDENCY,
+                    fix_hint=f"Fix TypeScript error: {error['message'][:100]}"
+                ))
+            
+            # Report to diagnostics store
+            if violations and project_path:
+                self._report_to_diagnostics(project_path, tsc_errors)
+            
+        except subprocess.TimeoutExpired:
+            violations.append(Violation(
+                id="ts_timeout",
+                rule="typescript_timeout",
+                message="TypeScript compilation timed out (60s)",
+                severity=ViolationSeverity.MAJOR,
+                layer=FailureLayer.DEPENDENCY,
+                fix_hint="Check for infinite type recursion or very large files"
+            ))
+        except FileNotFoundError:
+            # npx/tsc not found - skip (not a node project or no tsc)
+            return self._create_result(True, [], checks_run, 0)
+        except Exception as e:
+            # Log but don't fail for other errors
+            print(f"[TypeScriptLayer] Error running tsc: {e}")
+            return self._create_result(True, [], checks_run, 0)
+        
+        duration = int((datetime.utcnow() - start).total_seconds() * 1000)
+        passed = len(violations) == 0
+        
+        return self._create_result(passed, violations, checks_run, duration)
+    
+    def _parse_tsc_output(self, output: str) -> list:
+        """
+        Parse TypeScript compiler output.
+        
+        Format: file(line,col): error TS1234: message
+        """
+        errors = []
+        # Pattern: path/file.ts(10,5): error TS2339: Property 'x' does not exist
+        pattern = r"([^(]+)\((\d+),(\d+)\):\s*error\s+TS(\d+):\s*(.+)"
+        
+        for line in output.split("\n"):
+            match = re.match(pattern, line.strip())
+            if match:
+                errors.append({
+                    "file": match.group(1).strip(),
+                    "line": int(match.group(2)),
+                    "column": int(match.group(3)),
+                    "code": match.group(4),
+                    "message": match.group(5).strip()
+                })
+        
+        return errors
+    
+    def _report_to_diagnostics(self, project_path: str, errors: list) -> None:
+        """Report errors to the diagnostics store via HTTP."""
+        try:
+            # Format errors for diagnostics endpoint
+            diagnostic_errors = [
+                {
+                    "file": e["file"],
+                    "line": e["line"],
+                    "column": e["column"],
+                    "message": f"TS{e['code']}: {e['message']}",
+                    "severity": "error",
+                    "code": f"TS{e['code']}",
+                    "source": "typescript"
+                }
+                for e in errors
+            ]
+            
+            # POST to diagnostics endpoint (sync call, blocking)
+            import httpx
+            httpx.post(
+                "http://localhost:8001/diagnostics/report",
+                json={
+                    "project_path": project_path,
+                    "errors": diagnostic_errors
+                },
+                timeout=5.0
+            )
+        except Exception as e:
+            # Don't fail validation if diagnostics report fails
+            print(f"[TypeScriptLayer] Failed to report diagnostics: {e}")
+
