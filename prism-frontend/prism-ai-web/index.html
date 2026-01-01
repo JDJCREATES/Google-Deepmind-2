@@ -1,10 +1,55 @@
 <!doctype html>
 <html lang="en">
-  <head>
+<head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ShipS* IDE</title>
+    
+    <!-- Security Headers -->
+    <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+    <meta http-equiv="X-Frame-Options" content="DENY" />
+    <meta http-equiv="X-XSS-Protection" content="1; mode=block" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    
+    <!-- Content Security Policy (adjust based on your needs) -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://api.anthropic.com https:;" />
+    
+    <!-- Primary Meta Tags -->
+    <title>ShipS* IDE - AI-Powered Multi-Agent Development Platform</title>
+    <meta name="title" content="ShipS* IDE - AI-Powered Multi-Agent Development Platform" />
+    <meta name="description" content="Build applications faster with ShipS* IDE. An intelligent coding platform featuring a multi-agent orchestration system that coordinates specialized AI agents to write, debug, and deploy code." />
+    <meta name="keywords" content="AI coding, multi-agent system, AI IDE, code generation, AI development, bolt.new alternative, autonomous coding, AI orchestration" />
+    <meta name="author" content="ShipS*" />
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://yoursite.com/" />
+    <meta property="og:title" content="ShipS* IDE - AI-Powered Multi-Agent Development Platform" />
+    <meta property="og:description" content="Build applications faster with ShipS* IDE. An intelligent coding platform featuring a multi-agent orchestration system that coordinates specialized AI agents to write, debug, and deploy code." />
+    <meta property="og:image" content="/og-image.png" />
+    
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:url" content="https://yoursite.com/" />
+    <meta property="twitter:title" content="ShipS* IDE - AI-Powered Multi-Agent Development Platform" />
+    <meta property="twitter:description" content="Build applications faster with ShipS* IDE. An intelligent coding platform featuring a multi-agent orchestration system that coordinates specialized AI agents to write, debug, and deploy code." />
+    <meta property="twitter:image" content="/twitter-image.png" />
+    
+    <!-- PWA / Mobile -->
+    <meta name="theme-color" content="#000000" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ShipS* IDE" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.json" />
+    
+    <!-- SEO -->
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://yoursite.com/" />
+    
+    <!-- Preconnect to external domains for performance -->
+    <link rel="preconnect" href="https://api.anthropic.com" />
+    <link rel="dns-prefetch" href="https://api.anthropic.com" />
   </head>
   <body>
     <div id="root"></div>
