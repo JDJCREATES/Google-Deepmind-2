@@ -18,8 +18,11 @@ Responsibilities:
 from datetime import datetime
 from typing import Optional, Dict, Any, List, AsyncIterator
 import json
+import logging
 import re
 import uuid
+
+logger = logging.getLogger("ships.planner")
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -617,6 +620,23 @@ REMEMBER: If you generate fewer than 4 tasks, you are doing it WRONG. Break it d
         }
         
         # ================================================================
+        # WRITE ALL ARTIFACTS TO DISK
+        # ================================================================
+        if project_path:
+            import json as json_mod
+            dot_ships = Path(project_path) / ".ships"
+            dot_ships.mkdir(parents=True, exist_ok=True)
+            
+            for artifact_name in ["task_list", "folder_map", "api_contracts", "dependency_plan", "validation_checklist", "risk_report"]:
+                try:
+                    with open(dot_ships / f"{artifact_name}.json", "w", encoding="utf-8") as f:
+                        json_mod.dump(plan_artifacts[artifact_name], f, indent=2)
+                except Exception as write_err:
+                    logger.warning(f"[PLANNER] Failed to write {artifact_name}: {write_err}")
+            
+            logger.info(f"[PLANNER] 💾 Wrote 6 artifacts to {dot_ships}")
+        
+        # ================================================================
         # PHASE 2: Execute Scaffolding using create_react_agent
         # ================================================================
         if project_path:
@@ -648,8 +668,8 @@ SCAFFOLDING REQUIRED: Execute these steps in order:
    - For React/Vite: run_terminal_command("npx -y create-vite@latest . --template react")
    - Then: run_terminal_command("npm install")
 
-3. Create these folders from the plan using create_directory:
-{chr(10).join(['   - ' + f for f in folders_to_create[:15]])}
+3. Create ALL these folders in ONE call using create_directories:
+   create_directories({json.dumps(folders_to_create[:20])})
 
 4. Write the implementation plan to .ships/implementation_plan.md using write_file_to_disk
 
@@ -657,6 +677,7 @@ SCAFFOLDING REQUIRED: Execute these steps in order:
 
 IMPORTANT:
 - Use -y flags to avoid prompts
+- Use create_directories (batch) NOT multiple create_directory calls
 - If a command fails, log and continue
 - Do NOT write actual code - just structure"""
 

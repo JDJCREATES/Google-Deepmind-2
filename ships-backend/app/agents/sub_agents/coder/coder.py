@@ -624,13 +624,79 @@ REMEMBER: You are judged by how SMALL and CORRECT your diffs are, not how much c
                 file_tree_context = f"Error reading structure: {e}"
 
         # ================================================================
+        # ARTIFACT INTEGRATION: Read structured artifacts
+        # ================================================================
+        artifact_context = ""
+        ships_dir = Path(project_path) / ".ships" if project_path else None
+        
+        if ships_dir and ships_dir.exists():
+            # Read task_list.json
+            task_list_path = ships_dir / "task_list.json"
+            if task_list_path.exists():
+                try:
+                    task_list_data = json.loads(task_list_path.read_text(encoding="utf-8"))
+                    tasks = task_list_data.get("tasks", [])
+                    if tasks:
+                        artifact_context += "\n## TASK LIST (from artifacts):\n"
+                        for i, t in enumerate(tasks[:5]):  # First 5 tasks
+                            title = t.get("title", "Untitled")
+                            artifact_context += f"  {i+1}. {title}\n"
+                except Exception:
+                    pass
+            
+            # Read folder_map.json
+            folder_map_path = ships_dir / "folder_map.json"
+            if folder_map_path.exists():
+                try:
+                    folder_data = json.loads(folder_map_path.read_text(encoding="utf-8"))
+                    entries = folder_data.get("entries", [])
+                    files_to_create = [e.get("path") for e in entries if not e.get("is_directory", False)]
+                    if files_to_create:
+                        artifact_context += "\n## FILES TO CREATE (from folder_map):\n"
+                        for f in files_to_create[:15]:
+                            artifact_context += f"  - {f}\n"
+                except Exception:
+                    pass
+            
+            # Read api_contracts.json
+            api_path = ships_dir / "api_contracts.json"
+            if api_path.exists():
+                try:
+                    api_data = json.loads(api_path.read_text(encoding="utf-8"))
+                    endpoints = api_data.get("endpoints", [])
+                    if endpoints:
+                        artifact_context += "\n## API CONTRACTS:\n"
+                        for ep in endpoints[:5]:
+                            method = ep.get("method", "GET")
+                            path = ep.get("path", "/")
+                            artifact_context += f"  - {method} {path}\n"
+                except Exception:
+                    pass
+
+        # ================================================================
+        # PRE-READ: Load content of files that will be modified
+        # ================================================================
+        pre_read_context = ""
+        expected_outputs = task.get("expected_outputs", []) if isinstance(task, dict) else []
+        for output in expected_outputs[:3]:  # Limit to 3 files
+            file_path = output.get("file_path", output.get("path", "")) if isinstance(output, dict) else str(output)
+            if file_path and project_path:
+                full_path = Path(project_path) / file_path
+                if full_path.exists():
+                    try:
+                        content = full_path.read_text(encoding="utf-8")[:3000]
+                        pre_read_context += f"\n### {file_path} (EXISTING - use apply_source_edits):\n```\n{content}\n```\n"
+                    except Exception:
+                        pass
+
+        # ================================================================
         # Build coding prompt with full context
         # ================================================================
         coder_prompt = f"""PROJECT PATH: {project_path}
 
 CURRENT FILE STRUCTURE (Do not call list_directory):
 {file_tree_context}
-
+{artifact_context}
 IMPLEMENTATION PLAN:
 {plan_content[:4000] if plan_content else 'No plan provided - implement based on task description.'}
 
@@ -639,7 +705,7 @@ CURRENT TASK:
 
 FILES ALREADY CREATED:
 {chr(10).join(['- ' + f for f in completed_files]) if completed_files else '- None yet'}
-
+{pre_read_context}
 YOUR INSTRUCTIONS:
 1. Analyze the task and implementation plan.
 2. CHECK "CURRENT FILE STRUCTURE" ABOVE.

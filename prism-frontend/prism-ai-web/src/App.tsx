@@ -23,6 +23,7 @@ import { BiBox } from 'react-icons/bi';
 import { agentService, type AgentChunk } from './services/agentService';
 import { ToolProgress, type ToolEvent, PhaseIndicator, type AgentPhase } from './components/streaming';
 import { ActivityIndicator } from './components/streaming/ActivityIndicator';
+import { useMonacoDiagnostics } from './hooks/useMonacoDiagnostics';
 import './App.css';
 
 type SidebarView = 'files' | 'artifacts' | 'search';
@@ -67,6 +68,13 @@ function App() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   // Get project path from Electron (if available)
   const [electronProjectPath, setElectronProjectPath] = useState<string | null>(null);
+  
+  // Monaco Diagnostics - reports TypeScript/syntax errors to backend for Fixer
+  useMonacoDiagnostics({
+    projectPath: electronProjectPath || undefined,
+    apiUrl: API_URL,
+    enabled: !!electronProjectPath, // Only enable when project is selected
+  });
   
   // LocalStorage key for project path backup
   const PROJECT_PATH_KEY = 'ships_project_path';

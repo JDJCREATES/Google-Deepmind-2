@@ -387,6 +387,10 @@ app.include_router(agent_router)
 from app.api.artifacts import router as artifacts_router
 app.include_router(artifacts_router)
 
+# Import and include Diagnostics Router
+from app.api.diagnostics import router as diagnostics_router
+app.include_router(diagnostics_router)
+
 @app.get("/")
 def read_root():
     return {"message": "ShipS* Backend is Running"}
