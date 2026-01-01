@@ -3,8 +3,8 @@ import './AgentTimeline.css'
 const AgentTimeline = () => {
   
   return (
-    <div className="">
+    <section className="">
       
-    </div>
+    </section>
   )
 }

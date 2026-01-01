@@ -1,6 +1,8 @@
 **12-31-25**
 
-[] Clean up 
+[] update manually coded components to use onsen ui
+  > also why two terminal components? is xterm only one used?
+  > fix xterm scrolling/interactivity 
 
 [] Create settings menu UI with onsen
   > adhere to brand colors

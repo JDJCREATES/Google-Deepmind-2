@@ -580,7 +580,7 @@ function App() {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Ask me anything..."
+            placeholder="Time to ShipS*?"
             className="chat-input"
             rows={1}
             style={{ minHeight: '40px' }}
