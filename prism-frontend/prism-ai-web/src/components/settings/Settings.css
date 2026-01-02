@@ -16,6 +16,43 @@
   border-bottom: 1px solid var(--border-color) !important;
 }
 
+/* Custom Settings Tabbar (replaces broken Ons.Tabbar) */
+.settings-tabbar {
+  display: flex;
+  background-color: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border-color);
+  padding: 0;
+  margin: 0;
+}
+
+.settings-tabbar-item {
+  flex: 1;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.settings-tabbar-item:hover {
+  background-color: rgba(255,255,255,0.05);
+  color: var(--text-primary);
+}
+
+.settings-tabbar-item.active {
+  color: #fffbd4;
+  border-bottom-color: var(--primary-color);
+  background-color: var(--bg-editor);
+}
+
+.settings-tab-content {
+  flex: 1;
+  overflow-y: auto;
+}
+
 .tabbar__item {
   background-color: var(--bg-sidebar) !important;
   color: var(--text-secondary) !important;

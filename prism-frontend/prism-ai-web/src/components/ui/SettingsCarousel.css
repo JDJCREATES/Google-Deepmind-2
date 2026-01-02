@@ -1,0 +1,76 @@
+/* ─────────────────────────────────────────────────────────────
+   Settings Carousel - Custom carousel with CSS animations
+   ───────────────────────────────────────────────────────────── */
+
+.settings-carousel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+.carousel-track-container {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.carousel-track {
+  display: flex;
+  height: 100%;
+  transition: transform 0.3s ease-out;
+  will-change: transform;
+}
+
+.carousel-slide-wrapper {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.carousel-slide {
+  height: 100%;
+  width: 100%;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Pagination Dots
+   ───────────────────────────────────────────────────────────── */
+
+.carousel-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border-color, #3e3e42);
+}
+
+.carousel-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  background-color: var(--text-secondary, #888);
+  opacity: 0.3;
+  transition: opacity 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+}
+
+.carousel-dot:hover {
+  opacity: 0.6;
+  transform: scale(1.2);
+}
+
+.carousel-dot.active {
+  background-color: var(--primary-color, #e06c75);
+  opacity: 1;
+}
+
+.carousel-dot:focus {
+  outline: 2px solid var(--primary-color, #e06c75);
+  outline-offset: 2px;
+}
