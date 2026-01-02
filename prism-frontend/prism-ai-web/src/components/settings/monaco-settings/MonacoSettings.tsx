@@ -3,6 +3,12 @@ import * as Ons from 'react-onsenui';
 import { useSettingsStore } from '../../../store/settingsStore';
 import '../Settings.css';
 
+// Constants for validation
+const FONT_SIZE_MIN = 10;
+const FONT_SIZE_MAX = 24;
+const TAB_SIZE_MIN = 1;
+const TAB_SIZE_MAX = 8;
+
 const MonacoSettings: React.FC = () => {
   const { monaco, updateMonacoSettings } = useSettingsStore();
 
@@ -39,11 +45,11 @@ const MonacoSettings: React.FC = () => {
               type="number"
               className="settings-input"
               value={monaco.fontSize}
-              min={10}
-              max={24}
+              min={FONT_SIZE_MIN}
+              max={FONT_SIZE_MAX}
               onChange={(e) => {
                 const value = parseInt(e.target.value);
-                if (!isNaN(value) && value >= 10 && value <= 24) {
+                if (!isNaN(value) && value >= FONT_SIZE_MIN && value <= FONT_SIZE_MAX) {
                   updateMonacoSettings({ fontSize: value });
                 }
               }}
@@ -97,11 +103,11 @@ const MonacoSettings: React.FC = () => {
               type="number"
               className="settings-input"
               value={monaco.tabSize}
-              min={1}
-              max={8}
+              min={TAB_SIZE_MIN}
+              max={TAB_SIZE_MAX}
               onChange={(e) => {
                 const value = parseInt(e.target.value);
-                if (!isNaN(value) && value >= 1 && value <= 8) {
+                if (!isNaN(value) && value >= TAB_SIZE_MIN && value <= TAB_SIZE_MAX) {
                   updateMonacoSettings({ tabSize: value });
                 }
               }}

@@ -30,12 +30,14 @@ const AccountSettings: React.FC = () => {
     if (!url) return false;
     try {
       const parsed = new URL(url);
-      // Only allow https URLs from known safe domains
-      return parsed.protocol === 'https:' && (
-        parsed.hostname === 'api.dicebear.com' ||
-        parsed.hostname.endsWith('.githubusercontent.com') ||
-        parsed.hostname.endsWith('.gravatar.com')
-      );
+      // Only allow https URLs from exact known safe domains
+      const safeDomains = [
+        'api.dicebear.com',
+        'avatars.githubusercontent.com',
+        'secure.gravatar.com',
+        'www.gravatar.com'
+      ];
+      return parsed.protocol === 'https:' && safeDomains.includes(parsed.hostname);
     } catch {
       return false;
     }
