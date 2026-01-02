@@ -397,6 +397,23 @@ function App() {
   };
 
   const { saveFile, activeFile, rootHandle } = useFileSystem();
+  
+  // Kill backend process (preview server) which might be locking files
+  const handleKillBackendProcess = async () => {
+    try {
+      if (confirm('Are you sure you want to kill the backend process (e.g. dev server)?')) {
+        const response = await fetch(`${API_URL}/preview/stop`, { method: 'POST' });
+        if (response.ok) {
+          setTerminalOutput(prev => prev + '\n\n\x1b[31m[System] 🛑 Backend process (dev server) killed by user.\x1b[0m\n');
+        } else {
+          setTerminalOutput(prev => prev + '\n\n\x1b[33m[System] ⚠️ Failed to kill process.\x1b[0m\n');
+        }
+      }
+    } catch (e) {
+      console.error("Failed to kill backend process", e);
+      setTerminalOutput(prev => prev + `\n\n\x1b[31m[System] ⚠️ Error killing process: ${e}\x1b[0m\n`);
+    }
+  };
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -495,6 +512,7 @@ function App() {
                 onClose={() => setShowTerminal(false)}
                 onToggleCollapse={() => setTerminalCollapsed(!terminalCollapsed)}
                 externalOutput={terminalOutput}
+                onKillBackendProcess={handleKillBackendProcess}
               />
             </>
           )}

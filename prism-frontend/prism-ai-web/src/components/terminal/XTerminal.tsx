@@ -9,7 +9,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { FiTerminal, FiX, FiMaximize2, FiMinimize2, FiPlus } from 'react-icons/fi';
+import { FiTerminal, FiX, FiMaximize2, FiMinimize2, FiPlus, FiStopCircle } from 'react-icons/fi';
 import '@xterm/xterm/css/xterm.css';
 import './XTerminal.css';
 
@@ -38,6 +38,8 @@ interface XTerminalProps {
   isCollapsed?: boolean;
   /** External output to write (from agent backend) */
   externalOutput?: string;
+  /** Function to kill backend processes (e.g. preview server) */
+  onKillBackendProcess?: () => void;
 }
 
 export function XTerminal({ 
@@ -46,7 +48,9 @@ export function XTerminal({
   onClose, 
   onToggleCollapse,
   isCollapsed = false,
+  isCollapsed = false,
   externalOutput,
+  onKillBackendProcess,
 }: XTerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
@@ -245,6 +249,16 @@ export function XTerminal({
           {!isConnected && !isCollapsed && (
             <button onClick={(e) => { e.stopPropagation(); spawnTerminal(); }} title="New Terminal">
               <FiPlus size={14} />
+            </button>
+          )}
+          {onKillBackendProcess && (
+            <button 
+              onClick={(e) => { e.stopPropagation(); onKillBackendProcess(); }} 
+              title="Kill Backend Process (Unlock Files)"
+              className="action-danger" // You might need to add this class to CSS or inline style
+              style={{ color: '#ff5e57' }}
+            >
+              <FiStopCircle size={14} />
             </button>
           )}
           {onToggleCollapse && (
