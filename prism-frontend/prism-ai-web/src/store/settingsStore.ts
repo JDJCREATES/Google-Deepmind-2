@@ -66,7 +66,7 @@ export const useSettingsStore = create<SettingsState>()(
         }),
     }),
     {
-      name: 'ships-settings-storage',
+      name: 'prism-settings-storage',
     }
   )
 );

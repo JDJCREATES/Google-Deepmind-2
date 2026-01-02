@@ -26,12 +26,27 @@ const AccountSettings: React.FC = () => {
       .slice(0, 2);
   };
 
+  const isValidAvatarUrl = (url: string | undefined): boolean => {
+    if (!url) return false;
+    try {
+      const parsed = new URL(url);
+      // Only allow https URLs from known safe domains
+      return parsed.protocol === 'https:' && (
+        parsed.hostname === 'api.dicebear.com' ||
+        parsed.hostname.endsWith('.githubusercontent.com') ||
+        parsed.hostname.endsWith('.gravatar.com')
+      );
+    } catch {
+      return false;
+    }
+  };
+
   return (
     <div className="settings-page">
       {/* User Info Card */}
       <div className="user-info-card">
         <div className="user-avatar">
-          {user.avatarUrl ? (
+          {isValidAvatarUrl(user.avatarUrl) ? (
             <img src={user.avatarUrl} alt={user.name} style={{ width: '100%', height: '100%', borderRadius: '8px' }} />
           ) : (
             getUserInitials(user.name)

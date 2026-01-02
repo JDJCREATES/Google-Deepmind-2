@@ -68,7 +68,7 @@ const MonacoSettings: React.FC = () => {
             <select
               className="settings-select"
               value={monaco.lineNumbers}
-              onChange={(e) => updateMonacoSettings({ lineNumbers: e.target.value as any })}
+              onChange={(e) => updateMonacoSettings({ lineNumbers: e.target.value as 'on' | 'off' | 'relative' })}
             >
               <option value="on">On</option>
               <option value="off">Off</option>
@@ -108,7 +108,7 @@ const MonacoSettings: React.FC = () => {
             <select
               className="settings-select"
               value={monaco.wordWrap}
-              onChange={(e) => updateMonacoSettings({ wordWrap: e.target.value as any })}
+              onChange={(e) => updateMonacoSettings({ wordWrap: e.target.value as 'off' | 'on' | 'wordWrapColumn' | 'bounded' })}
             >
               <option value="off">Off</option>
               <option value="on">On</option>
