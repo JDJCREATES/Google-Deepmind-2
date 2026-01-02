@@ -41,7 +41,12 @@ const MonacoSettings: React.FC = () => {
               value={monaco.fontSize}
               min={10}
               max={24}
-              onChange={(e) => updateMonacoSettings({ fontSize: parseInt(e.target.value) })}
+              onChange={(e) => {
+                const value = parseInt(e.target.value);
+                if (!isNaN(value) && value >= 10 && value <= 24) {
+                  updateMonacoSettings({ fontSize: value });
+                }
+              }}
             />
           </div>
         </div>
@@ -94,7 +99,12 @@ const MonacoSettings: React.FC = () => {
               value={monaco.tabSize}
               min={1}
               max={8}
-              onChange={(e) => updateMonacoSettings({ tabSize: parseInt(e.target.value) })}
+              onChange={(e) => {
+                const value = parseInt(e.target.value);
+                if (!isNaN(value) && value >= 1 && value <= 8) {
+                  updateMonacoSettings({ tabSize: value });
+                }
+              }}
             />
           </div>
         </div>

@@ -45,7 +45,12 @@ const UniversalSettings: React.FC = () => {
               max={5000}
               step={100}
               disabled={!app.autoSave}
-              onChange={(e) => updateAppSettings({ autoSaveDelay: parseInt(e.target.value) })}
+              onChange={(e) => {
+                const value = parseInt(e.target.value);
+                if (!isNaN(value) && value >= 500 && value <= 5000) {
+                  updateAppSettings({ autoSaveDelay: value });
+                }
+              }}
             />
           </div>
         </div>
