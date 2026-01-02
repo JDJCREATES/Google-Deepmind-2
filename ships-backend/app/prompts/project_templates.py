@@ -19,7 +19,7 @@ Each template includes:
 
 FRONTEND_TEMPLATES = {
     # React with Vite (default modern React)
-    "react_vite": {
+    "react-vite": {
         "stack": "Vite + React 18+ + TypeScript + TailwindCSS",
         "alt_stacks": ["Next.js", "Remix", "Create React App"],
         "scaffold_cmd": "npx -y create-vite@latest . --template react-ts && npm install",
@@ -405,7 +405,7 @@ prisma/
     },
     
     # Go Gin
-    "go_gin": {
+    "go-gin": {
         "stack": "Go + Gin + GORM + Wire (DI)",
         "alt_stacks": ["Go Fiber", "Go Chi", "Go Echo"],
         "scaffold_cmd": "go mod init app && go get github.com/gin-gonic/gin gorm.io/gorm",
@@ -434,7 +434,7 @@ api/
     },
     
     # Rust Actix-web
-    "rust_actix": {
+    "rust-actix": {
         "stack": "Rust + Actix-web + SQLx + Tokio",
         "alt_stacks": ["Axum", "Rocket"],
         "scaffold_cmd": "cargo new . && cargo add actix-web sqlx tokio serde",
@@ -467,7 +467,7 @@ migrations/              # SQLx migrations""",
 
 CLI_TEMPLATES = {
     # Python Click
-    "python_cli": {
+    "python-cli": {
         "stack": "Python + Click + Rich + Typer",
         "alt_stacks": ["Rust Clap", "Go Cobra"],
         "scaffold_cmd": "pip install click rich typer",
@@ -489,7 +489,7 @@ pyproject.toml           # Project config with entry point""",
     },
     
     # Rust Clap
-    "rust_cli": {
+    "rust-cli": {
         "stack": "Rust + Clap + color-eyre + indicatif",
         "alt_stacks": ["Go Cobra", "Python Click"],
         "scaffold_cmd": "cargo new . && cargo add clap --features derive && cargo add color-eyre",
@@ -510,7 +510,7 @@ Cargo.toml""",
     },
     
     # Go Cobra
-    "go_cli": {
+    "go-cli": {
         "stack": "Go + Cobra + Viper + Charm",
         "alt_stacks": ["Rust Clap", "Python Click"],
         "scaffold_cmd": "go mod init app && go get github.com/spf13/cobra github.com/spf13/viper",
@@ -654,9 +654,9 @@ PROJECT_TEMPLATES = {
     **DESKTOP_MOBILE_TEMPLATES,
     
     # Aliases for common requests
-    "web_app": FRONTEND_TEMPLATES["react_vite"],
+    "web_app": FRONTEND_TEMPLATES["react-vite"],
     "api": BACKEND_TEMPLATES["fastapi"],
-    "cli": CLI_TEMPLATES["python_cli"],
+    "cli": CLI_TEMPLATES["python-cli"],
     "desktop": DESKTOP_MOBILE_TEMPLATES["electron"],
     "mobile": DESKTOP_MOBILE_TEMPLATES["expo"],
     

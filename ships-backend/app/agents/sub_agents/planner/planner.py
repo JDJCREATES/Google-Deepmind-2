@@ -325,25 +325,77 @@ REMEMBER: Fewer than 4 tasks = WRONG. Break it down further!"""
         if context.get("constraints"):
             parts.append(f"CONSTRAINTS:\n{json.dumps(context['constraints'], indent=2)[:500]}")
         
-        parts.append("\nCreate a detailed plan following the output format. Output ONLY valid JSON:")
+        # Schema Definition
+        parts.append("""
+REQUIRED OUTPUT FORMAT (JSON ONLY):
+{
+  "summary": "Brief executive summary of the plan",
+  "decision_notes": ["List of key technical decisions made"],
+  "tasks": [
+    {
+      "title": "Task Title",
+      "description": "Detailed description of what to do",
+      "complexity": "small|medium|large",
+      "priority": "high|medium|low",
+      "estimated_minutes": 60,
+      "acceptance_criteria": ["Criteria 1", "Criteria 2"],
+      "expected_outputs": [{"path": "src/file.ts", "description": "What this file contains"}]
+    }
+  ],
+  "folders": [
+    {"path": "src/components", "is_directory": true, "description": "UI components"}
+  ],
+  "api_endpoints": [
+    {"path": "/api/v1/resource", "method": "GET", "description": "Fetch resources"}
+  ],
+  "dependencies": [
+    {"name": "react", "version": "18.x", "type": "production"}
+  ],
+  "risks": [
+    {"description": "Potential risk", "severity": "medium", "mitigation": "How to handle it"}
+  ]
+}
+
+Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON, no markdown formatting or intro text.
+""")
         
         return "\n\n".join(parts)
     
     def _parse_llm_response(self, response: str) -> Dict[str, Any]:
         """Parse LLM response to JSON."""
-        try:
-            return json.loads(response)
-        except json.JSONDecodeError:
-            pass
+        logger.info(f"[PLANNER] 📄 Parsing LLM response ({len(response)} chars)")
         
-        # Try extracting JSON
+        # Try direct parse
+        try:
+            result = json.loads(response)
+            logger.info(f"[PLANNER] ✅ Direct JSON parse succeeded: {len(result.get('tasks', []))} tasks")
+            return result
+        except json.JSONDecodeError as e:
+            logger.warning(f"[PLANNER] Direct parse failed: {e}")
+        
+        # Try extracting JSON from markdown code block
+        code_block_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', response)
+        if code_block_match:
+            try:
+                result = json.loads(code_block_match.group(1).strip())
+                logger.info(f"[PLANNER] ✅ Code block JSON parse succeeded: {len(result.get('tasks', []))} tasks")
+                return result
+            except json.JSONDecodeError as e:
+                logger.warning(f"[PLANNER] Code block parse failed: {e}")
+        
+        # Try extracting JSON object
         json_match = re.search(r'\{[\s\S]*\}', response)
         if json_match:
             try:
-                return json.loads(json_match.group(0))
-            except json.JSONDecodeError:
-                pass
+                result = json.loads(json_match.group(0))
+                logger.info(f"[PLANNER] ✅ Extracted JSON parse succeeded: {len(result.get('tasks', []))} tasks")
+                return result
+            except json.JSONDecodeError as e:
+                logger.warning(f"[PLANNER] Extracted JSON parse failed: {e}")
+                logger.debug(f"[PLANNER] Failed JSON: {json_match.group(0)[:500]}...")
         
+        # Log the raw response for debugging
+        logger.error(f"[PLANNER] ❌ All JSON parsing failed! Response preview: {response[:300]}...")
         return {"summary": "Plan generated", "tasks": []}
     
     def _enrich_task_list(self, task_list: TaskList, llm_plan: Dict[str, Any]) -> None:
@@ -526,15 +578,15 @@ REMEMBER: Fewer than 4 tasks = WRONG. Break it down further!"""
             environment=environment
         )
         
-        # Convert to serializable dict
+        # Convert to serializable dict (mode='json' handles datetime -> ISO string)
         plan_artifacts = {
-            "plan_manifest": plan_result["plan_manifest"].model_dump(),
-            "task_list": plan_result["task_list"].model_dump(),
-            "folder_map": plan_result["folder_map"].model_dump(),
-            "api_contracts": plan_result["api_contracts"].model_dump(),
-            "dependency_plan": plan_result["dependency_plan"].model_dump(),
-            "validation_checklist": plan_result["validation_checklist"].model_dump(),
-            "risk_report": plan_result["risk_report"].model_dump(),
+            "plan_manifest": plan_result["plan_manifest"].model_dump(mode='json'),
+            "task_list": plan_result["task_list"].model_dump(mode='json'),
+            "folder_map": plan_result["folder_map"].model_dump(mode='json'),
+            "api_contracts": plan_result["api_contracts"].model_dump(mode='json'),
+            "dependency_plan": plan_result["dependency_plan"].model_dump(mode='json'),
+            "validation_checklist": plan_result["validation_checklist"].model_dump(mode='json'),
+            "risk_report": plan_result["risk_report"].model_dump(mode='json'),
         }
         
         # ================================================================

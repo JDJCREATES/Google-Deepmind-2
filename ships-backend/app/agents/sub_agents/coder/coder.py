@@ -82,6 +82,13 @@ class Coder(BaseAgent):
             artifact_manager: Optional artifact manager
             config: Coder configuration
         """
+        # Initialize instance vars BEFORE super().__init__ since it calls _get_system_prompt()
+        self.config = config or CoderComponentConfig()
+        self._injected_folder_map: Optional[Dict[str, Any]] = None
+        self._injected_api_contracts: Optional[Dict[str, Any]] = None
+        self._project_type: str = "generic"
+        self._last_thought_signature: Optional[str] = None
+        
         super().__init__(
             name="Coder",
             agent_type="coder",  # Uses Pro model
@@ -89,14 +96,6 @@ class Coder(BaseAgent):
             artifact_manager=artifact_manager,
             cached_content=cached_content
         )
-        
-        self.config = config or CoderComponentConfig()
-        
-        # Context injection from state (populated before invoke)
-        self._injected_folder_map: Optional[Dict[str, Any]] = None
-        self._injected_api_contracts: Optional[Dict[str, Any]] = None
-        self._project_type: str = "generic"
-        self._last_thought_signature: Optional[str] = None
         
         # Initialize subcomponents
         self.task_interpreter = TaskInterpreter(self.config)

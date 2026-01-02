@@ -515,10 +515,12 @@ class Scaffolder:
     def get_scaffold_command(self, framework: str) -> str:
         """Get the npx/npm command for scaffolding."""
         commands = {
-            "react-vite": "npx -y create-vite@latest . --template react",
+            # Default to TypeScript for all React projects
+            "react-vite": "npx -y create-vite@latest . --template react-ts",
             "react-vite-ts": "npx -y create-vite@latest . --template react-ts",
+            "react": "npx -y create-vite@latest . --template react-ts",
             "nextjs": "npx -y create-next-app@latest . --typescript --yes --app --no-src-dir",
-            "vue": "npx -y create-vue@latest . --default",
+            "vue": "npx -y create-vue@latest . --typescript --default",
             "python": None,  # Python doesn't need npm scaffolding
         }
         return commands.get(framework, commands["react-vite"])
