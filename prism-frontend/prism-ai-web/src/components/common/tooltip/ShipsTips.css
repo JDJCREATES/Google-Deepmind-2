@@ -1,0 +1,19 @@
+.ships-tips-container {
+  
+  flex: 1;
+  display: flex;
+  max-width: 160px;
+  
+}
+
+.tip-title {
+  
+}
+
+.tip-description {
+  
+}
+
+.api-link {
+  
+}
