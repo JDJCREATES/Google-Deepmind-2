@@ -31,7 +31,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
   };
 
   return (
-    <Ons.Page renderToolbar={renderToolbar}>
+    <Ons.Page renderToolbar={renderToolbar} renderModal={() => null} renderFixed={() => null} renderBottomToolbar={() => null}>
       <Ons.Tabbar
         swipeable={false}
         position="top"

@@ -4,7 +4,7 @@ import ChatMessage, { type Message } from './components/ChatMessage';
 import MonacoEditor from './components/MonacoEditor';
 import FileExplorer from './components/FileExplorer';
 import EditorTabs from './components/EditorTabs';
-import LandingPage from './components/LandingPage';
+import LandingPage from './pages/LandingPage';
 import ArtifactPanel from './components/artifacts/ArtifactPanel';
 import ArtifactViewer from './components/artifacts/ArtifactViewer';
 import Settings from './components/settings/Settings';
@@ -626,6 +626,7 @@ function App() {
       </div>
 
       {/* Settings Modal */}
+      {/* @ts-ignore: react-onsenui types missing children definition for React 19 */}
       <Ons.Modal isOpen={showSettings}>
         <Settings onClose={() => setShowSettings(false)} />
       </Ons.Modal>
