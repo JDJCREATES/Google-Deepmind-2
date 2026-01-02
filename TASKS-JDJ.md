@@ -8,6 +8,13 @@
   > ~~clearly define agent roles again, re-assess need for 4..~~
   > ~~coder takes most token usage~~ (mitigated with context injection, pre-loaded artifacts)
 
+[x] Address prompt injection + system revealing llm concerns ✅ DONE
+  > ~~Intent agent can try to sanitize/translate broken english etc?~~ (InputSanitizer with 25+ patterns)
+  > ~~Research modern ways to protect agentic systems~~ (OWASP LLM Top 10 2025, layered defense)
+  > Created: app/security/ module (input_sanitizer.py, output_filter.py, patterns.py)
+  > Added: security_prefix.py with defensive prompt rules
+  > Integrated: Intent Classifier now sanitizes input + returns security_risk_score
+
 [] implement "chats" or saved agent runs
   > can be utilized later for adaptive learning
 
@@ -32,10 +39,6 @@
   > default monaco extension gui
   > possible versioning with llm steps?
   > SECURE
-
-[] Address prompt injection + system revealing llm concerns
-  > Intent agent can try to sanitize/translate broken english etc? 
-  > Research modern ways to protect agentic systems 
   
 [] Test all artifacts custom UI if applicable 
   > Default view should be artifacts drawer

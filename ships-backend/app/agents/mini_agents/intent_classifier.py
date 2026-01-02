@@ -13,6 +13,7 @@ Key Features:
 - Detects ambiguous requests for user clarification
 - Project-aware: uses blueprint and folder map for context
 - Streaming compatible for real-time feedback
+- Security: Detects prompt injection attempts
 """
 
 from datetime import datetime
@@ -28,6 +29,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from app.agents.base.base_agent import BaseAgent
 from app.graphs.state import AgentState
 from app.artifacts import ArtifactManager
+from app.security.input_sanitizer import sanitize_input, SanitizationResult
+from app.prompts.security_prefix import wrap_system_prompt
 
 
 # ============================================================================
@@ -132,6 +135,18 @@ class StructuredIntent(BaseModel):
         ge=0.0,
         le=1.0,
         description="Confidence in the classification (0.0-1.0)"
+    )
+    
+    # Security (from input sanitizer)
+    security_risk_score: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Security risk score from input sanitization (0.0-1.0)"
+    )
+    security_warnings: List[str] = Field(
+        default_factory=list,
+        description="Security warnings from input sanitization"
     )
     
     # Metadata
@@ -330,12 +345,18 @@ You MUST output a valid JSON object matching this schema:
         Returns:
             StructuredIntent with classification results
         """
-        # Build context-aware prompt
-        prompt = self._build_context_prompt(user_request, app_blueprint, folder_map)
+        # Step 0: Security - Sanitize input for injection attempts
+        sanitization = sanitize_input(user_request)
         
-        # Build messages
+        # Use sanitized input for classification
+        clean_request = sanitization.sanitized_input
+        
+        # Build context-aware prompt
+        prompt = self._build_context_prompt(clean_request, app_blueprint, folder_map)
+        
+        # Build messages (with security prefix)
         messages = [
-            SystemMessage(content=self.system_prompt),
+            SystemMessage(content=wrap_system_prompt(self.system_prompt)),
             HumanMessage(content=prompt)
         ]
         
@@ -362,7 +383,10 @@ You MUST output a valid JSON object matching this schema:
                 is_ambiguous=parsed.get("is_ambiguous", False),
                 clarification_questions=parsed.get("clarification_questions", []),
                 assumptions=parsed.get("assumptions", []),
-                confidence=parsed.get("confidence", 1.0)
+                confidence=parsed.get("confidence", 1.0),
+                # Security metadata from sanitization
+                security_risk_score=sanitization.risk_score,
+                security_warnings=sanitization.detected_patterns
             )
             
             # Check confidence threshold
@@ -375,10 +399,11 @@ You MUST output a valid JSON object matching this schema:
             
             # Log action if artifact manager available
             if self._artifact_manager:
+                security_note = f", Risk: {sanitization.risk_score:.2f}" if sanitization.is_suspicious else ""
                 self.log_action(
                     action="classified_intent",
                     input_summary=user_request[:100],
-                    output_summary=f"{intent.task_type}/{intent.action}/{intent.target_area}",
+                    output_summary=f"{intent.task_type}/{intent.action}/{intent.target_area}{security_note}",
                     reasoning=f"Confidence: {intent.confidence:.2f}",
                     duration_ms=duration_ms
                 )
