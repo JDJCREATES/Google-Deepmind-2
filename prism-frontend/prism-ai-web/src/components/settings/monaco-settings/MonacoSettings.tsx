@@ -13,17 +13,21 @@ const MonacoSettings: React.FC = () => {
   const { monaco, updateMonacoSettings } = useSettingsStore();
   const [index, setIndex] = useState(0);
 
+  if (!monaco) return <div className="p-4">Loading settings...</div>;
+
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* @ts-ignore */}
       <Ons.Carousel 
         swipeable 
         autoScroll 
         overscrollable 
         index={index} 
         onPostChange={(e: any) => setIndex(e.activeIndex)}
-        style={{ flex: 1 }}
+        style={{ flex: 1, width: '100%' }}
       >
         {/* Slide 1: Appearance */}
+        {/* @ts-ignore */}
         <Ons.CarouselItem>
           <div className="settings-page">
             <div className="settings-section">
@@ -76,7 +80,7 @@ const MonacoSettings: React.FC = () => {
                 <div className="settings-control">
                   <Ons.Switch
                     checked={monaco.minimap}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateMonacoSettings({ minimap: e.target.checked })}
+                    onChange={(e: any) => updateMonacoSettings({ minimap: e.target.checked })}
                   />
                 </div>
               </div>
@@ -103,6 +107,7 @@ const MonacoSettings: React.FC = () => {
         </Ons.CarouselItem>
 
         {/* Slide 2: Formatting */}
+        {/* @ts-ignore */}
         <Ons.CarouselItem>
           <div className="settings-page">
             <div className="settings-section">
@@ -157,7 +162,7 @@ const MonacoSettings: React.FC = () => {
                 <div className="settings-control">
                   <Ons.Switch
                     checked={monaco.formatOnSave}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateMonacoSettings({ formatOnSave: e.target.checked })}
+                    onChange={(e: any) => updateMonacoSettings({ formatOnSave: e.target.checked })}
                   />
                 </div>
               </div>

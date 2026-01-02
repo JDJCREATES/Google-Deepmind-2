@@ -487,7 +487,7 @@ function App() {
              <div className="activity-icon" onClick={toggleTheme} title="Toggle Theme">
                {theme === 'vs-dark' ? <MdLightMode size={24} /> : <MdDarkMode size={24} />}
              </div>
-             <div className="activity-icon" onClick={() => setShowSettings(true)} title="Settings">
+             <div className="activity-icon" onClick={() => { console.log('Settings clicked!'); setShowSettings(true); }} title="Settings">
                <VscSettingsGear size={24} />
              </div>
            </div>
@@ -625,11 +625,34 @@ function App() {
         </div>
       </div>
 
-      {/* Settings Modal */}
-      {/* @ts-ignore: react-onsenui types missing children definition for React 19 */}
-      <Ons.Modal isOpen={showSettings}>
-        <Settings onClose={() => setShowSettings(false)} />
-      </Ons.Modal>
+      {/* Settings Modal - Custom implementation to avoid OnsenUI React 19 issues */}
+      {showSettings && (
+        <div className="fullscreen-modal" style={{ 
+          position: 'fixed', 
+          top: 0, 
+          left: 0, 
+          right: 0, 
+          bottom: 0, 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          animation: 'fadeIn 0.2s ease-out'
+        }}>
+          <div style={{ 
+            width: '800px', 
+            height: '600px', 
+            maxWidth: '95vw', 
+            maxHeight: '90vh',
+            borderRadius: '12px',
+            overflow: 'hidden',
+            boxShadow: '0 12px 48px rgba(0, 0, 0, 0.6)',
+            position: 'relative',
+            backgroundColor: 'var(--bg-editor)'
+          }}>
+            <Settings onClose={() => setShowSettings(false)} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

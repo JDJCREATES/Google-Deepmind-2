@@ -13,17 +13,21 @@ const UniversalSettings: React.FC = () => {
     }
   };
 
+  if (!app) return <div className="p-4">Loading settings...</div>;
+
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* @ts-ignore */}
       <Ons.Carousel 
         swipeable 
         autoScroll 
         overscrollable 
         index={index} 
         onPostChange={(e: any) => setIndex(e.activeIndex)}
-        style={{ flex: 1 }}
+        style={{ flex: 1, width: '100%' }}
       >
         {/* Slide 1: General Settings */}
+        {/* @ts-ignore */}
         <Ons.CarouselItem>
           <div className="settings-page">
             {/* File Management */}
@@ -38,7 +42,7 @@ const UniversalSettings: React.FC = () => {
                 <div className="settings-control">
                   <Ons.Switch
                     checked={app.autoSave}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateAppSettings({ autoSave: e.target.checked })}
+                    onChange={(e: any) => updateAppSettings({ autoSave: e.target.checked })}
                   />
                 </div>
               </div>
@@ -80,7 +84,7 @@ const UniversalSettings: React.FC = () => {
                 <div className="settings-control">
                   <Ons.Switch
                     checked={app.confirmBeforeExit}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateAppSettings({ confirmBeforeExit: e.target.checked })}
+                    onChange={(e: any) => updateAppSettings({ confirmBeforeExit: e.target.checked })}
                   />
                 </div>
               </div>
@@ -93,7 +97,7 @@ const UniversalSettings: React.FC = () => {
                 <div className="settings-control">
                   <Ons.Switch
                     checked={app.showWelcomeScreen}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateAppSettings({ showWelcomeScreen: e.target.checked })}
+                    onChange={(e: any) => updateAppSettings({ showWelcomeScreen: e.target.checked })}
                   />
                 </div>
               </div>
@@ -102,6 +106,7 @@ const UniversalSettings: React.FC = () => {
         </Ons.CarouselItem>
 
         {/* Slide 2: Advanced / Reset */}
+        {/* @ts-ignore */}
         <Ons.CarouselItem>
           <div className="settings-page">
             <div className="settings-section">

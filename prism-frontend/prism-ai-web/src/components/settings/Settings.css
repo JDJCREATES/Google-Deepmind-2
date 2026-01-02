@@ -22,9 +22,12 @@
   border-radius: 0 !important;
 }
 
-.tabbar__item.active {
+.tabbar__item.active,
+.tabbar__item.active .tabbar__button,
+.tabbar__item.active .tabbar__label,
+.tabbar__item.active .tabbar__icon {
   background-color: var(--bg-editor) !important;
-  color: var(--primary-color) !important;
+  color: #fffbd4 !important; /* User requested override */
   border-bottom: 2px solid var(--primary-color) !important;
 }
 
@@ -194,6 +197,11 @@
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 4px;
+}
+
+.fullscreen-modal {
+  z-index: 9999 !important;
+  background: rgba(0, 0, 0, 0.8);
 }
 
 .user-email {

@@ -113,11 +113,11 @@ class PreviewManager:
             # PowerShell command:
             # 1. Get all processes named 'node'
             # 2. Filter where CommandLine contains the project path
-            # 3. Terminate them
+            # 3. For each match, kill by ID explicitly (more robust than Invoke-CimMethod)
             ps_command = (
                 f"Get-CimInstance Win32_Process -Filter \"Name = 'node.exe'\" | "
-                f"Where-Object {{ $_.CommandLine -like '*{project_path}*' }} | "
-                f"Invoke-CimMethod -MethodName Terminate"
+                f"Where-Object {{ $_.CommandLine -like '*{normalized_path}*' }} | "
+                f"ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}"
             )
             
             subprocess.run(
