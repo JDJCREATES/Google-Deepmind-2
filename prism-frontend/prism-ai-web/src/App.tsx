@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import * as Ons from 'react-onsenui';
 import ChatMessage, { type Message } from './components/ChatMessage';
 import MonacoEditor from './components/MonacoEditor';
 import FileExplorer from './components/FileExplorer';
@@ -6,8 +7,10 @@ import EditorTabs from './components/EditorTabs';
 import LandingPage from './components/LandingPage';
 import ArtifactPanel from './components/artifacts/ArtifactPanel';
 import ArtifactViewer from './components/artifacts/ArtifactViewer';
+import Settings from './components/settings/Settings';
 import { useFileSystem } from './store/fileSystem';
 import { useArtifactStore } from './store/artifactStore';
+import { useSettingsStore } from './store/settingsStore';
 import { MdLightMode, MdDarkMode } from 'react-icons/md';
 import { PiShippingContainerFill } from "react-icons/pi";
 import { RiShip2Fill } from 'react-icons/ri';
@@ -29,9 +32,11 @@ import './App.css';
 type SidebarView = 'files' | 'artifacts' | 'search';
 
 function App() {
-  const [theme, setTheme] = useState<'vs-dark' | 'light'>('vs-dark');
+  const { monaco } = useSettingsStore();
+  const [theme, setTheme] = useState<'vs-dark' | 'light'>(monaco.theme);
   const [showExplorer, setShowExplorer] = useState(true);
   const [activeSidebarView, setActiveSidebarView] = useState<SidebarView>('files');
+  const [showSettings, setShowSettings] = useState(false);
   const { currentProjectId } = useArtifactStore();
   const { refreshFileTree } = useFileSystem();
   
@@ -169,12 +174,19 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // Sync theme with settings store
+  useEffect(() => {
+    setTheme(monaco.theme);
+  }, [monaco.theme]);
+
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
   const toggleTheme = () => {
-    setTheme(theme === 'vs-dark' ? 'light' : 'vs-dark');
+    const newTheme = theme === 'vs-dark' ? 'light' : 'vs-dark';
+    setTheme(newTheme);
+    useSettingsStore.getState().updateMonacoSettings({ theme: newTheme });
   };
 
   const handleSendMessage = async () => {
@@ -475,7 +487,7 @@ function App() {
              <div className="activity-icon" onClick={toggleTheme} title="Toggle Theme">
                {theme === 'vs-dark' ? <MdLightMode size={24} /> : <MdDarkMode size={24} />}
              </div>
-             <div className="activity-icon" title="Settings">
+             <div className="activity-icon" onClick={() => setShowSettings(true)} title="Settings">
                <VscSettingsGear size={24} />
              </div>
            </div>
@@ -612,6 +624,11 @@ function App() {
             </button>
         </div>
       </div>
+
+      {/* Settings Modal */}
+      <Ons.Modal isOpen={showSettings}>
+        <Settings onClose={() => setShowSettings(false)} />
+      </Ons.Modal>
     </div>
   );
 }

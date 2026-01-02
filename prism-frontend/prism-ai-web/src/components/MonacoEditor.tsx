@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import Editor, { type OnMount, type BeforeMount } from '@monaco-editor/react';
 import { useFileSystem } from '../store/fileSystem';
+import { useSettingsStore } from '../store/settingsStore';
 
 interface MonacoEditorProps {
   theme?: 'vs-dark' | 'light';
@@ -14,6 +15,7 @@ export default function MonacoEditor({
   width = '100%',
 }: MonacoEditorProps) {
   const { activeFile, getFile, updateFileContent } = useFileSystem();
+  const { monaco: monacoSettings } = useSettingsStore();
   const editorRef = useRef<any>(null);
 
   const file = activeFile ? getFile(activeFile) : null;
@@ -83,16 +85,16 @@ export default function MonacoEditor({
       onMount={handleEditorDidMount}
       beforeMount={handleEditorWillMount}
       options={{
-        minimap: { enabled: true, scale: 0.75, renderCharacters: false },
-        fontSize: 14,
+        minimap: { enabled: monacoSettings.minimap, scale: 0.75, renderCharacters: false },
+        fontSize: monacoSettings.fontSize,
         fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace",
         fontLigatures: true,
-        lineNumbers: 'on',
+        lineNumbers: monacoSettings.lineNumbers,
         roundedSelection: true,
         scrollBeyondLastLine: false,
         automaticLayout: true,
-        tabSize: 2,
-        wordWrap: 'on',
+        tabSize: monacoSettings.tabSize,
+        wordWrap: monacoSettings.wordWrap,
         padding: { top: 16, bottom: 16 },
         cursorBlinking: 'smooth',
         cursorSmoothCaretAnimation: 'on',
