@@ -314,15 +314,16 @@ body {
   cursor: pointer;
   color: #858585;
   position: relative;
+  transition: color 0.2s;
 }
 
 .activity-icon:hover {
-  color: #ffffff;
+  color: #fffbd4 !important; /* Cream yellow on hover */
 }
 
 .activity-icon.active {
-  color: #ffffff;
-  border-left: 2px solid #ffffff;
+  color: #fffbd4 !important;
+  border-left: 2px solid var(--primary-color) !important; /* Reddish coral border */
 }
 
 /* Sidebar (Explorer) */
@@ -486,21 +487,26 @@ body {
   max-width: 200px;
   height: 35px;
   background-color: var(--bg-editor-tabs);
-  color: var(--tab-inactive-fg);
+  color: var(--text-secondary); /* Use text-secondary instead of tab-inactive-fg for consistency */
   border-right: 1px solid var(--border-color);
+  border-bottom: 2px solid transparent; /* Prepare for hover/active border */
   cursor: pointer;
   font-size: 13px;
   user-select: none;
+  transition: all 0.2s ease;
 }
 
 .editor-tab:hover {
-    background-color: var(--bg-editor);
+    background-color: rgba(255, 251, 212, 0.08); /* Light yellow tint */
+    color: #fffbd4;
+    border-bottom: 2px solid transparent;
 }
 
 .editor-tab.active {
-  background-color: var(--bg-editor-tab-active);
-  color: var(--tab-active-fg);
-  border-top: 1px solid var(--primary-color); 
+  background-color: var(--bg-editor);
+  color: #fffbd4;
+  border-bottom: 2px solid var(--primary-color); 
+  border-top: none; /* Remove old top border */
 }
 
 .tab-icon {

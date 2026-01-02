@@ -9,6 +9,11 @@
 /* OnsenUI Overrides for consistent styling */
 .page__content {
   background-color: var(--bg-editor) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  /* height: 100% !important; - REMOVED: This causes overflow because of toolbar offset */
+  overflow: hidden !important; /* Prevent double scrollbars */
+  box-sizing: border-box !important;
 }
 
 .tabbar {
@@ -23,6 +28,7 @@
   border-bottom: 1px solid var(--border-color);
   padding: 0;
   margin: 0;
+  flex-shrink: 0; /* Keep tabbar fixed height */
 }
 
 .settings-tabbar-item {
@@ -34,12 +40,18 @@
   color: var(--text-secondary);
   font-size: 14px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+  outline: none; /* Remove blue focus outline */
+}
+
+.settings-tabbar-item:focus {
+  outline: none; /* Remove all focus outlines */
 }
 
 .settings-tabbar-item:hover {
-  background-color: rgba(255,255,255,0.05);
-  color: var(--text-primary);
+  background-color: rgba(255, 251, 212, 0.08); /* Light yellow tint */
+  color: #fffbd4; /* Secondary color - cream yellow */
+  border-bottom-color: transparent; /* Prevent any blue border */
 }
 
 .settings-tabbar-item.active {
@@ -48,9 +60,27 @@
   background-color: var(--bg-editor);
 }
 
+/* Light mode adjustments for yellow visibility */
+@media (prefers-color-scheme: light) {
+  .settings-tabbar-item.active,
+  .settings-tabbar-item:hover {
+    color: #8b7355; /* Darker warm brown for light mode */
+  }
+}
+
+/* If you have a .light-mode class on body, use this instead */
+.light-mode .settings-tabbar-item.active,
+.light-mode .settings-tabbar-item:hover {
+  color: #8b7355; /* Darker warm brown for light mode */
+}
+
 .settings-tab-content {
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden; /* Let children handle scrolling (carousel) */
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  min-height: 0; /* CRITICAL: Allows flex container to shrink below content size */
 }
 
 .tabbar__item {
@@ -74,8 +104,29 @@
   border-bottom: 1px solid var(--border-color) !important;
 }
 
-.toolbar-button {
+/* Fix toolbar title and button visibility */
+.toolbar .center,
+.toolbar__center {
   color: var(--text-primary) !important;
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.toolbar-button,
+.toolbar-button__icon,
+.toolbar .left .ons-icon {
+  color: var(--text-primary) !important;
+}
+
+/* Light mode toolbar visibility */
+.light-mode .toolbar .center,
+.light-mode .toolbar__center {
+  color: #1a1a1a !important;
+}
+
+.light-mode .toolbar-button,
+.light-mode .toolbar-button__icon {
+  color: #1a1a1a !important;
 }
 
 /* Settings Page Content */
@@ -246,43 +297,122 @@
   color: var(--text-secondary);
 }
 
-/* Carousel for multi-page settings */
+/* Carousel container styles are now handled in SettingsCarousel.css and via flex layout */
 .settings-carousel {
-  height: calc(100vh - 100px);
+  /* Height is handled by flex parent */
 }
 
-.carousel-arrow {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  background-color: rgba(0, 0, 0, 0.5);
-  color: white;
-  border: none;
-  width: 48px;
-  height: 48px;
-  border-radius: 4px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24px;
-  z-index: 10;
-  transition: background-color 0.2s;
+/* ─────────────────────────────────────────────────────────────
+   Responsive Styles
+   ───────────────────────────────────────────────────────────── */
+
+/* Tablet and smaller */
+@media (max-width: 768px) {
+  .settings-page {
+    padding: 16px;
+    max-width: 100%;
+  }
+
+  .settings-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .settings-control {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .settings-input,
+  .settings-select {
+    width: 100%;
+    min-width: unset;
+  }
+
+  .user-info-card {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .user-avatar {
+    width: 80px;
+    height: 80px;
+  }
+
+  .settings-tabbar-item {
+    padding: 14px 12px;
+    font-size: 13px;
+    /* Larger touch target for mobile */
+    min-height: 48px;
+  }
 }
 
-.carousel-arrow:hover {
-  background-color: rgba(0, 0, 0, 0.7);
+/* Mobile - small screens */
+@media (max-width: 480px) {
+  .settings-page {
+    padding: 12px;
+  }
+
+  .settings-section-title {
+    font-size: 14px;
+  }
+
+  .settings-label-text {
+    font-size: 13px;
+  }
+
+  .settings-label-desc {
+    font-size: 11px;
+  }
+
+  .settings-tabbar-item {
+    padding: 12px 8px;
+    font-size: 12px;
+  }
+
+  .settings-button {
+    width: 100%;
+    padding: 12px;
+  }
+
+  .user-info-card {
+    padding: 16px;
+  }
+
+  .user-name {
+    font-size: 16px;
+  }
+
+  .user-email {
+    font-size: 12px;
+  }
 }
 
-.carousel-arrow.left {
-  left: 16px;
+/* Touch device improvements */
+@media (hover: none) and (pointer: coarse) {
+  .settings-tabbar-item {
+    /* Larger touch targets */
+    min-height: 52px;
+  }
+
+  .settings-button {
+    min-height: 44px;
+  }
+
+  .settings-input,
+  .settings-select {
+    min-height: 44px;
+    font-size: 16px; /* Prevents iOS zoom on focus */
+  }
+
+  /* Enable smooth scrolling on touch */
+  .settings-tab-content {
+    scroll-snap-type: y proximity;
+  }
+
+  .settings-page {
+    scroll-snap-align: start;
+  }
 }
 
-.carousel-arrow.right {
-  right: 16px;
-}
-
-.carousel-arrow:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}

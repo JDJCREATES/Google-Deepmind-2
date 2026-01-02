@@ -53,6 +53,18 @@ export const SettingsCarousel: React.FC<SettingsCarouselProps> = ({
     }
   }, [slideCount, onSlideChange]);
 
+  const goToPrev = useCallback(() => {
+    if (currentIndex > 0) {
+      goToSlide(currentIndex - 1);
+    }
+  }, [currentIndex, goToSlide]);
+
+  const goToNext = useCallback(() => {
+    if (currentIndex < slideCount - 1) {
+      goToSlide(currentIndex + 1);
+    }
+  }, [currentIndex, slideCount, goToSlide]);
+
   return (
     <div className="settings-carousel">
       <div className="carousel-track-container">
@@ -73,17 +85,42 @@ export const SettingsCarousel: React.FC<SettingsCarouselProps> = ({
       </div>
 
       {showPagination && slideCount > 1 && (
-        <div className="carousel-pagination">
-          {Array.from({ length: slideCount }).map((_, index) => (
-            <button
-              key={index}
-              type="button"
-              className={`carousel-dot ${index === currentIndex ? 'active' : ''}`}
-              onClick={() => goToSlide(index)}
-              aria-label={`Go to slide ${index + 1}`}
-              aria-current={index === currentIndex ? 'true' : 'false'}
-            />
-          ))}
+        <div className="carousel-navigation">
+          {/* Previous Arrow */}
+          <button
+            type="button"
+            className="carousel-arrow carousel-arrow-prev"
+            onClick={goToPrev}
+            disabled={currentIndex === 0}
+            aria-label="Previous page"
+          >
+            ←
+          </button>
+
+          {/* Pagination Dots */}
+          <div className="carousel-pagination">
+            {Array.from({ length: slideCount }).map((_, index) => (
+              <button
+                key={index}
+                type="button"
+                className={`carousel-dot ${index === currentIndex ? 'active' : ''}`}
+                onClick={() => goToSlide(index)}
+                aria-label={`Go to slide ${index + 1}`}
+                aria-current={index === currentIndex ? 'true' : 'false'}
+              />
+            ))}
+          </div>
+
+          {/* Next Arrow */}
+          <button
+            type="button"
+            className="carousel-arrow carousel-arrow-next"
+            onClick={goToNext}
+            disabled={currentIndex === slideCount - 1}
+            aria-label="Next page"
+          >
+            →
+          </button>
         </div>
       )}
     </div>
