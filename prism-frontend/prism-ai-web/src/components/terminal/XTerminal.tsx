@@ -48,7 +48,6 @@ export function XTerminal({
   onClose, 
   onToggleCollapse,
   isCollapsed = false,
-  isCollapsed = false,
   externalOutput,
   onKillBackendProcess,
 }: XTerminalProps) {
