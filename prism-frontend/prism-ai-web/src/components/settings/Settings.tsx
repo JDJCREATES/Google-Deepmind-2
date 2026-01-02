@@ -39,16 +39,16 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
         onPreChange={(event: TabbarPreChangeEvent) => setActiveTab(event.index)}
         renderTabs={() => [
           {
-            content: <AccountSettings />,
-            tab: <Ons.Tab label="Account" />,
+            content: <AccountSettings key="account" />,
+            tab: <Ons.Tab key="account-tab" label="Account" />,
           },
           {
-            content: <MonacoSettings />,
-            tab: <Ons.Tab label="Editor" />,
+            content: <MonacoSettings key="monaco" />,
+            tab: <Ons.Tab key="monaco-tab" label="Editor" />,
           },
           {
-            content: <UniversalSettings />,
-            tab: <Ons.Tab label="General" />,
+            content: <UniversalSettings key="universal" />,
+            tab: <Ons.Tab key="universal-tab" label="General" />,
           },
         ]}
       />

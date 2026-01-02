@@ -9,9 +9,11 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { FiTerminal, FiX, FiMaximize2, FiMinimize2, FiPlus, FiStopCircle } from 'react-icons/fi';
+import { FiTerminal, FiX, FiMaximize2, FiMinimize2, FiPlus, FiStopCircle, FiExternalLink } from 'react-icons/fi';
 import '@xterm/xterm/css/xterm.css';
 import './XTerminal.css';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
 
 // Electron PTY API (exposed via preload)
 // Electron PTY API (exposed via preload)
@@ -233,10 +235,12 @@ export function XTerminal({
     }
   }, [externalOutput]);
 
-  if (!isVisible) return null;
-
+  // Keep component mounted but hidden to preserve history/session
   return (
-    <div className={`xterminal-container ${isCollapsed ? 'xterminal-collapsed' : ''}`}>
+    <div 
+      className={`xterminal-container ${isCollapsed ? 'xterminal-collapsed' : ''}`}
+      style={{ display: isVisible ? 'flex' : 'none' }}
+    >
       <div className="xterminal-header" onClick={onToggleCollapse}>
         <div className="xterminal-title">
           <FiTerminal size={14} />
@@ -245,7 +249,26 @@ export function XTerminal({
           {error && <span className="xterminal-status error">●</span>}
         </div>
         <div className="xterminal-actions">
-          {!isConnected && !isCollapsed && (
+          {!isConnected && !isCollapsed && !window.electron && (
+            <button 
+              onClick={async (e) => { 
+                e.stopPropagation(); 
+                try {
+                  await fetch(`${API_URL}/preview/open-terminal`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: projectPath })
+                  });
+                } catch (err) {
+                  console.error("Failed to open terminal", err);
+                }
+              }} 
+              title="Open System Terminal (PowerShell)"
+            >
+              <FiExternalLink size={14} />
+            </button>
+          )}
+          {!isConnected && !isCollapsed && window.electron && (
             <button onClick={(e) => { e.stopPropagation(); spawnTerminal(); }} title="New Terminal">
               <FiPlus size={14} />
             </button>

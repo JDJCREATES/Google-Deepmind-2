@@ -67,6 +67,11 @@ async def ack_focus():
     preview_manager.clear_focus_request()
     return {"status": "success"}
 
+@preview_router.post("/open-terminal")
+async def open_system_terminal(project: ProjectPath):
+    """Open a native system terminal for the user."""
+    return preview_manager.open_system_terminal(project.path)
+
 @preview_router.post("/set-path")
 async def set_project_path(project: ProjectPath):
     """Set the project path without starting a dev server. 

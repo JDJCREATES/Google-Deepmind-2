@@ -79,29 +79,55 @@ class PreviewManager:
     def stop_dev_server(self) -> Dict[str, str]:
         """
         Stops the currently running development server.
-
-        Returns:
-            Dict[str, str]: Status of the stop operation.
         """
         if self.process:
             try:
-                # terminate() is usually sufficient for dev servers
+                # 1. Standard Termination
                 self.process.terminate()
-                # On Windows, we might need taskkill if node spawns children
-                if os.name == 'nt':
-                    subprocess.run(
-                        ["taskkill", "/F", "/T", "/PID", str(self.process.pid)],
-                        stdout=subprocess.DEVNULL, 
-                        stderr=subprocess.DEVNULL
-                    )
             except Exception as e:
-                print(f"Error stopping process: {e}")
-            finally:
-                self.process = None
-                self.is_running = False
-                self.current_url = None
+                print(f"Error terminating process: {e}")
 
-            return {"status": "stopped"}
+        # 2. Aggressive Cleanup (Windows)
+        # Even if self.process is None, we might have zombie node processes.
+        # We search for any node.exe running in this project path.
+        if os.name == 'nt' and self.current_project_path:
+            self._kill_processes_by_path(self.current_project_path)
+
+        self.process = None
+        self.is_running = False
+        self.current_url = None
+
+        return {"status": "stopped"}
+
+    def _kill_processes_by_path(self, project_path: str):
+        """
+        Aggressively kills all node.exe processes running from the given project path
+        using PowerShell and WMI. This is required because npm often spawns detached 
+        child processes (vite, node) that survive simple termination.
+        """
+        try:
+            # Normalize path for WMI comparison (double backslashes are safer for WQL but we use PowerShell filtering)
+            # We want to match command lines containing this path.
+            normalized_path = project_path.replace("\\", "\\\\")
+            
+            # PowerShell command:
+            # 1. Get all processes named 'node'
+            # 2. Filter where CommandLine contains the project path
+            # 3. Terminate them
+            ps_command = (
+                f"Get-CimInstance Win32_Process -Filter \"Name = 'node.exe'\" | "
+                f"Where-Object {{ $_.CommandLine -like '*{project_path}*' }} | "
+                f"Invoke-CimMethod -MethodName Terminate"
+            )
+            
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps_command],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                create_new_console=True 
+            )
+        except Exception as e:
+            print(f"Failed to execute aggressive process kill: {e}")
         
         return {"status": "not_running"}
 
@@ -144,5 +170,31 @@ class PreviewManager:
     def clear_focus_request(self):
         """Clear the focus request flag."""
         self.focus_requested = False
+
+    def open_system_terminal(self, project_path: str):
+        """
+        Opens a native system terminal (PowerShell) in the specified project path.
+        This allows the user to manually control processes or delete files that might be locked.
+        """
+        if not os.path.exists(project_path):
+            return {"status": "error", "message": f"Project path not found: {project_path}"}
+        
+        try:
+            if os.name == 'nt':
+                # 'start' is a shell command in cmd, so we use shell=True.
+                # 'powershell -NoExit' keeps the window open.
+                subprocess.Popen(
+                    f'start powershell -NoExit -Command "cd \'{project_path}\'"', 
+                    shell=True
+                )
+            else:
+                # Fallback for non-Windows (though user is on Windows)
+                # Try to key common terminals
+                subprocess.Popen(["open", "-a", "Terminal", project_path]) # MacOS
+                
+            return {"status": "success", "message": "Terminal opened"}
+        except Exception as e:
+            print(f"Failed to open system terminal: {e}")
+            return {"status": "error", "message": str(e)}
 
 preview_manager = PreviewManager()
