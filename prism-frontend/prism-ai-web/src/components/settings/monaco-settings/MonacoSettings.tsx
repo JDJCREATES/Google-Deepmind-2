@@ -54,7 +54,7 @@ const MonacoSettings: React.FC = () => {
           <div className="settings-control">
             <Ons.Switch
               checked={monaco.minimap}
-              onChange={(e: any) => updateMonacoSettings({ minimap: e.target.checked })}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateMonacoSettings({ minimap: e.target.checked })}
             />
           </div>
         </div>
@@ -126,7 +126,7 @@ const MonacoSettings: React.FC = () => {
           <div className="settings-control">
             <Ons.Switch
               checked={monaco.formatOnSave}
-              onChange={(e: any) => updateMonacoSettings({ formatOnSave: e.target.checked })}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateMonacoSettings({ formatOnSave: e.target.checked })}
             />
           </div>
         </div>

@@ -9,6 +9,11 @@ interface SettingsProps {
   onClose: () => void;
 }
 
+interface TabbarPreChangeEvent {
+  index: number;
+  activeIndex: number;
+}
+
 const Settings: React.FC<SettingsProps> = ({ onClose }) => {
   const [activeTab, setActiveTab] = useState(0);
 
@@ -31,7 +36,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
         swipeable={false}
         position="top"
         index={activeTab}
-        onPreChange={(event: any) => setActiveTab(event.index)}
+        onPreChange={(event: TabbarPreChangeEvent) => setActiveTab(event.index)}
         renderTabs={() => [
           {
             content: <AccountSettings />,

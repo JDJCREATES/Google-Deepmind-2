@@ -26,7 +26,7 @@ const UniversalSettings: React.FC = () => {
           <div className="settings-control">
             <Ons.Switch
               checked={app.autoSave}
-              onChange={(e: any) => updateAppSettings({ autoSave: e.target.checked })}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateAppSettings({ autoSave: e.target.checked })}
             />
           </div>
         </div>
@@ -63,7 +63,7 @@ const UniversalSettings: React.FC = () => {
           <div className="settings-control">
             <Ons.Switch
               checked={app.confirmBeforeExit}
-              onChange={(e: any) => updateAppSettings({ confirmBeforeExit: e.target.checked })}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateAppSettings({ confirmBeforeExit: e.target.checked })}
             />
           </div>
         </div>
@@ -76,7 +76,7 @@ const UniversalSettings: React.FC = () => {
           <div className="settings-control">
             <Ons.Switch
               checked={app.showWelcomeScreen}
-              onChange={(e: any) => updateAppSettings({ showWelcomeScreen: e.target.checked })}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateAppSettings({ showWelcomeScreen: e.target.checked })}
             />
           </div>
         </div>
