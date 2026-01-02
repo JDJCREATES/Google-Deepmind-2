@@ -2,8 +2,9 @@
   
   flex: 1;
   display: flex;
-  max-width: 160px;
-  
+  padding: 2px 4px;
+  max-width: 250px;
+  font-size: 0.875rem;
 }
 
 .tip-title {
