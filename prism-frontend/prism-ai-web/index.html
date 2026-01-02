@@ -7,12 +7,21 @@
     
     <!-- Security Headers -->
     <meta http-equiv="X-Content-Type-Options" content="nosniff" />
-    <meta http-equiv="X-Frame-Options" content="DENY" />
+    <!-- X-Frame-Options cannot be set via meta, must use HTTP header -->
     <meta http-equiv="X-XSS-Protection" content="1; mode=block" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     
-    <!-- Content Security Policy (adjust based on your needs) -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://api.anthropic.com https:;" />
+    <!-- Content Security Policy: Allow localhost backend for development -->
+    <meta http-equiv="Content-Security-Policy" content="
+      default-src 'self';
+      script-src 'self' 'unsafe-inline' 'unsafe-eval';
+      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+      img-src 'self' data: blob: https:;
+      font-src 'self' data: https://fonts.gstatic.com;
+      connect-src 'self' http://localhost:8001 ws://localhost:8001 http://127.0.0.1:8001 ws://127.0.0.1:8001 https://api.anthropic.com https:;
+      worker-src 'self' blob:;
+      media-src 'self' blob:;
+    " />
     
     <!-- Primary Meta Tags -->
     <title>ShipS* IDE - AI-Powered Multi-Agent Development Platform</title>
@@ -37,7 +46,7 @@
     
     <!-- PWA / Mobile -->
     <meta name="theme-color" content="#000000" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="ShipS* IDE" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
