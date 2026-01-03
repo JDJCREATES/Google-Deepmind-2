@@ -28,6 +28,7 @@ declare global {
       onPTYExit: (callback: (event: { sessionId: string; exitCode: number }) => void) => () => void;
       getLastProject: () => Promise<{ path: string | null; exists: boolean }>;
       selectProjectFolder: () => Promise<{ success: boolean; path: string | null; error?: string }>;
+      openPreview: (url: string) => Promise<{ success: boolean; error?: string }>;
     };
   }
 }
