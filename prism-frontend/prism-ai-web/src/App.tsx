@@ -652,9 +652,25 @@ function App() {
                             setTerminalOutput(prev => prev + `\n\x1b[32m[System] ✓ Server ready at: ${status.url}\x1b[0m\n`);
                             
                             if (window.electron?.openPreview) {
+                                // Running inside Electron - use IPC
                                 window.electron.openPreview(status.url);
                             } else {
-                                window.open(status.url, '_blank');
+                                // Running in browser - try to launch Electron via custom protocol
+                                // ships://preview?url=<encoded-url>&path=<encoded-path>
+                                const shipsUrl = `ships://preview?url=${encodeURIComponent(status.url)}&path=${encodeURIComponent(electronProjectPath || '')}`;
+                                
+                                // Try launching via protocol (opens Electron if installed)
+                                const protocolFrame = document.createElement('iframe');
+                                protocolFrame.style.display = 'none';
+                                protocolFrame.src = shipsUrl;
+                                document.body.appendChild(protocolFrame);
+                                
+                                // After 1 second, also offer the browser fallback
+                                setTimeout(() => {
+                                    document.body.removeChild(protocolFrame);
+                                    // Show notification that user can also view in browser
+                                    setTerminalOutput(prev => prev + `\n\x1b[36m[System] Preview launched. If Electron doesn't open, visit: ${status.url}\x1b[0m\n`);
+                                }, 1000);
                             }
                         } else if (attempts >= maxAttempts) {
                             clearInterval(pollInterval);

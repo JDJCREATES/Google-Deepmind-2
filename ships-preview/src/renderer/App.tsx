@@ -39,6 +39,17 @@ function App() {
       }
     };
     initProject();
+    
+    // Listen for preview URL from ships:// protocol (triggered by web app)
+    if ((window.electron as any)?.onOpenPreviewUrl) {
+      const cleanup = (window.electron as any).onOpenPreviewUrl((url: string) => {
+        console.log("[Preview] Received URL from protocol:", url);
+        setProjectUrl(url);
+        setIsConnecting(false);
+        setStatusMessage('');
+      });
+      return cleanup;
+    }
   }, []);
 
   // Helper: Set path on backend with timeout
@@ -101,10 +112,9 @@ function App() {
     }, 30000);
   };
 
-  // 2. Poll Backend for Preview Status
+  // 2. Poll Backend for Preview Status - ALWAYS poll, not just when backendConnected
+  // This allows picking up previews started by prism-ai-web
   useEffect(() => {
-    if (!backendConnected) return;
-
     const checkStatus = async () => {
         try {
             const res = await fetch('http://localhost:8001/preview/status');
@@ -116,6 +126,12 @@ function App() {
                 setStatusMessage('');
                 if (connectionTimeoutRef.current) {
                   clearTimeout(connectionTimeoutRef.current);
+                }
+                
+                // Sync project path if backend has one but we don't
+                if (data.project_path && !currentPath) {
+                  setCurrentPath(data.project_path);
+                  setBackendConnected(true);
                 }
             }
 
@@ -129,13 +145,16 @@ function App() {
                 }
             }
         } catch (e) {
-            console.log("Polling error:", e);
+            // Backend not running - this is ok, just wait
         }
     };
-
+    
+    // Poll immediately on mount
+    checkStatus();
+    
     const interval = setInterval(checkStatus, 2000);
     return () => clearInterval(interval);
-  }, [backendConnected]);
+  }, [currentPath]); // Re-run if currentPath changes
 
   // 3. User selects folder
   const handleSelectProject = async () => {

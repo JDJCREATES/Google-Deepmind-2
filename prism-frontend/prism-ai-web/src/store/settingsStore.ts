@@ -18,11 +18,23 @@ export interface AppSettings {
   showWelcomeScreen: boolean;
 }
 
+export interface SecuritySettings {
+  enableInputSanitization: boolean;
+  enableOutputFiltering: boolean;
+  redactSensitiveData: boolean;
+  logSecurityEvents: boolean;
+  strictCommandWhitelist: boolean;
+  allowNetworkRequests: boolean;
+  riskThreshold: 'low' | 'medium' | 'high';
+}
+
 interface SettingsState {
   monaco: MonacoSettings;
   app: AppSettings;
+  security: SecuritySettings;
   updateMonacoSettings: (settings: Partial<MonacoSettings>) => void;
   updateAppSettings: (settings: Partial<AppSettings>) => void;
+  updateSecuritySettings: (settings: Partial<SecuritySettings>) => void;
   resetToDefaults: () => void;
 }
 
@@ -43,11 +55,22 @@ const defaultAppSettings: AppSettings = {
   showWelcomeScreen: true,
 };
 
+const defaultSecuritySettings: SecuritySettings = {
+  enableInputSanitization: true,
+  enableOutputFiltering: true,
+  redactSensitiveData: true,
+  logSecurityEvents: true,
+  strictCommandWhitelist: true,
+  allowNetworkRequests: false,
+  riskThreshold: 'medium',
+};
+
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
       monaco: defaultMonacoSettings,
       app: defaultAppSettings,
+      security: defaultSecuritySettings,
 
       updateMonacoSettings: (settings) =>
         set((state) => ({
@@ -59,10 +82,16 @@ export const useSettingsStore = create<SettingsState>()(
           app: { ...state.app, ...settings },
         })),
 
+      updateSecuritySettings: (settings) =>
+        set((state) => ({
+          security: { ...state.security, ...settings },
+        })),
+
       resetToDefaults: () =>
         set({
           monaco: defaultMonacoSettings,
           app: defaultAppSettings,
+          security: defaultSecuritySettings,
         }),
     }),
     {

@@ -12,6 +12,13 @@ class PreviewManager:
     Responsible for spawning the `npm run dev` process, capturing its output,
     extracting the local server URL, and handling graceful shutdowns.
     """
+    
+    # Default port for ShipS preview servers (avoid 5173 conflict)
+    SHIPS_DEV_PORT = "5177"
+    
+    # Pattern to strip ANSI escape codes (colors) from terminal output
+    # Vite outputs: \x1b[36mhttp://localhost:5177/\x1b[0m
+    ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*m')
 
     def __init__(self):
         self.process: Optional[subprocess.Popen] = None
@@ -19,8 +26,17 @@ class PreviewManager:
         self.current_url: Optional[str] = None
         self.is_running: bool = False
         self.current_project_path: Optional[str] = None  # Track the current project path
-        self._url_pattern = re.compile(r'http://localhost:\d+')
+        # Enhanced URL pattern to catch various formats:
+        # - Vite: "Local:   http://localhost:5177/"
+        # - Next.js: "- Local: http://localhost:3000"
+        # - Plain: "http://localhost:5177"
+        self._url_pattern = re.compile(r'https?://(?:localhost|127\.0\.0\.1):\d+')
         self.focus_requested: bool = False  # Flag for frontend to request electron focus
+    
+    @classmethod
+    def strip_ansi(cls, text: str) -> str:
+        """Remove ANSI escape codes from text for reliable pattern matching."""
+        return cls.ANSI_ESCAPE.sub('', text)
 
     def start_dev_server(self, project_path: str) -> Dict[str, Any]:
         """
@@ -45,8 +61,15 @@ class PreviewManager:
         self.current_url = None
         
         try:
-            # Determine command based on OS
-            cmd = ["npm.cmd", "run", "dev"] if os.name == 'nt' else ["npm", "run", "dev"]
+            # Determine command based on OS, using class-level port constant
+            if os.name == 'nt':
+                cmd = ["npm.cmd", "run", "dev", "--", "--port", self.SHIPS_DEV_PORT]
+            else:
+                cmd = ["npm", "run", "dev", "--", "--port", self.SHIPS_DEV_PORT]
+            
+            print(f"[PreviewManager] Starting dev server on port {self.SHIPS_DEV_PORT}")
+            print(f"[PreviewManager] Command: {' '.join(cmd)}")
+            print(f"[PreviewManager] CWD: {project_path}")
             
             # Spawn process without opening a new window (Windows specific)
             creation_flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
@@ -150,10 +173,20 @@ class PreviewManager:
                     self.logs.pop(0)
 
                 # Attempt to find URL if not yet found
-                if not self.current_url and "localhost:" in line_stripped:
-                    match = self._url_pattern.search(line_stripped)
+                # CRITICAL: Strip ANSI escape codes first - Vite outputs colored text!
+                # Without this, the pattern sees \x1b[36mhttp://localhost:5177/\x1b[0m
+                line_clean = self.strip_ansi(line_stripped)
+                
+                if not self.current_url and ("localhost" in line_clean.lower() or "127.0.0.1" in line_clean):
+                    match = self._url_pattern.search(line_clean)
                     if match:
                         self.current_url = match.group(0)
+                        print(f"[PreviewManager] ✓ Detected URL: {self.current_url}")
+                        # Request focus so ships-preview window comes to front
+                        self.focus_requested = True
+                    else:
+                        # Debug: log lines that contain localhost but don't match pattern
+                        print(f"[PreviewManager] URL pattern miss (clean): {line_clean[:100]}")
                         
         except Exception as e:
             self.logs.append(f"[System Error] Log consumption failed: {e}")

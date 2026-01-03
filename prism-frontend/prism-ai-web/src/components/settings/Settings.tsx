@@ -3,6 +3,7 @@ import { Page, Toolbar, ToolbarButton, Icon } from '../../lib/onsenui';
 import AccountSettings from './account-settings/AccountSettings';
 import MonacoSettings from './monaco-settings/MonacoSettings';
 import UniversalSettings from './settings-universal/UniversalSettings';
+import SecuritySettings from './security-settings/SecuritySettings';
 import './Settings.css';
 
 interface SettingsProps {
@@ -15,6 +16,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
   const tabs = [
     { label: 'Account', component: <AccountSettings /> },
     { label: 'Editor', component: <MonacoSettings /> },
+    { label: 'Security', component: <SecuritySettings /> },
     { label: 'General', component: <UniversalSettings /> },
   ];
 
