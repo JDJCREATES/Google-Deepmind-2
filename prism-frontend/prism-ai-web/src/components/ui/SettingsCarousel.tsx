@@ -6,8 +6,8 @@ import './SettingsCarousel.css';
 // ─────────────────────────────────────────────────────────────
 
 export interface SettingsCarouselProps {
-  /** Array of slide content */
-  children: React.ReactNode[];
+  /** Array of slide content or single slide */
+  children: React.ReactNode;
   /** Optional initial slide index */
   initialIndex?: number;
   /** Called when slide changes */

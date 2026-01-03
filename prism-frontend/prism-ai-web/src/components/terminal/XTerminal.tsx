@@ -91,6 +91,7 @@ export function XTerminal({
         brightCyan: '#4fc1ff',
         brightWhite: '#ffffff',
       },
+      scrollback: 10000, 
     });
 
     const fitAddon = new FitAddon();

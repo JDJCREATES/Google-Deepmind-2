@@ -71,6 +71,8 @@ function App() {
   const [terminalOutput, setTerminalOutput] = useState<string>('');
   // Preview URL from completed agent (for auto-launching preview)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  // Preview server status: 'idle' | 'starting' | 'running' | 'error'
+  const [previewStatus, setPreviewStatus] = useState<'idle' | 'starting' | 'running' | 'error'>('idle');
   // Get project path from Electron (if available)
   const [electronProjectPath, setElectronProjectPath] = useState<string | null>(null);
   
@@ -157,6 +159,42 @@ function App() {
     }, 30000);
     
     return () => clearInterval(syncInterval);
+  }, []);
+
+  // Sync with any EXISTING preview server on mount (important for refresh/reconnect)
+  useEffect(() => {
+    const syncExistingPreview = async () => {
+      try {
+        const response = await fetch(`${API_URL}/preview/status`);
+        const status = await response.json();
+        
+        if (status.is_running) {
+          console.log('[App] Found existing preview server:', status);
+          
+          // Populate terminal with existing logs
+          if (status.logs && status.logs.length > 0) {
+            const existingLogs = status.logs.join('\n');
+            setTerminalOutput(prev => {
+              if (prev.includes('[Previous Session Logs]')) return prev; // Don't double-add
+              return `\x1b[36m[Previous Session Logs]\x1b[0m\n${existingLogs}\n${prev}`;
+            });
+          }
+          
+          // Set URL if known
+          if (status.url) {
+            setPreviewUrl(status.url);
+            setPreviewStatus('running');
+            setTerminalOutput(prev => prev + `\n\x1b[32m[System] ✓ Dev server running at: ${status.url}\x1b[0m\n`);
+          } else {
+            setPreviewStatus('starting'); // Still waiting for URL
+          }
+        }
+      } catch (e) {
+        console.warn('[App] Could not fetch preview status:', e);
+      }
+    };
+    
+    syncExistingPreview();
   }, []);
 
   const [messages, setMessages] = useState<Message[]>([
@@ -320,8 +358,8 @@ function App() {
           const output = chunk.output || '';
           const stderr = chunk.stderr || '';
           const command = chunk.command || '';
-          const fullOutput = `$ ${command}\n${output}${stderr ? '\nSTDERR: ' + stderr : ''}`;
-          setTerminalOutput(fullOutput);
+          const fullOutput = `\n\x1b[36m$ ${command}\x1b[0m\n${output}${stderr ? '\n\x1b[31mSTDERR:\x1b[0m ' + stderr : ''}`;
+          setTerminalOutput(prev => prev + fullOutput); // APPEND, not replace
           setShowTerminal(true);
         }
         
@@ -362,8 +400,14 @@ function App() {
             console.log('[App] Preview ready at:', chunk.preview_url);
             
             // Tell Electron to open the preview (if available)
-            if (window.electronAPI?.openPreview) {
-              window.electronAPI.openPreview(chunk.preview_url);
+            if (window.electron?.openPreview) {
+              window.electron.openPreview(chunk.preview_url);
+            } else {
+              // Fallback for browser: Open in new tab
+              // Note: Browsers might block this if not directly triggered by user interaction,
+              // but it's the best we can do for auto-open.
+              window.open(chunk.preview_url, '_blank');
+              setTerminalOutput(prev => prev + `\n\n[System] Preview ready at: ${chunk.preview_url}\n(Popup might be blocked by browser)`);
             }
           }
         }
@@ -539,36 +583,108 @@ function App() {
              <RiShip2Fill size={20} style={{ marginRight: 8, color: 'var(--primary-color, #ff5e57)' }} />
              <span className="chat-title">ShipS*</span>
           </div>
-          <div className="chat-header-center">
+          <div className="chat-header-center" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {/* Preview Status Indicator */}
+            {previewStatus === 'running' && previewUrl && (
+              <span style={{ color: '#4ec9b0', fontSize: '12px' }}>● Live: {previewUrl}</span>
+            )}
+            {previewStatus === 'starting' && (
+              <span style={{ color: '#dcdcaa', fontSize: '12px' }}>○ Starting...</span>
+            )}
+            {previewStatus === 'error' && (
+              <span style={{ color: '#f44747', fontSize: '12px' }}>✖ Error</span>
+            )}
+            
             <button 
               className="preview-btn"
               onClick={async () => {
-                const targetUrl = `ships://preview?path=${encodeURIComponent(electronProjectPath || '')}`;
-                if (window.electronAPI?.openPreview) {
-                  // If running inside Electron, use IPC
-                  window.electronAPI.openPreview(targetUrl);
-                } else {
-                  // If running in browser, ask Backend to focus the external Electron app
-                  try {
-                      await fetch(`${API_URL}/preview/request-focus`, { method: 'POST' });
-                  } catch (e) {
-                      console.error("Failed to request focus", e);
-                      // Silent failure - user can switch manually
+                if (isAgentRunning) return;
+
+                if (!electronProjectPath) {
+                   console.error("No project path available");
+                   setTerminalOutput(prev => prev + '\n\x1b[31m[Error] No project folder selected.\x1b[0m\n');
+                   return;
+                }
+
+                try {
+                  setPreviewStatus('starting');
+                  setShowTerminal(true);
+                  setTerminalOutput(prev => prev + '\n\n\x1b[36m[System] ▶ Starting development server...\x1b[0m\n');
+                  
+                  const response = await fetch(`${API_URL}/preview/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: electronProjectPath })
+                  });
+                  
+                  const result = await response.json();
+                  
+                  if (result.status === 'error') {
+                     setPreviewStatus('error');
+                     setTerminalOutput(prev => prev + `\n\x1b[31m[Error] ${result.message}\x1b[0m\n`);
+                     return;
                   }
+
+                  // Poll for URL
+                  let attempts = 0;
+                  const maxAttempts = 30; // 15 seconds
+                  let lastLogSeen = "";
+                  
+                  const pollInterval = setInterval(async () => {
+                    attempts++;
+                    try {
+                        const statusRes = await fetch(`${API_URL}/preview/status`);
+                        const status = await statusRes.json();
+                        
+                        // Stream ALL new logs
+                        if (status.logs && status.logs.length > 0) {
+                           const latest = status.logs[status.logs.length - 1];
+                           if (latest && latest !== lastLogSeen) {
+                               setTerminalOutput(prev => prev + `\n${latest}`);
+                               lastLogSeen = latest;
+                           }
+                        }
+                        
+                        if (status.url) {
+                            clearInterval(pollInterval);
+                            setPreviewUrl(status.url);
+                            setPreviewStatus('running');
+                            setTerminalOutput(prev => prev + `\n\x1b[32m[System] ✓ Server ready at: ${status.url}\x1b[0m\n`);
+                            
+                            if (window.electron?.openPreview) {
+                                window.electron.openPreview(status.url);
+                            } else {
+                                window.open(status.url, '_blank');
+                            }
+                        } else if (attempts >= maxAttempts) {
+                            clearInterval(pollInterval);
+                            setPreviewStatus('error');
+                            setTerminalOutput(prev => prev + '\n\x1b[33m[System] ⚠ Server timed out. Check terminal for errors.\x1b[0m\n');
+                        }
+                    } catch (err) {
+                        console.error("Poll error", err);
+                    }
+                  }, 500);
+
+                } catch (e) {
+                   setPreviewStatus('error');
+                   setTerminalOutput(prev => prev + `\n\x1b[31m[Error] Preview launch failed: ${e}\x1b[0m\n`);
                 }
               }}
               style={{
-                background: 'var(--primary-color, #ff5e57)',
+                background: previewStatus === 'starting' ? '#555' : (isAgentRunning ? '#555' : 'var(--primary-color, #ff5e57)'),
                 color: 'white',
                 border: 'none',
                 padding: '6px 16px',
                 borderRadius: '4px',
-                cursor: 'pointer',
+                cursor: (isAgentRunning || previewStatus === 'starting') ? 'not-allowed' : 'pointer',
                 fontSize: '13px',
-                fontWeight: 500
+                fontWeight: 500,
+                opacity: (isAgentRunning || previewStatus === 'starting') ? 0.7 : 1
               }}
+              disabled={isAgentRunning || previewStatus === 'starting'}
             >
-              Preview
+              {previewStatus === 'starting' ? 'Starting...' : (isAgentRunning ? 'Busy...' : 'Preview')}
             </button>
           </div>
           <div className="chat-header-right">

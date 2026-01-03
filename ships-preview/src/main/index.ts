@@ -1,4 +1,6 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+
+
 import { join } from 'path';
 import { existsSync, statSync } from 'fs';
 
@@ -409,14 +411,18 @@ ipcMain.handle('focus-window', async () => {
 /**
  * Open a preview URL - sends it to the renderer to display in preview panel
  */
+/**
+ * Open a preview URL - opens in default system browser
+ */
 ipcMain.handle('open-preview', async (_event, url: string) => {
   console.log(`[PREVIEW] Opening preview: ${url}`);
   
-  // Send to renderer to display in preview panel/webview
-  if (mainWindow) {
-    mainWindow.webContents.send('preview-url', url);
+  try {
+    // Force open in system browser (Chrome/Edge/Safari)
+    await shell.openExternal(url);
     return { success: true, url };
+  } catch (e: any) {
+    console.error(`[PREVIEW] Failed to open external URL: ${e}`);
+    return { success: false, error: e.message };
   }
-  
-  return { success: false, error: 'No main window' };
 });

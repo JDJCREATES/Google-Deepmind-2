@@ -86,7 +86,8 @@
 
 .xterminal-xterm {
   flex: 1;
-  padding: 4px;
+  padding: 0;
+  overflow: hidden; /* Ensure container clips so scrollbar belongs to viewport */
 }
 
 .xterminal-xterm .xterm {
