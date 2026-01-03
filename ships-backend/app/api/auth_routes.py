@@ -53,18 +53,12 @@ async def google_login(request: Request):
                 status_code=500
             )
         
-        # Generate CSRF token
-        state = secrets.token_urlsafe(32)
-        request.session['oauth_state'] = state
-        
         # Build callback URL
         callback_url = str(request.url_for('google_callback'))
         
-        # Get authorization URL
-        redirect_uri, _ = oauth.get_authorization_url(callback_url)
-        
-        logger.info(f"Initiating OAuth flow with callback: {callback_url}")
-        return RedirectResponse(redirect_uri)
+        # Use authlib's async authorize_redirect method
+        # This automatically generates state and sets it in the session
+        return await oauth.oauth.google.authorize_redirect(request, callback_url)
         
     except AuthError as e:
         logger.error(f"OAuth error: {e.description}")

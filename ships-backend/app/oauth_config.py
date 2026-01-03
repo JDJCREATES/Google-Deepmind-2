@@ -71,34 +71,6 @@ class GoogleOAuthConfig:
         """Check if OAuth is properly configured."""
         return bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
     
-    def get_authorization_url(self, redirect_uri: str) -> tuple[str, str]:
-        """
-        Generate Google OAuth authorization URL.
-        
-        Args:
-            redirect_uri: Callback URL after OAuth flow
-            
-        Returns:
-            Tuple of (authorization_url, state)
-            
-        Raises:
-            OAuthError: If OAuth client is not configured
-        """
-        if not self.is_configured():
-            raise OAuthError(
-                error='not_configured',
-                description='Google OAuth credentials not configured'
-            )
-        
-        try:
-            return self.oauth.google.authorize_redirect_url(redirect_uri)
-        except Exception as e:
-            logger.error(f"Failed to generate OAuth URL: {e}")
-            raise OAuthError(
-                error='authorization_failed',
-                description='Failed to generate authorization URL'
-            )
-    
     async def fetch_user_info(self, token: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Fetch user profile from Google.
