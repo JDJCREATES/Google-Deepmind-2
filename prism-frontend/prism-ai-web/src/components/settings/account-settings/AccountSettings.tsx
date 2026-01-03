@@ -1,6 +1,7 @@
 import React from 'react';
 import { useAuthStore } from '../../../store/authStore';
 import { SettingsCarousel, CarouselSlide } from '../../ui/SettingsCarousel';
+import { GoogleSignInButton } from '../../auth/GoogleSignInButton';
 import '../Settings.css';
 
 const AccountSettings: React.FC = () => {
@@ -8,13 +9,19 @@ const AccountSettings: React.FC = () => {
 
   if (!isAuthenticated || !user) {
     return (
-      <div className="settings-page">
-        <div className="settings-section">
-          <p style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>
-            Please log in to view account settings.
-          </p>
-        </div>
-      </div>
+      <SettingsCarousel showPagination={false}>
+        <CarouselSlide>
+          <div className="settings-page">
+            <div className="settings-section">
+              <h3 className="settings-section-title">Sign In</h3>
+              <p style={{ textAlign: 'center', color: 'var(--text-secondary)', marginBottom: '24px' }}>
+                Sign in to sync your projects and settings across devices
+              </p>
+              <GoogleSignInButton />
+            </div>
+          </div>
+        </CarouselSlide>
+      </SettingsCarousel>
     );
   }
 
@@ -31,12 +38,13 @@ const AccountSettings: React.FC = () => {
     if (!url) return false;
     try {
       const parsed = new URL(url);
-      // Only allow https URLs from exact known safe domains
+      // Allow https URLs from safe domains
       const safeDomains = [
         'api.dicebear.com',
         'avatars.githubusercontent.com',
         'secure.gravatar.com',
-        'www.gravatar.com'
+        'www.gravatar.com',
+        'lh3.googleusercontent.com', // Google profile pictures
       ];
       return parsed.protocol === 'https:' && safeDomains.includes(parsed.hostname);
     } catch {
@@ -60,6 +68,11 @@ const AccountSettings: React.FC = () => {
             <div className="user-details">
               <div className="user-name">{user.name}</div>
               <div className="user-email">{user.email}</div>
+              {user.authMethod === 'google' && (
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  Signed in with Google
+                </div>
+              )}
             </div>
           </div>
 

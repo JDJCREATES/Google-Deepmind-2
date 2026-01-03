@@ -11,6 +11,7 @@ import Settings from './components/settings/Settings';
 import { useFileSystem } from './store/fileSystem';
 import { useArtifactStore } from './store/artifactStore';
 import { useSettingsStore } from './store/settingsStore';
+import { useAuthStore } from './store/authStore';
 import { MdLightMode, MdDarkMode } from 'react-icons/md';
 import { PiShippingContainerFill } from "react-icons/pi";
 import { RiShip2Fill } from 'react-icons/ri';
@@ -149,6 +150,28 @@ function App() {
       }
     };
     fetchAndSync();
+    
+    // Check authentication session
+    const { checkSession } = useAuthStore.getState();
+    checkSession();
+    
+    // Handle OAuth errors from redirect
+    const params = new URLSearchParams(window.location.search);
+    const authError = params.get('auth_error');
+    const authErrorDescription = params.get('auth_error_description');
+    
+    if (authError) {
+      console.error(`[Auth] OAuth Error: ${authError} - ${authErrorDescription}`);
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        sender: 'ai' as const,
+        content: `⚠ Authentication failed: ${authErrorDescription || 'Unknown error'}`,
+        timestamp: new Date(),
+      }]);
+      
+      // Clean URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
     
     // Periodic re-sync every 30 seconds to handle disconnects/restarts
     const syncInterval = setInterval(async () => {

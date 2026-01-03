@@ -3,7 +3,9 @@ load_dotenv()  # Load .env file before anything else
 
 from fastapi import FastAPI, Depends, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from app.auth import router as auth_router, get_current_user
+from app.api.auth_routes import router as google_auth_router
 from app.services.preview_manager import preview_manager
 from app.services.usage_tracker import usage_tracker
 from fastapi import APIRouter
@@ -13,7 +15,12 @@ import os
 
 app = FastAPI(title="ShipS* Backend")
 
-# CORS
+# Session middleware (required for OAuth)
+# Must be added BEFORE other middleware
+SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+
+# CORS - allow credentials for session cookies
 origins = [
     "http://localhost:5173",
     "http://localhost:5174",
@@ -26,7 +33,7 @@ origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,
+    allow_credentials=True,  # Required for session cookies
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -385,6 +392,7 @@ async def run_agent(request: Request, body: PromptRequest):
 
 # Include Routers
 app.include_router(auth_router, tags=["Authentication"])
+app.include_router(google_auth_router)  # Google OAuth routes
 app.include_router(preview_router)
 app.include_router(agent_router)
 
