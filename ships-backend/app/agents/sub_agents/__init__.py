@@ -6,10 +6,15 @@ Contains specialized agents for specific tasks:
 - Coder: Converts tasks to code changes
 - Validator: The gate - pass/fail before execution
 - Fixer: Repairs validation failures with minimal changes
+
+Note: Uses lazy imports to avoid circular dependencies with tools modules.
+Import agents directly from their submodules when needed:
+  from app.agents.sub_agents.fixer.fixer import Fixer
+  from app.agents.sub_agents.coder.coder import Coder
 """
 
-from app.agents.sub_agents.planner import (
-    Planner,
+# Import models directly - these are pure Pydantic and have no circular deps
+from app.agents.sub_agents.planner.models import (
     PlanManifest,
     TaskList,
     Task,
@@ -20,8 +25,7 @@ from app.agents.sub_agents.planner import (
     RiskReport,
 )
 
-from app.agents.sub_agents.coder import (
-    Coder,
+from app.agents.sub_agents.coder.models import (
     FileChangeSet,
     FileChange,
     TestBundle,
@@ -31,8 +35,7 @@ from app.agents.sub_agents.coder import (
     CoderOutput,
 )
 
-from app.agents.sub_agents.validator import (
-    Validator,
+from app.agents.sub_agents.validator.models import (
     ValidationReport,
     ValidationStatus,
     FailureLayer,
@@ -40,8 +43,7 @@ from app.agents.sub_agents.validator import (
     Violation,
 )
 
-from app.agents.sub_agents.fixer import (
-    Fixer,
+from app.agents.sub_agents.fixer.models import (
     FixPlan,
     FixPatch,
     FixReport,
@@ -49,9 +51,32 @@ from app.agents.sub_agents.fixer import (
     ReplanRequest,
 )
 
+
+def __getattr__(name):
+    """Lazy import agents to avoid circular dependency with tools."""
+    if name == "Planner":
+        from app.agents.sub_agents.planner.planner import Planner
+        return Planner
+    elif name == "Coder":
+        from app.agents.sub_agents.coder.coder import Coder
+        return Coder
+    elif name == "Validator":
+        from app.agents.sub_agents.validator.validator import Validator
+        return Validator
+    elif name == "Fixer":
+        from app.agents.sub_agents.fixer.fixer import Fixer
+        return Fixer
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 __all__ = [
-    # Planner
+    # Agents (lazy loaded)
     "Planner",
+    "Coder",
+    "Validator",
+    "Fixer",
+    
+    # Planner models
     "PlanManifest",
     "TaskList",
     "Task",
@@ -61,8 +86,7 @@ __all__ = [
     "ValidationChecklist",
     "RiskReport",
     
-    # Coder
-    "Coder",
+    # Coder models
     "FileChangeSet",
     "FileChange",
     "TestBundle",
@@ -71,16 +95,14 @@ __all__ = [
     "PreflightCheck",
     "CoderOutput",
     
-    # Validator
-    "Validator",
+    # Validator models
     "ValidationReport",
     "ValidationStatus",
     "FailureLayer",
     "RecommendedAction",
     "Violation",
     
-    # Fixer
-    "Fixer",
+    # Fixer models
     "FixPlan",
     "FixPatch",
     "FixReport",

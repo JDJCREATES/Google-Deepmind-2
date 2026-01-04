@@ -7,9 +7,12 @@ Organized into modules for maintainability.
 Modules:
 - strategies: Fix strategies for each validation layer
 - fixer_tools: @tool decorated functions for LangGraph
+
+Integrates with Collective Intelligence for proven fix patterns.
 """
 
-# Export fix strategies
+# IMPORTANT: Import strategies FIRST to avoid circular import with sub_agents
+# The strategies module only imports from models, not from fixer.py
 from app.agents.tools.fixer.strategies import (
     FixStrategy,
     StructuralFixer,
@@ -19,7 +22,7 @@ from app.agents.tools.fixer.strategies import (
     FixerConfig,
 )
 
-# Export @tool decorated functions
+# Then import tool functions (these import strategies internally)
 from app.agents.tools.fixer.fixer_tools import (
     triage_violations,
     generate_todo_fix,
@@ -27,6 +30,10 @@ from app.agents.tools.fixer.fixer_tools import (
     create_fix_patch,
     create_replan_request,
     run_preflight_checks,
+    # Collective Intelligence tools
+    get_fix_suggestions,
+    report_fix_outcome,
+    set_fixer_knowledge,
 )
 
 # Import write_file_to_disk from coder tools (now modular)
@@ -40,7 +47,10 @@ FIXER_TOOLS = [
     create_fix_patch,
     create_replan_request,
     run_preflight_checks,
-    write_file_to_disk,  # Fixer can now write fixes to disk
+    write_file_to_disk,
+    # Collective Intelligence
+    get_fix_suggestions,
+    report_fix_outcome,
 ]
 
 __all__ = [
@@ -59,6 +69,11 @@ __all__ = [
     "create_fix_patch",
     "create_replan_request",
     "run_preflight_checks",
+    
+    # Collective Intelligence
+    "get_fix_suggestions",
+    "report_fix_outcome",
+    "set_fixer_knowledge",
     
     # Re-exports
     "write_file_to_disk",

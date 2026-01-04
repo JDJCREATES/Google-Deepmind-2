@@ -3,10 +3,12 @@ ShipS* Fixer Tool Functions
 
 @tool decorated LangChain tools for the Fixer agent.
 Uses the fix strategies from strategies.py to generate fixes.
+Integrates with Collective Intelligence for proven fix patterns.
 """
 
 from typing import Dict, Any, List, Optional
 from langchain_core.tools import tool
+import logging
 
 from app.agents.sub_agents.fixer.models import (
     FixPlan, FixPatch, FixChange, FixReport,
@@ -18,6 +20,135 @@ from app.agents.tools.fixer.strategies import (
     FixerConfig,
 )
 from app.agents.sub_agents.validator.models import Violation, FailureLayer
+
+logger = logging.getLogger("ships.fixer.tools")
+
+# Global knowledge reference - set by fixer initialization
+_fixer_knowledge = None
+
+
+def set_fixer_knowledge(knowledge):
+    """Set the FixerKnowledge instance for this module."""
+    global _fixer_knowledge
+    _fixer_knowledge = knowledge
+
+
+@tool
+def get_fix_suggestions(
+    error_message: str,
+    tech_stack: str = "unknown",
+) -> Dict[str, Any]:
+    """
+    Get proven fix suggestions from Collective Intelligence knowledge base.
+    
+    Searches past successful fixes for similar errors.
+    Returns formatted suggestions to guide fix generation.
+    
+    Args:
+        error_message: The error message to find fixes for
+        tech_stack: Project tech stack (e.g., "react+fastapi")
+        
+    Returns:
+        Dict with success status and suggestions for prompt injection
+    """
+    import asyncio
+    
+    if not _fixer_knowledge:
+        return {
+            "success": False,
+            "suggestions": "",
+            "reason": "Knowledge system not initialized"
+        }
+    
+    try:
+        # Run async retrieval in sync context
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # We're in an async context already
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(
+                    asyncio.run,
+                    _fixer_knowledge.get_suggestions(error_message)
+                )
+                suggestions = future.result(timeout=5)
+        else:
+            suggestions = asyncio.run(_fixer_knowledge.get_suggestions(error_message))
+        
+        prompt_text = _fixer_knowledge.format_for_prompt()
+        
+        if suggestions:
+            logger.info(f"Found {len(suggestions)} fix suggestions for error")
+            return {
+                "success": True,
+                "suggestions": prompt_text,
+                "count": len(suggestions),
+                "top_confidence": max(s.confidence for s in suggestions) if suggestions else 0,
+            }
+        else:
+            return {
+                "success": True,
+                "suggestions": "",
+                "count": 0,
+                "message": "No matching fixes found in knowledge base"
+            }
+            
+    except Exception as e:
+        logger.warning(f"Knowledge retrieval failed: {e}")
+        return {
+            "success": False,
+            "suggestions": "",
+            "reason": str(e)
+        }
+
+
+@tool
+def report_fix_outcome(
+    entry_id: str,
+    success: bool,
+) -> Dict[str, Any]:
+    """
+    Report whether a suggested fix worked or failed.
+    
+    Updates knowledge base confidence scores based on outcome.
+    Call after applying a suggestion to improve future recommendations.
+    
+    Args:
+        entry_id: ID of the knowledge entry that was used
+        success: Whether the fix worked
+        
+    Returns:
+        Dict with confirmation
+    """
+    import asyncio
+    
+    if not _fixer_knowledge:
+        return {"success": False, "reason": "Knowledge system not initialized"}
+    
+    try:
+        if success:
+            # Success is already tracked via capture pipeline
+            return {"success": True, "action": "success_noted"}
+        else:
+            # Report failure to decrease confidence
+            _fixer_knowledge.mark_suggestion_used(entry_id)
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        asyncio.run,
+                        _fixer_knowledge.report_failure()
+                    )
+                    future.result(timeout=3)
+            else:
+                asyncio.run(_fixer_knowledge.report_failure())
+            
+            return {"success": True, "action": "failure_recorded"}
+            
+    except Exception as e:
+        logger.warning(f"Failed to report fix outcome: {e}")
+        return {"success": False, "reason": str(e)}
 
 
 @tool

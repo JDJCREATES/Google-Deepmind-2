@@ -224,3 +224,138 @@ async def record_failure(
         entry.increment_failure()
         await db.commit()
         logger.info(f"Recorded failure for entry {entry_id}")
+
+
+async def capture_successful_pattern(
+    db: AsyncSession,
+    session_id: str,
+    feature_request: str,
+    generated_code: str,
+    code_description: str,
+    tech_stack: str,
+    files_created: list[str],
+    user_id: Optional[str] = None,
+    visibility: str = "private",
+    build_passed: bool = True,
+    user_continued: bool = False,
+    user_approved: bool = False,
+) -> Optional[KnowledgeEntry]:
+    """
+    Capture a successful code pattern for future retrieval.
+    
+    Called by Coder agent when code generation succeeds.
+    Lighter validation than error fixes - relies on build success
+    and user signals.
+    
+    Args:
+        db: Database session
+        session_id: Agent session ID
+        feature_request: Original feature/task description
+        generated_code: The code that was generated
+        code_description: Description of what was built
+        tech_stack: Project tech stack
+        files_created: List of files created/modified
+        user_id: Optional user ID
+        visibility: Sharing scope
+        build_passed: Whether the build succeeded
+        user_continued: User continued working (implicit approval)
+        user_approved: User explicitly approved
+        
+    Returns:
+        KnowledgeEntry if captured, None if validation failed
+    """
+    # Pattern validation gates (lighter than error fixes)
+    
+    # Gate 1: Build must pass
+    if not build_passed:
+        logger.debug("Pattern capture rejected: build failed")
+        return None
+    
+    # Gate 2: Must have actually created something
+    if not generated_code or len(generated_code.strip()) < 50:
+        logger.debug("Pattern capture rejected: code too small")
+        return None
+    
+    # Gate 3: User revert blocks capture
+    # (user_reverted would be passed if detected, not in this signature)
+    
+    # Calculate confidence based on signals
+    base_confidence = 0.65  # Lower than fixes (less rigorous validation)
+    
+    if user_approved:
+        base_confidence = min(base_confidence + 0.25, 1.0)
+    elif user_continued:
+        base_confidence = min(base_confidence + 0.15, 1.0)
+    
+    # Boost for multiple files (likely a complete feature)
+    if len(files_created) >= 3:
+        base_confidence = min(base_confidence + 0.05, 1.0)
+    
+    # Normalize feature request for deduplication
+    normalized_request = normalize_error(feature_request)  # Reuse normalizer
+    
+    # Check for existing similar pattern
+    existing = await _find_similar_pattern(db, normalized_request, tech_stack)
+    
+    if existing:
+        existing.increment_success()
+        await db.commit()
+        logger.info(
+            f"Merged with existing pattern {existing.id} "
+            f"(success_count now {existing.success_count})"
+        )
+        return existing
+    
+    # Generate embedding
+    try:
+        embedding_text = f"{feature_request} {code_description} {tech_stack}"
+        context_embedding = await embed(embedding_text)
+    except Exception as e:
+        logger.error(f"Pattern embedding failed: {e}")
+        context_embedding = None
+    
+    # Extract pattern (abstract specific names)
+    solution_pattern = extract_solution_pattern(generated_code)
+    
+    # Create entry
+    entry = KnowledgeEntry(
+        entry_type="pattern",
+        error_signature=normalized_request,  # Reuse field for feature request
+        tech_stack=tech_stack,
+        context_embedding=context_embedding,
+        solution_pattern=solution_pattern,
+        solution_description=code_description,
+        confidence=base_confidence,
+        visibility=visibility,
+        user_id=user_id,
+    )
+    
+    entry.compress_solution(generated_code)
+    
+    db.add(entry)
+    await db.commit()
+    await db.refresh(entry)
+    
+    logger.info(
+        f"Captured pattern {entry.id} for '{feature_request[:50]}...' "
+        f"(confidence: {entry.confidence:.2f}, files: {len(files_created)})"
+    )
+    
+    return entry
+
+
+async def _find_similar_pattern(
+    db: AsyncSession,
+    feature_request: str,
+    tech_stack: str,
+) -> Optional[KnowledgeEntry]:
+    """Find existing pattern with similar feature request."""
+    result = await db.execute(
+        select(KnowledgeEntry)
+        .where(KnowledgeEntry.error_signature == feature_request)
+        .where(KnowledgeEntry.tech_stack == tech_stack)
+        .where(KnowledgeEntry.entry_type == "pattern")
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+

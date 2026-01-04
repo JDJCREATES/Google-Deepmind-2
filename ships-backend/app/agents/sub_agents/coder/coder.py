@@ -4,6 +4,9 @@ ShipS* Coder Agent
 The Coder converts Planner tasks into minimal, reviewable code changes (file diffs),
 tests, and commit metadata that downstream systems can run, validate, and ship.
 
+Integrates with Collective Intelligence system to leverage proven patterns and
+avoid known pitfalls from past successful code generations.
+
 Uses Gemini 3 flash preview for deterministic code generation.
 
 Responsibilities:
@@ -55,6 +58,9 @@ from app.agents.sub_agents.coder.components import (
     TestAuthor, PreflightChecker, CodeTools,
 )
 
+# Collective Intelligence integration
+from app.services.knowledge import CoderKnowledge
+
 
 class Coder(BaseAgent):
     """
@@ -73,7 +79,8 @@ class Coder(BaseAgent):
         self,
         artifact_manager: Optional[ArtifactManager] = None,
         config: Optional[CoderComponentConfig] = None,
-        cached_content: Optional[str] = None
+        cached_content: Optional[str] = None,
+        knowledge: Optional[CoderKnowledge] = None,
     ):
         """
         Initialize the Coder.
@@ -81,6 +88,8 @@ class Coder(BaseAgent):
         Args:
             artifact_manager: Optional artifact manager
             config: Coder configuration
+            cached_content: Optional cached content
+            knowledge: Optional CoderKnowledge for Collective Intelligence
         """
         # Initialize instance vars BEFORE super().__init__ since it calls _get_system_prompt()
         self.config = config or CoderComponentConfig()
@@ -88,6 +97,8 @@ class Coder(BaseAgent):
         self._injected_api_contracts: Optional[Dict[str, Any]] = None
         self._project_type: str = "generic"
         self._last_thought_signature: Optional[str] = None
+        self._knowledge = knowledge  # Collective Intelligence
+        self._knowledge_prompt: str = ""  # Cached suggestions for current task
         
         super().__init__(
             name="Coder",
@@ -215,6 +226,18 @@ Use these type definitions. Do NOT read from disk.
         context["framework"] = framework
         style_result = self.style_enforcer.process(context)
         context.update(style_result)
+
+        # Step 3.5: Integrate Collective Intelligence knowledge
+        if self._knowledge:
+            try:
+                feature_request = task.get("description", task.get("title", ""))
+                await self._knowledge.get_suggestions(feature_request)
+                self._knowledge_prompt = self._knowledge.format_for_prompt()
+            except Exception as e:
+                # Knowledge retrieval is non-blocking - log and continue
+                import logging
+                logging.getLogger("ships.coder").warning(f"Knowledge retrieval failed: {e}")
+                self._knowledge_prompt = ""
         
         # Step 4: Use LLM for actual code generation
         llm_result = await self._generate_code_with_llm(task, context)
@@ -417,6 +440,10 @@ Use these type definitions. Do NOT read from disk.
         style = context.get("naming_rules", {})
         if style:
             parts.append(f"STYLE: {json.dumps(style)}")
+        
+        # Collective Intelligence - inject proven patterns
+        if self._knowledge_prompt:
+            parts.append(self._knowledge_prompt)
         
         # Existing code context
         snippets = context.get("relevant_snippets", {})

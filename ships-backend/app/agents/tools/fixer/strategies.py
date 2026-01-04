@@ -17,14 +17,26 @@ from datetime import datetime
 import re
 import difflib
 
-from app.agents.sub_agents.fixer.models import (
-    FixPlan, FixPatch, FixChange, ViolationFix,
-    FixScope, FixApproach, FixRisk, ApprovalType,
-    ReplanRequest, FixerConfig,
-)
-from app.agents.sub_agents.validator.models import (
-    Violation, FailureLayer, ViolationSeverity,
-)
+# Import directly from models module to avoid circular import through sub_agents.__init__
+# The models module is a pure Pydantic file with no circular dependencies
+import app.agents.sub_agents.fixer.models as fixer_models
+
+FixPlan = fixer_models.FixPlan
+FixPatch = fixer_models.FixPatch
+FixChange = fixer_models.FixChange
+ViolationFix = fixer_models.ViolationFix
+FixScope = fixer_models.FixScope
+FixApproach = fixer_models.FixApproach
+FixRisk = fixer_models.FixRisk
+ApprovalType = fixer_models.ApprovalType
+ReplanRequest = fixer_models.ReplanRequest
+FixerConfig = fixer_models.FixerConfig
+
+import app.agents.sub_agents.validator.models as validator_models
+
+Violation = validator_models.Violation
+FailureLayer = validator_models.FailureLayer
+ViolationSeverity = validator_models.ViolationSeverity
 
 
 class FixStrategy(ABC):
