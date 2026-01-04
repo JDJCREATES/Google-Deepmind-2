@@ -1,11 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuthStore } from '../../../store/authStore';
 import { SettingsCarousel, CarouselSlide } from '../../ui/SettingsCarousel';
 import { GoogleSignInButton } from '../../auth/GoogleSignInButton';
+import SubscriptionStatus from '../../billing/SubscriptionStatus';
+import SubscriptionModal from '../../billing/SubscriptionModal';
 import '../Settings.css';
 
 const AccountSettings: React.FC = () => {
   const { user, isAuthenticated, logout } = useAuthStore();
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
 
   if (!isAuthenticated || !user) {
     return (
@@ -53,6 +56,7 @@ const AccountSettings: React.FC = () => {
   };
 
   return (
+    <>
     <SettingsCarousel showPagination={false}>
       <CarouselSlide>
         <div className="settings-page">
@@ -126,6 +130,12 @@ const AccountSettings: React.FC = () => {
             </div>
           </div>
 
+          {/* Subscription */}
+          <div className="settings-section">
+            <h3 className="settings-section-title">Subscription</h3>
+            <SubscriptionStatus onUpgradeClick={() => setShowSubscriptionModal(true)} />
+          </div>
+
           {/* Account Actions */}
           <div className="settings-section">
             <h3 className="settings-section-title">Account Actions</h3>
@@ -148,6 +158,13 @@ const AccountSettings: React.FC = () => {
         </div>
       </CarouselSlide>
     </SettingsCarousel>
+    
+    <SubscriptionModal
+      isOpen={showSubscriptionModal}
+      onClose={() => setShowSubscriptionModal(false)}
+      currentTier={user?.tier}
+    />
+  </>
   );
 };
 

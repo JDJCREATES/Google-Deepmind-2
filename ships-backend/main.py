@@ -8,17 +8,46 @@ from app.auth import router as auth_router, get_current_user
 from app.api.auth_routes import router as google_auth_router
 from app.services.preview_manager import preview_manager
 from app.services.usage_tracker import usage_tracker
+from app.database import health_check, close_database
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
 import os
+import logging
+
+logger = logging.getLogger("ships")
 
 app = FastAPI(title="ShipS* Backend")
+
+# Startup event - check database connection
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup."""
+    logger.info("🚀 Ships* Backend starting...")
+    
+    # Check database health
+    db_healthy = await health_check()
+    if not db_healthy:
+        logger.warning("⚠ Database not available - some features may be limited")
+    
+    logger.info("✓ Startup complete")
+
+# Shutdown event
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown."""
+    logger.info("Shutting down...")
+    await close_database()
+    logger.info("✓ Shutdown complete")
 
 # Session middleware (required for OAuth)
 # Must be added BEFORE other middleware
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+
+# Rate limiting middleware
+from app.middleware import RateLimitMiddleware
+app.add_middleware(RateLimitMiddleware)
 
 # CORS - allow credentials for session cookies
 origins = [
@@ -403,6 +432,10 @@ app.include_router(artifacts_router)
 # Import and include Diagnostics Router
 from app.api.diagnostics import router as diagnostics_router
 app.include_router(diagnostics_router)
+
+# Import and include Billing Router
+from app.api.billing import router as billing_router
+app.include_router(billing_router)
 
 @app.get("/")
 def read_root():

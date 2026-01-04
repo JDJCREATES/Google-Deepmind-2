@@ -9,6 +9,14 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 import asyncio
 import os
+import sys
+from dotenv import load_dotenv
+
+# Load .env file
+load_dotenv()
+
+# Add parent directory to path to import app module
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 # Import your models' Base
 from app.database.base import Base

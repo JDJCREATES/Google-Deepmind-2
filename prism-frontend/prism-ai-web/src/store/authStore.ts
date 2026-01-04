@@ -6,6 +6,8 @@ interface User {
   email: string;
   avatarUrl?: string;
   authMethod?: 'google' | 'password';
+  tier?: 'free' | 'starter' | 'pro' | 'enterprise';
+  subscription_status?: string;
 }
 
 interface AuthState {

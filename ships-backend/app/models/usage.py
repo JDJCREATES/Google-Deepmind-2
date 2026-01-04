@@ -7,7 +7,7 @@ consumption for accurate rate limiting and analytics.
 
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import String, Integer, ForeignKey, Index
+from sqlalchemy import String, Integer, ForeignKey, Index, DateTime
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -27,7 +27,7 @@ class UsageLog(Base):
         event_type: Type of event (prompt, file_edit, preview, build)
         tokens_consumed: Number of tokens used
         model_used: AI model used (gemini-pro, gpt-4, etc.)
-        metadata: Additional event data (JSONB)
+        event_metadata: Additional event data (JSONB)
         created_at: Event timestamp
     """
     
@@ -57,8 +57,8 @@ class UsageLog(Base):
     tokens_consumed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     model_used: Mapped[Optional[str]] = mapped_column(String(50))
     
-    # Additional metadata
-    metadata: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    # Additional event data (renamed from 'metadata' to avoid SQLAlchemy conflict)
+    event_metadata: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     
     # Timestamp
     created_at: Mapped[datetime] = mapped_column(

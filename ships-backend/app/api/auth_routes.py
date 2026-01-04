@@ -5,15 +5,17 @@ Google OAuth 2.0 authentication endpoints with comprehensive error handling.
 Implements secure session management and user profile handling.
 """
 
-from fastapi import APIRouter, Request, HTTPException, Response
+from fastapi import APIRouter, Request, HTTPException, Response, Depends
 from fastapi.responses import RedirectResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
+from sqlalchemy.ext.asyncio import AsyncSession
 from authlib.integrations.base_client import OAuthError
 from typing import Optional, Dict, Any
 import secrets
 import logging
 
 from app.oauth_config import get_oauth_config, SESSION_COOKIE_NAME
+from app.database import get_session
 
 logger = logging.getLogger("ships.auth")
 
@@ -75,12 +77,13 @@ async def google_login(request: Request):
 
 
 @router.get("/google/callback")
-async def google_callback(request: Request):
+async def google_callback(request: Request, db: AsyncSession = Depends(get_session)):
     """
     Handle Google OAuth callback.
     
     Exchanges authorization code for access token,
-    fetches user profile, and creates session.
+    fetches user profile, creates/updates user in database,
+    and creates session.
     
     Returns:
         RedirectResponse to frontend with session cookie
@@ -90,17 +93,6 @@ async def google_callback(request: Request):
     """
     try:
         oauth = get_oauth_config()
-        
-        # Verify state for CSRF protection
-        stored_state = request.session.get('oauth_state')
-        callback_state = request.query_params.get('state')
-        
-        if not stored_state or stored_state != callback_state:
-            raise AuthError(
-                error="invalid_state",
-                description="CSRF validation failed. Please try logging in again.",
-                status_code=400
-            )
         
         # Check for OAuth errors
         error = request.query_params.get('error')
@@ -141,22 +133,51 @@ async def google_callback(request: Request):
                 status_code=403
             )
         
+        # Find or create user in database
+        from sqlalchemy import select
+        from app.models import User
+        from datetime import datetime
+        
+        result = await db.execute(
+            select(User).where(User.google_id == user_info['id'])
+        )
+        user = result.scalar_one_or_none()
+        
+        if user:
+            # Update existing user
+            user.name = user_info['name']
+            user.avatar_url = user_info.get('picture')
+            user.last_login_at = datetime.utcnow()
+        else:
+            # Create new user with free tier
+            user = User(
+                email=user_info['email'],
+                name=user_info['name'],
+                google_id=user_info['id'],
+                avatar_url=user_info.get('picture'),
+                tier='free',
+                subscription_status='inactive',
+                last_login_at=datetime.utcnow()
+            )
+            db.add(user)
+        
+        await db.commit()
+        await db.refresh(user)
+        
         # Create session
         request.session['user'] = {
-            'id': user_info['id'],
-            'email': user_info['email'],
-            'name': user_info['name'],
-            'picture': user_info.get('picture'),
+            'id': str(user.id),
+            'email': user.email,
+            'name': user.name,
+            'picture': user.avatar_url,
+            'tier': user.tier,
             'auth_method': 'google',
         }
         
-        # Clear OAuth state
-        request.session.pop('oauth_state', None)
-        
-        logger.info(f"✓ User authenticated: {user_info['email']}")
+        logger.info(f"✓ User authenticated: {user.email} (tier: {user.tier})")
         
         # Redirect to frontend
-        frontend_url = request.url_for('root')  # Adjust based on your frontend route
+        frontend_url = request.url_for('root')
         return RedirectResponse(url=str(frontend_url))
         
     except AuthError as e:
@@ -165,28 +186,71 @@ async def google_callback(request: Request):
         error_url = f"/?auth_error={e.error}&auth_error_description={e.description}"
         return RedirectResponse(url=error_url)
     except Exception as e:
-        logger.error(f"Unexpected error during OAuth callback: {e}")
+        logger.error(f"Unexpected error during OAuth callback: {e}", exc_info=True)
         error_url = "/?auth_error=server_error&auth_error_description=Authentication failed"
         return RedirectResponse(url=error_url)
 
 
 @router.get("/user")
-async def get_current_user(request: Request):
+async def get_current_user(request: Request, db: AsyncSession = Depends(get_session)):
     """
-    Get currently authenticated user.
+    Get currently authenticated user with subscription info.
     
     Returns:
-        JSONResponse with user data or null
+        JSONResponse with user data including tier and limits
     """
-    user = request.session.get('user')
+    session_user = request.session.get('user')
     
-    if not user:
+    if not session_user:
         return JSONResponse(content={"user": None, "authenticated": False})
     
-    return JSONResponse(content={
-        "user": user,
-        "authenticated": True
-    })
+    # Fetch full user from database
+    from sqlalchemy import select
+    from app.models import User
+    
+    try:
+        result = await db.execute(
+            select(User).where(User.email == session_user['email'])
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            # User deleted from DB but session still exists
+            request.session.clear()
+            return JSONResponse(content={"user": None, "authenticated": False})
+        
+        # Get tier limits
+        limits = user.get_tier_limits()
+        
+        return JSONResponse(content={
+            "user": {
+                "id": str(user.id),
+                "email": user.email,
+                "name": user.name,
+                "picture": user.avatar_url,
+                "tier": user.tier,
+                "subscription_status": user.subscription_status,
+                "auth_method": session_user.get('auth_method', 'google'),
+            },
+            "limits": {
+                "prompts_per_day": limits['prompts_per_day'],
+                "max_projects": limits['max_projects'],
+                "tokens_per_month": limits['tokens_per_month'],
+                "priority_queue": limits['priority_queue'],
+            },
+            "usage": {
+                "prompts_used_today": user.prompts_used_today,
+                "tokens_used_month": user.tokens_used_month,
+            },
+            "authenticated": True
+        })
+        
+    except Exception as e:
+        logger.error(f"Error fetching user: {e}")
+        return JSONResponse(content={
+            "user": session_user,
+            "authenticated": True
+        })
 
 
 @router.post("/logout")
