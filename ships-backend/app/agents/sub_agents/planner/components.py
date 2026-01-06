@@ -226,6 +226,12 @@ class FolderArchitect:
         llm_folders = llm_plan.get("folders", [])
         existing_paths = set()
         
+        # Populate existing paths from file tree to prevent duplicates
+        file_tree = context.get("file_tree", {})
+        if file_tree.get("success"):
+            for entry in file_tree.get("entries", []):
+                existing_paths.add(entry["path"])
+        
         for f_data in llm_folders:
             # Handle Pydantic objects or non-dicts defensively
             if hasattr(f_data, 'model_dump'):

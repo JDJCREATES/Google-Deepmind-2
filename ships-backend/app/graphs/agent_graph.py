@@ -137,23 +137,63 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
     
     logger.info(f"[PLANNER] 📝 User request: {user_request[:100]}...")
     
-    # Create the Planner instance (now uses create_react_agent internally)
+    
+    # 3. Create agent instances
     planner = Planner()
     
-    # Build structured intent for the planner
-    structured_intent = {
-        "description": user_request,
-        "id": f"intent_{os.path.basename(project_path) if project_path else 'default'}",
-    }
+    # 4. Prepare Planner state
+    # user_request is already defined above
+    structured_intent = state["artifacts"].get("structured_intent", {}) # This will be overwritten later if not present
+    # project_path is already defined above
     
-    # Build state for planner.invoke()
+    # REFRESH FILE TREE ARTIFACT (System-level update)
+    # This ensures the Planner always has the latest file structure without needing to call a tool
+    file_tree_data = {}
+    try:
+        if project_path:
+            from app.agents.tools.coder.file_tree import scan_project_tree
+            
+            # Get settings (injected in stream_pipeline)
+            settings = state.get("artifacts", {}).get("settings", {})
+            # safely extract depth, handle if settings is None or missing keys
+            scan_depth = 3
+            if settings and isinstance(settings, dict):
+                scan_depth = settings.get("artifacts", {}).get("fileTreeDepth", 3)
+            
+            # Scan and save artifact
+            file_tree_data = scan_project_tree.invoke({
+                "subpath": ".",
+                "max_depth": int(scan_depth),
+                "extract_symbols": True,
+                "save_artifact": True
+            })
+            
+            if file_tree_data.get("success"):
+                logger.info(f"[PLANNER_NODE] 🌳 Refreshed file tree artifact ({file_tree_data['stats']['files']} files)")
+            else:
+                logger.warning(f"[PLANNER_NODE] ⚠️ File tree scan returned error: {file_tree_data.get('error')}")
+                file_tree_data = {}
+                
+    except Exception as ft_e:
+        logger.warning(f"[PLANNER_NODE] ⚠️ Failed to refresh file tree: {ft_e}")
+    
     planner_state = {
         **state,
+        "environment": {
+            "project_path": project_path,
+            "file_tree": file_tree_data, # Inject directly into environment
+        },
         "artifacts": {
             **artifacts,
             "structured_intent": structured_intent,
             "project_path": project_path,
         },
+    }
+    
+    # Build structured intent for the planner (keeping original logic for structured_intent)
+    structured_intent = {
+        "description": user_request,
+        "id": f"intent_{os.path.basename(project_path) if project_path else 'default'}",
     }
     
     try:
@@ -432,6 +472,25 @@ ACTUAL FILE STRUCTURE (Disk State):
             logger.info(f"[CODER] ✅ Implementation complete. {len(current_completed)} files created.")
         else:
             logger.info(f"[CODER] 🔄 More work needed, continuing in coding phase")
+            
+        # REFRESH FILE TREE ARTIFACT (System-level update after Coder)
+        try:
+             # Get settings (injected in stream_pipeline)
+             settings = state.get("artifacts", {}).get("settings", {})
+             scan_depth = 3
+             if settings and isinstance(settings, dict):
+                 scan_depth = settings.get("artifacts", {}).get("fileTreeDepth", 3)
+
+             from app.agents.tools.coder.file_tree import scan_project_tree
+             scan_project_tree.invoke({
+                 "subpath": ".",
+                 "max_depth": int(scan_depth),
+                 "extract_symbols": True,
+                 "save_artifact": True
+             })
+             logger.info(f"[CODER_NODE] 🌳 Refreshed file tree artifact after coding")
+        except Exception as ft_e:
+             logger.warning(f"[CODER_NODE] ⚠️ Failed to refresh file tree: {ft_e}")
         
         return {
             "messages": [AIMessage(content=f"Coder completed: {result.get('status', 'unknown')}")],
@@ -994,7 +1053,8 @@ async def run_full_pipeline(
 async def stream_pipeline(
     user_request: str,
     thread_id: str = "default",
-    project_path: Optional[str] = None
+    project_path: Optional[str] = None,
+    settings: Optional[dict] = None  # New: User settings
 ):
     """
     Stream the full agent pipeline with token-by-token streaming.
@@ -1005,6 +1065,7 @@ async def stream_pipeline(
         user_request: The user's request
         thread_id: Thread ID for state persistence
         project_path: Optional path to user's project directory
+        settings: Optional client-side settings dict
         
     Yields:
         Message chunks as the LLM generates tokens
@@ -1030,7 +1091,8 @@ async def stream_pipeline(
         "messages": [human_msg],
         "phase": "planning",
         "artifacts": {
-            "project_path": project_path  # None if not set - agents will check and refuse
+            "project_path": project_path,  # None if not set - agents will check and refuse
+            "settings": settings or {}     # Inject settings into artifacts
         },
         "current_task_index": 0,
         "validation_passed": False,

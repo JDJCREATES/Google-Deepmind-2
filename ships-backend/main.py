@@ -138,6 +138,7 @@ agent_router = APIRouter(prefix="/agent", tags=["agent"])
 class PromptRequest(BaseModel):
     prompt: str
     project_path: Optional[str] = None  # Path to the user's project directory
+    settings: Optional[dict] = None     # User settings (e.g. artifacts.fileTreeDepth)
 
 from fastapi.responses import StreamingResponse
 import json
@@ -192,7 +193,7 @@ async def run_agent(request: Request, body: PromptRequest):
             logger.info(f"[STREAM] Passing to stream_pipeline: '{body.prompt[:100]}...'")
             current_node = None
             
-            async for event in stream_pipeline(body.prompt, project_path=effective_project_path):
+            async for event in stream_pipeline(body.prompt, project_path=effective_project_path, settings=body.settings):
                 # With subgraphs=True + stream_mode="messages", events are:
                 # (namespace_tuple, (message_chunk, metadata))
                 # namespace_tuple can be () for main graph or ('node:task_id',) for subgraphs

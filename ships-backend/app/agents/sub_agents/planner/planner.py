@@ -180,6 +180,27 @@ REMEMBER: Fewer than 4 tasks = WRONG. Break it down further!"""
         self.current_project_type = project_type
         self.system_prompt = self._get_system_prompt()
     
+    async def invoke(self, state: AgentState) -> Dict[str, Any]:
+        """
+        Main entry point for the Planner.
+        Maps AgentState to plan() arguments, ensuring environment is passed.
+        """
+        # Unpack state
+        artifacts = state.get("artifacts", {})
+        intent = artifacts.get("structured_intent")
+        
+        # Get optional components
+        app_blueprint = artifacts.get("app_blueprint")
+        constraints = artifacts.get("constraints")
+        environment = state.get("environment") # Automatically injected by planner_node
+        
+        return await self.plan(
+            intent=intent,
+            app_blueprint=app_blueprint,
+            constraints=constraints,
+            environment=environment
+        )
+
     async def plan(
         self,
         intent: Dict[str, Any],
@@ -208,6 +229,13 @@ REMEMBER: Fewer than 4 tasks = WRONG. Break it down further!"""
             "constraints": constraints or {},
             "environment": environment or {},
         }
+        
+        # ================================================================
+        # FILE SYSTEM AWARENESS: Inject real file tree (from system)
+        # ================================================================
+        context["file_tree"] = environment.get("file_tree", {})
+        if context["file_tree"].get("success"):
+            logger.info(f"[PLANNER] 🌳 Using system-injected file tree with {context['file_tree'].get('stats', {}).get('files', 0)} files")
         
         # Detect framework
         framework = self.tools.detect_framework(context)
@@ -409,6 +437,31 @@ REMEMBER: Fewer than 4 tasks = WRONG. Break it down further!"""
         # Constraints
         if context.get("constraints"):
             parts.append(f"CONSTRAINTS:\n{json.dumps(context['constraints'], indent=2)[:500]}")
+            
+        # Current File Tree
+        file_tree = context.get("file_tree")
+        if file_tree and file_tree.get("success"):
+             tree_summary = []
+             entries = file_tree.get("entries", [])
+             
+             # Prioritize displaying source files over config/assets if truncated
+             # (Simple slice for now)
+             display_entries = entries[:50]
+             
+             for entry in display_entries:
+                 summary = entry['path'] + ("/" if entry.get("is_directory") else "")
+                 if entry.get("definitions"):
+                     # Show first 3 symbols
+                     syms = entry['definitions'][:3]
+                     more = "..." if len(entry['definitions']) > 3 else ""
+                     summary += f"  [Defs: {', '.join(syms)}{more}]"
+                 tree_summary.append(summary)
+             
+             tree_text = "\n".join(tree_summary)
+             parts.append(f"CURRENT PROJECT STRUCTURE:\n{tree_text}")
+             
+             if len(entries) > 50:
+                 parts.append(f"...and {len(entries) - 50} more files.")
         
         # Schema Definition
         parts.append("""

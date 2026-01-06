@@ -6,7 +6,13 @@ import { SettingsCarousel, CarouselSlide } from '../../ui/SettingsCarousel';
 import '../Settings.css';
 
 const UniversalSettings: React.FC = () => {
-  const { app, updateAppSettings, resetToDefaults } = useSettingsStore();
+  const { 
+    app, 
+    artifacts, 
+    updateAppSettings, 
+    updateArtifactSettings, 
+    resetToDefaults 
+  } = useSettingsStore();
 
   const handleReset = () => {
     if (window.confirm('Are you sure you want to reset all settings to their default values?')) {
@@ -97,6 +103,34 @@ const UniversalSettings: React.FC = () => {
                   onChange={(e: SwitchChangeEvent) => {
                     const target = e.target as HTMLInputElement | null;
                     if (target) updateAppSettings({ showWelcomeScreen: target.checked });
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Artifacts Settings */}
+          <div className="settings-section">
+            <h3 className="settings-section-title">Artifacts</h3>
+            
+            <div className="settings-row">
+              <div className="settings-label">
+                <div className="settings-label-text">File Tree Scan Depth</div>
+                <div className="settings-label-desc">Maximum folder depth scanning planning</div>
+              </div>
+              <div className="settings-control">
+                <input
+                  type="number"
+                  className="settings-input"
+                  value={artifacts?.fileTreeDepth ?? 3}
+                  min={1}
+                  max={10}
+                  step={1}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value);
+                    if (!isNaN(val) && val >= 1 && val <= 10) {
+                      updateArtifactSettings({ fileTreeDepth: val });
+                    }
                   }}
                 />
               </div>
