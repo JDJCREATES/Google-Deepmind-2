@@ -370,10 +370,68 @@ ACTUAL FILE STRUCTURE (Disk State):
         current_set.update(files_written)
         current_completed = list(current_set)
         
+        # ================================================================
+        # INTELLIGENT VALIDATION: Compare expected files from plan
+        # ================================================================
+        expected_files = []
+        
+        # Try to extract expected files from plan content
+        plan_content = artifacts.get("plan_content", "")
+        if plan_content:
+            import re
+            # Look for "Files to Create" sections or file paths in plan
+            # Pattern: src/something.tsx or similar paths
+            file_patterns = re.findall(r'(?:src|public|app)/[\w/.-]+\.\w+', plan_content)
+            expected_files = list(set(file_patterns))
+        
+        # Also check folder_map if available
+        ships_dir = Path(project_path) / ".ships" if project_path else None
+        if ships_dir and ships_dir.exists():
+            folder_map_path = ships_dir / "folder_map.json"
+            if folder_map_path.exists():
+                try:
+                    import json
+                    folder_data = json.loads(folder_map_path.read_text(encoding="utf-8"))
+                    entries = folder_data.get("entries", [])
+                    map_files = [e.get("path") for e in entries if not e.get("is_directory", False) and e.get("path")]
+                    expected_files.extend(map_files)
+                except Exception:
+                    pass
+        
+        expected_files = list(set(expected_files))  # Dedupe
+        
+        # Log progress for debugging
+        logger.info(f"[CODER] 📊 Progress: {len(current_completed)} files created")
+        logger.info(f"[CODER] 📋 Expected from plan: {len(expected_files)} files")
+        
+        # Check what's missing (if we have expected files)
+        if expected_files:
+            # Normalize paths for comparison
+            normalized_completed = {str(f).replace("\\", "/").lower() for f in current_completed}
+            normalized_expected = {str(f).replace("\\", "/").lower() for f in expected_files}
+            
+            missing = normalized_expected - normalized_completed
+            if missing:
+                logger.info(f"[CODER] 📝 Missing files: {len(missing)}")
+                for m in list(missing)[:5]:
+                    logger.info(f"[CODER]    - {m}")
+                
+                # If LLM claims complete but files are missing, force continuation
+                if implementation_complete and len(missing) > 0:
+                    logger.warning(
+                        f"[CODER] ⚠️ LLM claimed complete but {len(missing)} expected files missing. "
+                        f"Continuing..."
+                    )
+                    implementation_complete = False
+            else:
+                logger.info(f"[CODER] ✅ All expected files present!")
+        
         # Determine next phase
         next_phase = "validating" if implementation_complete else "coding"
         if implementation_complete:
             logger.info(f"[CODER] ✅ Implementation complete. {len(current_completed)} files created.")
+        else:
+            logger.info(f"[CODER] 🔄 More work needed, continuing in coding phase")
         
         return {
             "messages": [AIMessage(content=f"Coder completed: {result.get('status', 'unknown')}")],

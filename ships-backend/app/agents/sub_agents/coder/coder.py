@@ -643,12 +643,23 @@ Use these type definitions. Do NOT read from disk.
                     folder_data = json.loads(folder_map_path.read_text(encoding="utf-8"))
                     entries = folder_data.get("entries", [])
                     files_to_create = [e.get("path") for e in entries if not e.get("is_directory", False)]
+                    
+                    # DEBUG: Log expected files
+                    import logging
+                    logger = logging.getLogger("ships.coder")
+                    logger.info(f"[CODER] 📋 Expected files from folder_map: {len(files_to_create)}")
+                    for f in files_to_create[:10]:
+                        logger.info(f"[CODER]    📄 {f}")
+                    if len(files_to_create) > 10:
+                        logger.info(f"[CODER]    ... and {len(files_to_create) - 10} more")
+                    
                     if files_to_create:
                         artifact_context += "\n## FILES TO CREATE (from folder_map):\n"
                         for f in files_to_create[:15]:
                             artifact_context += f"  - {f}\n"
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging
+                    logging.getLogger("ships.coder").warning(f"[CODER] ⚠️ Failed to read folder_map: {e}")
             
             # Read api_contracts.json
             api_path = ships_dir / "api_contracts.json"

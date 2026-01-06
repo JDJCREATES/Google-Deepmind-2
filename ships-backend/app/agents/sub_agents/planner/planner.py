@@ -298,14 +298,23 @@ REMEMBER: Fewer than 4 tasks = WRONG. Break it down further!"""
         
         try:
             response = await self.llm.ainvoke(messages)
-            return self._parse_llm_response(response.content)
+            raw_content = response.content
+            
+            # DEBUG: Log raw response to diagnose parsing issues
+            logger.info(f"[PLANNER] 📥 Raw LLM response length: {len(raw_content)} chars")
+            logger.debug(f"[PLANNER] 📥 Raw response (first 1000 chars):\n{raw_content[:1000]}")
+            
+            parsed = self._parse_llm_response(raw_content)
+            
+            # Check if parsing actually got data
+            if not parsed.get("tasks") and not parsed.get("folders"):
+                logger.warning(f"[PLANNER] ⚠️ Parsed plan has no tasks or folders! Check LLM output format.")
+            
+            return parsed
         except Exception as e:
-            # Fallback to minimal plan
-            return {
-                "summary": intent.get("description", "Implementation plan"),
-                "tasks": [],
-                "decision_notes": [f"LLM planning failed: {str(e)}"]
-            }
+            # NO SILENT FALLBACK - fail loudly so we can debug
+            logger.error(f"[PLANNER] ❌ LLM planning failed: {e}")
+            raise
     
     def _build_planning_prompt(
         self, 

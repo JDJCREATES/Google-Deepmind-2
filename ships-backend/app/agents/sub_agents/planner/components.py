@@ -233,20 +233,15 @@ class FolderArchitect:
                     role=role
                 ))
                 existing_paths.add(path)
-                
-        # 2. If no LLM folders, use framework defaults
+        
+        # NO FALLBACKS during testing - log warning so we can diagnose LLM output
         if not entries:
-            framework = context.get("framework", "react")
-            if framework in ["react", "vite"]:
-                 entries = [
-                    FolderEntry(path="src", is_directory=True, description="Source code", role=FileRole.SOURCE),
-                    FolderEntry(path="src/components", is_directory=True, description="React components", role=FileRole.COMPONENT),
-                    FolderEntry(path="src/App.tsx", is_directory=False, description="Main App component", role=FileRole.COMPONENT),
-                ]
-            else:
-                 entries = [
-                    FolderEntry(path="src", is_directory=True, description="Source code", role=FileRole.SOURCE),
-                ]
+            import logging
+            logger = logging.getLogger("ships.planner")
+            logger.warning(
+                f"[FOLDER_ARCHITECT] ⚠️ LLM returned no folders! "
+                f"llm_folders was: {llm_folders}"
+            )
         
         folder_map.entries = entries
         return {"folder_map": folder_map}
