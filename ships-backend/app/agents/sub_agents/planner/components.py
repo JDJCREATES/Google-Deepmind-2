@@ -58,10 +58,18 @@ class Scoper:
         llm_tasks = llm_plan.get("tasks", [])
         if llm_tasks:
             for i, t_data in enumerate(llm_tasks):
+                # Handle both dict and Pydantic model (defensive)
+                if hasattr(t_data, 'model_dump'):
+                    t_data = t_data.model_dump()
+                elif not isinstance(t_data, dict):
+                    # Skip invalid task entries
+                    continue
+                    
                 # Create structured AcceptanceCriterion objects
                 criteria = []
                 for ac_text in t_data.get("acceptance_criteria", []):
-                    criteria.append(AcceptanceCriterion(description=ac_text))
+                    if isinstance(ac_text, str):
+                        criteria.append(AcceptanceCriterion(description=ac_text))
                 
                 # Parse output files
                 outputs = []
@@ -219,6 +227,12 @@ class FolderArchitect:
         existing_paths = set()
         
         for f_data in llm_folders:
+            # Handle Pydantic objects or non-dicts defensively
+            if hasattr(f_data, 'model_dump'):
+                f_data = f_data.model_dump()
+            elif not isinstance(f_data, dict):
+                continue
+
             path = f_data.get("path", "")
             if path and path not in existing_paths:
                 role = FileRole.SOURCE
@@ -276,6 +290,12 @@ class ContractAuthor:
         # Use LLM suggested endpoints
         llm_endpoints = llm_plan.get("api_endpoints", [])
         for ep_data in llm_endpoints:
+            # Handle Pydantic objects or non-dicts defensively
+            if hasattr(ep_data, 'model_dump'):
+                ep_data = ep_data.model_dump()
+            elif not isinstance(ep_data, dict):
+                continue
+                
             api_contracts.endpoints.append(APIEndpoint(
                 path=ep_data.get("path", "/"),
                 method=HTTPMethod(ep_data.get("method", "GET")),
@@ -335,9 +355,22 @@ class DependencyPlanner:
         # 2. Add LLM suggested dependencies
         llm_deps = llm_plan.get("dependencies", {})
         
+        # Handle list structure (legacy/bad LLM output)
+        if isinstance(llm_deps, list):
+             llm_deps = {"runtime": llm_deps, "dev": []}
+        # Handle Pydantic model
+        elif hasattr(llm_deps, 'model_dump'):
+            llm_deps = llm_deps.model_dump()
+        
         # Runtime
         existing_runtime = {d.name for d in dependency_plan.runtime_dependencies}
-        for dep in llm_deps.get("runtime", []):
+        for dep in llm_deps.get("runtime", []) or []:
+            # Handle Pydantic objects or non-dicts defensively
+            if hasattr(dep, 'model_dump'):
+                dep = dep.model_dump()
+            elif not isinstance(dep, dict):
+                continue
+
             name = dep.get("name", "")
             if name and name not in existing_runtime:
                 dependency_plan.runtime_dependencies.append(PackageDependency(
@@ -348,7 +381,13 @@ class DependencyPlanner:
         
         # Dev
         existing_dev = {d.name for d in dependency_plan.dev_dependencies}
-        for dep in llm_deps.get("dev", []):
+        for dep in llm_deps.get("dev", []) or []:
+            # Handle Pydantic objects or non-dicts defensively
+            if hasattr(dep, 'model_dump'):
+                dep = dep.model_dump()
+            elif not isinstance(dep, dict):
+                continue
+
             name = dep.get("name", "")
             if name and name not in existing_dev:
                 dependency_plan.dev_dependencies.append(PackageDependency(
@@ -450,6 +489,12 @@ class RiskAssessor:
             
         # 2. LLM Identified Risks
         for risk in llm_plan.get("risks", []):
+            # Handle Pydantic objects or non-dicts defensively
+            if hasattr(risk, 'model_dump'):
+                risk = risk.model_dump()
+            elif not isinstance(risk, dict):
+                continue
+
             risk_report.add_risk(RiskItem(
                 title=risk.get("title", "Identified Risk"),
                 category="technical",

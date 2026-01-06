@@ -22,6 +22,8 @@ import logging
 import re
 import uuid
 
+from pydantic import BaseModel, Field
+
 logger = logging.getLogger("ships.planner")
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -48,6 +50,47 @@ from app.agents.sub_agents.planner.components import (
     Scoper, FolderArchitect, ContractAuthor,
     DependencyPlanner, TestDesigner, RiskAssessor,
 )
+
+
+# ============================================================================
+# PYDANTIC SCHEMAS FOR STRUCTURED LLM OUTPUT
+# ============================================================================
+
+class LLMPlanTask(BaseModel):
+    """Single task in the LLM plan output."""
+    title: str = Field(description="Short task title")
+    description: str = Field(description="Detailed description of what to do")
+    complexity: str = Field(default="medium", description="small, medium, or large")
+    priority: str = Field(default="medium", description="high, medium, or low")
+    estimated_minutes: int = Field(default=60, description="Estimated time in minutes")
+    acceptance_criteria: List[str] = Field(default_factory=list, description="Success criteria")
+    expected_outputs: List[Dict[str, str]] = Field(default_factory=list, description="Files to create")
+
+
+class LLMPlanFolder(BaseModel):
+    """Folder entry in the LLM plan output."""
+    path: str = Field(description="Path like src/components")
+    is_directory: bool = Field(default=True, description="True for folder, False for file")
+    description: str = Field(default="", description="Purpose of this folder/file")
+
+
+class LLMPlanOutput(BaseModel):
+    """Structured output schema for LLM planning - enforces exact format."""
+    summary: str = Field(description="Brief executive summary of the plan")
+    decision_notes: List[str] = Field(default_factory=list, description="Key technical decisions")
+    tasks: List[LLMPlanTask] = Field(default_factory=list, description="Ordered list of tasks")
+    folders: List[LLMPlanFolder] = Field(default_factory=list, description="Folders/files to create")
+    
+    # Dependencies can be a list (simple) or dict (runtime/dev)
+    # We use Dict to match DependencyPlanner expectation, but need to be flexible
+    dependencies: Dict[str, List[Dict[str, str]]] = Field(
+        default_factory=lambda: {"runtime": [], "dev": []}, 
+        description="Dictionary with 'runtime' and 'dev' lists of packages"
+    )
+    
+    api_endpoints: List[Dict[str, str]] = Field(default_factory=list, description="API endpoints to create")
+    risks: List[Dict[str, str]] = Field(default_factory=list, description="Potential risks")
+    clarifying_questions: List[str] = Field(default_factory=list, description="Questions for user")
 
 
 class Planner(BaseAgent):
@@ -288,7 +331,7 @@ REMEMBER: Fewer than 4 tasks = WRONG. Break it down further!"""
         intent: Dict[str, Any],
         context: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Use LLM for high-level planning insights."""
+        """Use LLM for high-level planning insights with structured output."""
         prompt = self._build_planning_prompt(intent, context)
         
         messages = [
@@ -297,24 +340,57 @@ REMEMBER: Fewer than 4 tasks = WRONG. Break it down further!"""
         ]
         
         try:
-            response = await self.llm.ainvoke(messages)
-            raw_content = response.content
+            # Use Pydantic schema for guaranteed structured output
+            structured_llm = self.llm.with_structured_output(LLMPlanOutput)
             
-            # DEBUG: Log raw response to diagnose parsing issues
-            logger.info(f"[PLANNER] 📥 Raw LLM response length: {len(raw_content)} chars")
-            logger.debug(f"[PLANNER] 📥 Raw response (first 1000 chars):\n{raw_content[:1000]}")
+            logger.info(f"[PLANNER] 🎯 Invoking LLM with structured output (LLMPlanOutput schema)")
             
-            parsed = self._parse_llm_response(raw_content)
+            result: LLMPlanOutput = await structured_llm.ainvoke(messages)
             
-            # Check if parsing actually got data
-            if not parsed.get("tasks") and not parsed.get("folders"):
-                logger.warning(f"[PLANNER] ⚠️ Parsed plan has no tasks or folders! Check LLM output format.")
+            # Convert Pydantic model to dict for downstream compatibility
+            plan_dict = result.model_dump()
             
-            return parsed
+            logger.info(
+                f"[PLANNER] ✅ Structured output received: "
+                f"{len(plan_dict.get('tasks', []))} tasks, "
+                f"{len(plan_dict.get('folders', []))} folders"
+            )
+            
+            return plan_dict
+            
         except Exception as e:
-            # NO SILENT FALLBACK - fail loudly so we can debug
-            logger.error(f"[PLANNER] ❌ LLM planning failed: {e}")
-            raise
+            logger.warning(f"[PLANNER] ⚠️ Structured output failed: {e}, falling back to raw parsing")
+            
+            # Fallback to raw parsing if structured output fails
+            try:
+                response = await self.llm.ainvoke(messages)
+                
+                # Handle Gemini's response format - content can be string or list of parts
+                raw_content = response.content
+                if isinstance(raw_content, list):
+                    text_parts = []
+                    for part in raw_content:
+                        if isinstance(part, str):
+                            text_parts.append(part)
+                        elif hasattr(part, 'text'):
+                            text_parts.append(part.text)
+                        elif isinstance(part, dict) and 'text' in part:
+                            text_parts.append(part['text'])
+                    raw_content = ''.join(text_parts)
+                elif not isinstance(raw_content, str):
+                    raw_content = str(raw_content)
+                
+                logger.info(f"[PLANNER] 📥 Fallback: Raw LLM response length: {len(raw_content)} chars")
+                
+                parsed = self._parse_llm_response(raw_content)
+                
+                if not parsed.get("tasks") and not parsed.get("folders"):
+                    logger.warning(f"[PLANNER] ⚠️ Parsed plan has no tasks or folders!")
+                
+                return parsed
+            except Exception as fallback_error:
+                logger.error(f"[PLANNER] ❌ LLM planning completely failed: {fallback_error}")
+                raise
     
     def _build_planning_prompt(
         self, 
@@ -374,9 +450,21 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
         """Parse LLM response to JSON."""
         logger.info(f"[PLANNER] 📄 Parsing LLM response ({len(response)} chars)")
         
+        def normalize_result(result):
+            """Ensure result is a dict, wrap arrays as needed."""
+            if isinstance(result, list):
+                # LLM returned an array - wrap it as tasks
+                logger.info(f"[PLANNER] 📦 Wrapping array response as tasks ({len(result)} items)")
+                return {"tasks": result, "summary": "Plan generated from task array"}
+            elif isinstance(result, dict):
+                return result
+            else:
+                return {"summary": str(result), "tasks": []}
+        
         # Try direct parse
         try:
             result = json.loads(response)
+            result = normalize_result(result)
             logger.info(f"[PLANNER] ✅ Direct JSON parse succeeded: {len(result.get('tasks', []))} tasks")
             return result
         except json.JSONDecodeError as e:
@@ -387,6 +475,7 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
         if code_block_match:
             try:
                 result = json.loads(code_block_match.group(1).strip())
+                result = normalize_result(result)
                 logger.info(f"[PLANNER] ✅ Code block JSON parse succeeded: {len(result.get('tasks', []))} tasks")
                 return result
             except json.JSONDecodeError as e:
@@ -397,6 +486,7 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
         if json_match:
             try:
                 result = json.loads(json_match.group(0))
+                result = normalize_result(result)
                 logger.info(f"[PLANNER] ✅ Extracted JSON parse succeeded: {len(result.get('tasks', []))} tasks")
                 return result
             except json.JSONDecodeError as e:
