@@ -3,21 +3,37 @@ Gemini embedding provider.
 
 Uses Google's text-embedding-004 model for generating embeddings.
 768 dimensions, optimized for semantic similarity.
+
+Updated to use google.genai (new SDK) instead of deprecated google.generativeai.
 """
 
 import os
 import logging
 from typing import Optional
-import google.generativeai as genai
+
+# Use new SDK (google.genai) instead of deprecated google.generativeai
+try:
+    from google import genai
+    from google.genai import types
+    NEW_SDK_AVAILABLE = True
+except ImportError:
+    # Fallback to deprecated SDK if new one not installed
+    import google.generativeai as genai_legacy
+    NEW_SDK_AVAILABLE = False
 
 from app.services.embeddings.base import EmbeddingProvider
 
 logger = logging.getLogger("ships.embeddings.gemini")
 
-# Configure Gemini
+# Get API key
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+
+# Initialize client based on available SDK
+if NEW_SDK_AVAILABLE and GEMINI_API_KEY:
+    client = genai.Client(api_key=GEMINI_API_KEY)
+elif not NEW_SDK_AVAILABLE and GEMINI_API_KEY:
+    genai_legacy.configure(api_key=GEMINI_API_KEY)
+    client = None
 
 
 class GeminiEmbedding(EmbeddingProvider):
@@ -30,7 +46,7 @@ class GeminiEmbedding(EmbeddingProvider):
     
     DIMENSIONS = 768
     NAME = "gemini"
-    MODEL = "models/text-embedding-004"
+    MODEL = "text-embedding-004"
     
     def __init__(self):
         """Initialize Gemini embedding provider."""
@@ -53,16 +69,25 @@ class GeminiEmbedding(EmbeddingProvider):
         try:
             truncated = self.truncate_text(text)
             
-            result = genai.embed_content(
-                model=self.MODEL,
-                content=truncated,
-                task_type="RETRIEVAL_DOCUMENT"
-            )
+            if NEW_SDK_AVAILABLE:
+                # New SDK API
+                result = client.models.embed_content(
+                    model=self.MODEL,
+                    contents=truncated,
+                    config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT")
+                )
+                embedding = result.embeddings[0].values
+            else:
+                # Legacy SDK API
+                result = genai_legacy.embed_content(
+                    model=f"models/{self.MODEL}",
+                    content=truncated,
+                    task_type="RETRIEVAL_DOCUMENT"
+                )
+                embedding = result['embedding']
             
-            embedding = result['embedding']
             logger.debug(f"Generated embedding: {len(embedding)} dimensions")
-            
-            return embedding
+            return list(embedding)
             
         except Exception as e:
             logger.error(f"Gemini embedding failed: {e}")
@@ -71,8 +96,6 @@ class GeminiEmbedding(EmbeddingProvider):
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """
         Generate embeddings for multiple texts.
-        
-        Note: Gemini's embed_content supports batch via list input.
         
         Args:
             texts: List of texts to embed
@@ -83,19 +106,25 @@ class GeminiEmbedding(EmbeddingProvider):
         try:
             truncated = [self.truncate_text(t) for t in texts]
             
-            result = genai.embed_content(
-                model=self.MODEL,
-                content=truncated,
-                task_type="RETRIEVAL_DOCUMENT"
-            )
-            
-            # embed_content returns list of embeddings for list input
-            embeddings = result['embedding']
-            
-            # Handle single vs batch response format
-            if texts and isinstance(embeddings[0], float):
-                # Single text returned flat list
-                return [embeddings]
+            if NEW_SDK_AVAILABLE:
+                # New SDK API
+                result = client.models.embed_content(
+                    model=self.MODEL,
+                    contents=truncated,
+                    config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT")
+                )
+                embeddings = [list(e.values) for e in result.embeddings]
+            else:
+                # Legacy SDK API
+                result = genai_legacy.embed_content(
+                    model=f"models/{self.MODEL}",
+                    content=truncated,
+                    task_type="RETRIEVAL_DOCUMENT"
+                )
+                embeddings = result['embedding']
+                # Handle single vs batch response format
+                if truncated and isinstance(embeddings[0], float):
+                    embeddings = [embeddings]
             
             logger.debug(f"Generated {len(embeddings)} embeddings")
             return embeddings
@@ -113,14 +142,25 @@ class GeminiEmbedding(EmbeddingProvider):
         try:
             truncated = self.truncate_text(query)
             
-            result = genai.embed_content(
-                model=self.MODEL,
-                content=truncated,
-                task_type="RETRIEVAL_QUERY"
-            )
-            
-            return result['embedding']
+            if NEW_SDK_AVAILABLE:
+                # New SDK API
+                result = client.models.embed_content(
+                    model=self.MODEL,
+                    contents=truncated,
+                    config=types.EmbedContentConfig(task_type="RETRIEVAL_QUERY")
+                )
+                return list(result.embeddings[0].values)
+            else:
+                # Legacy SDK API
+                result = genai_legacy.embed_content(
+                    model=f"models/{self.MODEL}",
+                    content=truncated,
+                    task_type="RETRIEVAL_QUERY"
+                )
+                return result['embedding']
             
         except Exception as e:
             logger.error(f"Gemini query embedding failed: {e}")
+            raise
+
             raise

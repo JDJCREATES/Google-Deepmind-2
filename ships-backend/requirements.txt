@@ -9,7 +9,7 @@ xgboost
 sckikit-learn
 pandas
 numpy
-google-generativeai
+google-genai
 langchain-google-genai
 langchain-core
 python-dotenv
