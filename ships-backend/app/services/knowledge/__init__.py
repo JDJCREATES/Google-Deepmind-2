@@ -35,12 +35,19 @@ from app.services.knowledge.integration import (
     FixerKnowledge,
     CoderKnowledge,
 )
+from app.services.knowledge.hooks import (
+    capture_coder_pattern,
+    capture_fixer_success,
+)
 
 __all__ = [
     # Agent-specific integration
     "FixerKnowledge",
     "CoderKnowledge",
     "KnowledgeIntegration",  # Legacy
+    # Graph hooks
+    "capture_coder_pattern",
+    "capture_fixer_success",
     # Capture
     "capture_successful_fix",
     "capture_successful_pattern",

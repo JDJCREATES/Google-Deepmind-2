@@ -92,15 +92,20 @@ async def capture_successful_fix(
         user_reverted=user_reverted,
     )
     
+    logger.info(f"[CAPTURE] 🎯 Starting fix capture for session {session_id[:20]}...")
+    logger.info(f"[CAPTURE] 📊 Before: {len(before_errors)} errors → After: {len(after_errors)} errors")
+    
     # Run validation gates
     validation = validate_for_capture(context)
     
     if not validation.passed:
         logger.info(
-            f"Capture rejected: {validation.reason} "
+            f"[CAPTURE] ❌ Rejected: {validation.reason} "
             f"(gates failed: {validation.gates_failed})"
         )
         return None
+    
+    logger.info(f"[CAPTURE] ✅ Validation passed! Confidence: {validation.confidence:.2f}")
     
     # Normalize error
     error_sig = normalize_error(error_message)
@@ -117,17 +122,20 @@ async def capture_successful_fix(
         existing.increment_success()
         await db.commit()
         logger.info(
-            f"Merged with existing entry {existing.id} "
+            f"[CAPTURE] 🔄 Merged with existing entry {existing.id} "
             f"(success_count now {existing.success_count})"
         )
         return existing
+    
+    logger.info(f"[CAPTURE] 🆕 Creating new entry (no duplicate found)")
     
     # Generate embedding for new entry
     try:
         embedding_text = f"{error_sig} {tech_stack} {solution_description}"
         context_embedding = await embed(embedding_text)
+        logger.info(f"[CAPTURE] 🧠 Embedding generated ({len(context_embedding) if context_embedding else 0} dims)")
     except Exception as e:
-        logger.error(f"Embedding generation failed: {e}")
+        logger.error(f"[CAPTURE] ⚠️ Embedding generation failed: {e}")
         context_embedding = None
     
     # Extract pattern from solution
@@ -154,7 +162,7 @@ async def capture_successful_fix(
     await db.refresh(entry)
     
     logger.info(
-        f"Captured new knowledge entry {entry.id} "
+        f"[CAPTURE] 💾 SAVED: {entry.id} "
         f"(confidence: {entry.confidence:.2f}, tech: {tech_stack})"
     )
     

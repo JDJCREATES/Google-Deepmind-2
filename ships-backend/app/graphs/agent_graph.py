@@ -44,6 +44,9 @@ from app.agents.sub_agents.planner.formatter import (
 )
 from app.core.cache import cache_manager # Explicit Caching
 
+# Collective Intelligence - capture successful patterns and fixes
+from app.services.knowledge.hooks import capture_coder_pattern, capture_fixer_success
+
 
 
 # ============================================================================
@@ -89,6 +92,9 @@ class AgentGraphState(TypedDict):
     
     plan: Dict[str, Any]          # The parsed plan (goal, steps, files)
     completed_files: List[str]    # List of files successfully written
+    
+    # Collective Intelligence: pending fix to capture after validation passes
+    pending_fix_context: Optional[Dict[str, Any]]
     active_file: Optional[str]    # File currently being edited
     project_structure: List[str]  # Cached file tree summary
     error_log: List[str]          # Recent errors to avoid repeating
@@ -417,6 +423,29 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
         
         if validation_passed:
             logger.info(f"[VALIDATOR] ✅ All {violation_count} checks passed")
+            
+            # ===== COLLECTIVE INTELLIGENCE: Capture fix if this validated a fix =====
+            pending_fix = state.get("pending_fix_context")
+            if pending_fix:
+                try:
+                    session_id = state.get("thread_id") or state.get("config", {}).get("configurable", {}).get("thread_id")
+                    user_id = state.get("user_id")
+                    
+                    captured = await capture_fixer_success(
+                        state=state,
+                        error_message=pending_fix.get("error_message", ""),
+                        solution_code=pending_fix.get("solution_code", ""),
+                        solution_description=pending_fix.get("description", ""),
+                        diff=pending_fix.get("diff", ""),
+                        before_errors=pending_fix.get("before_errors", []),
+                        session_id=session_id,
+                        user_id=user_id,
+                    )
+                    if captured:
+                        logger.info("[VALIDATOR] 🔧 Fix captured for Collective Intelligence")
+                except Exception as e:
+                    logger.debug(f"[VALIDATOR] Fix capture skipped: {e}")
+            # =================================================================
         else:
             logger.info(f"[VALIDATOR] ❌ Failed at layer: {failure_layer} ({violation_count} violations)")
         
@@ -437,6 +466,7 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
             "phase": "validating",
             "error_log": error_log,
             "artifacts": merged_artifacts,
+            "pending_fix_context": None,  # Clear after capture attempt
             "agent_status": {
                 "status": "pass" if validation_passed else "fail",
                 "failure_layer": failure_layer,
@@ -508,9 +538,26 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
                 "messages": [AIMessage(content=f"Escalating to planner: {reason}")]
             }
         
+        # ===== COLLECTIVE INTELLIGENCE: Store fix context for capture =====
+        # Extract error and fix info for capture after validation passes
+        fix_artifacts = result.get("artifacts", {})
+        fix_patch = fix_artifacts.get("fix_patch", {})
+        validation_report = artifacts.get("validation_report", {})
+        
+        pending_fix_context = {
+            "error_message": validation_report.get("fixer_instructions", "")[:500] or 
+                            str(state.get("error_log", [])[-1] if state.get("error_log") else ""),
+            "solution_code": fix_patch.get("summary", ""),
+            "description": result.get("summary", f"Fix attempt {fix_attempts}"),
+            "diff": fix_patch.get("unified_diff", ""),
+            "before_errors": [str(v.get("message", "")) for v in validation_report.get("violations", [])][:10],
+        }
+        # ==================================================================
+        
         return {
             "fix_attempts": fix_attempts,
             "phase": "validating",  # Go back to validation after fix
+            "pending_fix_context": pending_fix_context,
             "agent_status": {"status": "fixed", "attempt": fix_attempts},
             "messages": [AIMessage(content=f"Fix applied (attempt {fix_attempts})")]
         }
@@ -750,6 +797,22 @@ async def complete_node(state: AgentGraphState) -> Dict[str, Any]:
         # Static HTML project
         preview_url = f"file://{index_html}"
         logger.info(f"[COMPLETE] 📄 Static HTML at: {preview_url}")
+    
+    # ===== COLLECTIVE INTELLIGENCE: Capture successful pattern =====
+    try:
+        session_id = state.get("thread_id") or state.get("config", {}).get("configurable", {}).get("thread_id")
+        user_id = state.get("user_id")
+        
+        captured = await capture_coder_pattern(
+            state=state,
+            session_id=session_id,
+            user_id=user_id,
+        )
+        if captured:
+            logger.info("[COMPLETE] 📚 Pattern captured for Collective Intelligence")
+    except Exception as e:
+        logger.debug(f"[COMPLETE] Pattern capture skipped: {e}")
+    # ================================================================
     
     return {
         "phase": "complete",
