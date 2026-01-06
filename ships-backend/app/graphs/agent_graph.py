@@ -722,6 +722,92 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
             
     fix_attempts = state.get("fix_attempts", 0)
     
+    # ================================================================
+    # INTENT CLASSIFICATION: Use IntentClassifier mini-agent
+    # ================================================================
+    from app.agents.mini_agents.intent_classifier import IntentClassifier
+    
+    is_new_intent = False
+    messages = state.get("messages", [])
+    user_request = ""
+    
+    # Get FIRST user message (the current request)
+    for msg in messages:
+        if hasattr(msg, 'content') and msg.__class__.__name__ in ['HumanMessage', 'HumanMessageChunk']:
+            user_request = str(msg.content).strip()
+            break
+    
+    # Classify current intent
+    current_intent = None
+    if user_request:
+        try:
+            classifier = IntentClassifier()
+            # Load folder_map for context if available
+            folder_map_data = None
+            if project_path:
+                folder_map_path = Path(project_path) / ".ships" / "folder_map.json"
+                if folder_map_path.exists():
+                    import json
+                    folder_map_data = json.loads(folder_map_path.read_text(encoding='utf-8'))
+            
+            current_intent = await classifier.classify(user_request, folder_map=folder_map_data)
+            logger.info(f"[ORCHESTRATOR] 🎯 Intent classified: {current_intent.task_type}/{current_intent.action} (conf: {current_intent.confidence:.2f})")
+            
+        except Exception as e:
+            logger.warning(f"[ORCHESTRATOR] Intent classification failed: {e}")
+    
+    # Check if this is a NEW feature/modify request vs continuing previous work
+    if project_path and plan_exists and current_intent:
+        # New feature/modify requests should trigger re-planning
+        if current_intent.task_type in ['feature', 'modify', 'refactor']:
+            plan_manifest_path = Path(project_path) / ".ships" / "plan_manifest.json"
+            if plan_manifest_path.exists():
+                try:
+                    import json
+                    manifest = json.loads(plan_manifest_path.read_text(encoding='utf-8'))
+                    planned_goal = manifest.get('user_goal', '') or manifest.get('intent_summary', '')
+                    planned_description = manifest.get('description', '')
+                    
+                    # Compare intent descriptions
+                    current_desc = current_intent.description.lower()
+                    planned_combined = f"{planned_goal} {planned_description}".lower()
+                    
+                    # Check if key terms from current request are absent in old plan
+                    current_keywords = set(w for w in current_desc.split() if len(w) > 3)
+                    planned_keywords = set(w for w in planned_combined.split() if len(w) > 3)
+                    
+                    overlap = len(current_keywords & planned_keywords)
+                    coverage = overlap / len(current_keywords) if current_keywords else 1.0
+                    
+                    # Less than 50% keyword coverage = likely new intent
+                    if coverage < 0.5:
+                        is_new_intent = True
+                        logger.info(f"[ORCHESTRATOR] 🆕 NEW INTENT detected (keyword coverage: {coverage:.1%})")
+                        logger.info(f"[ORCHESTRATOR]    Type: {current_intent.task_type}, Action: {current_intent.action}")
+                        logger.info(f"[ORCHESTRATOR]    Description: {current_intent.description[:60]}...")
+                        
+                except Exception as e:
+                    logger.warning(f"[ORCHESTRATOR] Could not compare intents: {e}")
+    
+    # If new intent, version old artifacts and force re-plan
+    if is_new_intent and project_path:
+        logger.info("[ORCHESTRATOR] 🔄 Versioning old plan artifacts...")
+        ships_dir = Path(project_path) / ".ships"
+        import shutil
+        from datetime import datetime
+        version_suffix = datetime.now().strftime("_%Y%m%d_%H%M%S")
+        
+        for artifact_name in ["plan_manifest", "task_list", "folder_map", "implementation_plan"]:
+            for ext in [".json", ".md"]:
+                artifact_file = ships_dir / f"{artifact_name}{ext}"
+                if artifact_file.exists():
+                    versioned = ships_dir / f"{artifact_name}{version_suffix}{ext}"
+                    shutil.copy2(artifact_file, versioned)
+        
+        # Mark plan as needing refresh
+        plan_exists = False
+        logger.info("[ORCHESTRATOR] ✓ Old artifacts versioned, forcing re-plan")
+    
     # 2. Build Decision Prompt
     system_prompt = f"""<role>
 You are the Master Orchestrator. You decide which agent runs next.
@@ -733,12 +819,14 @@ FILES COMPLETED: {len(completed_files)}
 FIX ATTEMPTS: {fix_attempts}
 PLAN EXISTS: {plan_exists}
 SCAFFOLDING DONE: {scaffolding_done}
+NEW FEATURE REQUEST: {is_new_intent}
 </state>
 
 <rules>
 1. If PHASE is "planning":
+   - If NEW FEATURE REQUEST is True -> call_planner (ALWAYS re-plan for new features!)
    - If plan missing OR scaffolding NOT done -> call_planner
-   - If plan ready AND scaffolding done -> call_coder
+   - If plan ready AND scaffolding done AND NOT new feature -> call_coder
 2. If PHASE is "plan_ready" -> call_coder
 3. If PHASE is "coding" (and files remain) -> call_coder
 4. If PHASE is "validating" -> call_validator

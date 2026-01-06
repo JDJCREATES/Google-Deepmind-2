@@ -749,16 +749,26 @@ function App() {
              />
           </div>
           
-          {/* Tool progress card (History) */}
-          {toolEvents.length > 0 && (
-            <ToolProgress 
-              events={toolEvents} 
-              isCollapsed={agentPhase === 'done' || agentPhase === 'idle'}
-            />
-          )}
-          
           <div ref={messagesEndRef} />
         </div>
+
+        {/* Files Created Progress - Above Input */}
+        {toolEvents.length > 0 && (
+          <ToolProgress 
+            events={toolEvents} 
+            isCollapsed={agentPhase === 'done' || agentPhase === 'idle'}
+            onFileClick={(filePath: string) => {
+              // Open file in Monaco editor
+              if (filePath) {
+                const fullPath = electronProjectPath 
+                  ? `${electronProjectPath}/${filePath}`.replace(/\\/g, '/')
+                  : filePath;
+                setCurrentFile(fullPath);
+                console.log('[App] Opening file in editor:', fullPath);
+              }
+            }}
+          />
+        )}
 
         <div className="chat-input-container">
           <textarea

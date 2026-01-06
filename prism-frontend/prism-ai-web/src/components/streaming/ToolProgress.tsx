@@ -22,6 +22,7 @@ interface ToolProgressProps {
   events: ToolEvent[];
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
+  onFileClick?: (filePath: string) => void;
 }
 
 // Map tool names to icons
@@ -58,7 +59,7 @@ const getToolDisplayName = (tool: string): string => {
   }
 };
 
-export function ToolProgress({ events, isCollapsed = false, onToggleCollapse }: ToolProgressProps) {
+export function ToolProgress({ events, isCollapsed = false, onToggleCollapse, onFileClick }: ToolProgressProps) {
   const [expanded, setExpanded] = useState(!isCollapsed);
   
   // Sync state with prop if it changes (e.g., auto-collapse on done)
@@ -117,7 +118,12 @@ export function ToolProgress({ events, isCollapsed = false, onToggleCollapse }: 
           {Array.from(fileResults.values()).map((event, idx) => (
             <div 
               key={event.id || idx} 
-              className={`tool-progress-item ${event.success ? 'success' : 'error'}`}
+              className={`tool-progress-item ${event.success ? 'success' : 'error'} ${onFileClick && event.file ? 'clickable' : ''}`}
+              onClick={() => {
+                if (onFileClick && event.file) {
+                  onFileClick(event.file);
+                }
+              }}
             >
               <span className="tool-item-status">
                 {event.success ? (
