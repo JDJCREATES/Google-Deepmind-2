@@ -16,7 +16,6 @@ from .context import get_project_root, is_path_safe
 
 # Try to import tree-sitter, handle missing gracefully
 try:
-    from tree_sitter import Language, Parser
     import tree_sitter_languages
     TREE_SITTER_AVAILABLE = True
 except ImportError:
@@ -65,10 +64,9 @@ def _get_symbols_from_file(file_path: Path) -> List[str]:
         return []
         
     try:
-        # Load language and parser
+        # Use get_parser() which handles Language/Parser compatibility
+        parser = tree_sitter_languages.get_parser(lang_name)
         language = tree_sitter_languages.get_language(lang_name)
-        parser = Parser()
-        parser.set_language(language)
         
         # Read file
         content = file_path.read_bytes()

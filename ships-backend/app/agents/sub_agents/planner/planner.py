@@ -578,19 +578,43 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
                 task_list.add_task(new_task)
     
     def _enrich_folder_map(self, folder_map: FolderMap, llm_plan: Dict[str, Any]) -> None:
-        """Enrich folder map with LLM insights."""
-        llm_folders = llm_plan.get("folders", [])
+        """Enrich folder map with LLM insights - folders AND files from tasks."""
+        from app.agents.sub_agents.planner.models import FolderEntry
+        
         existing_paths = {e.path for e in folder_map.entries}
         
+        # 1. Add folders from LLM 'folders' array
+        llm_folders = llm_plan.get("folders", [])
         for folder in llm_folders:
             path = folder.get("path", "")
             if path and path not in existing_paths:
-                from app.agents.sub_agents.planner.models import FolderEntry
                 folder_map.entries.append(FolderEntry(
                     path=path,
                     is_directory=folder.get("is_directory", True),
                     description=folder.get("description", "")
                 ))
+                existing_paths.add(path)
+        
+        # 2. Extract FILES from tasks' expected_outputs
+        llm_tasks = llm_plan.get("tasks", [])
+        for task in llm_tasks:
+            outputs = task.get("expected_outputs", [])
+            for output in outputs:
+                # output can be {"path": "src/...", "type": "file"} or just a string
+                if isinstance(output, dict):
+                    file_path = output.get("path", "")
+                elif isinstance(output, str):
+                    file_path = output
+                else:
+                    continue
+                    
+                if file_path and file_path not in existing_paths:
+                    folder_map.entries.append(FolderEntry(
+                        path=file_path,
+                        is_directory=False,  # These are FILES
+                        description=f"From task: {task.get('title', 'Unknown')}"
+                    ))
+                    existing_paths.add(file_path)
     
     def _enrich_api_contracts(self, api_contracts: APIContracts, llm_plan: Dict[str, Any]) -> None:
         """Enrich API contracts with LLM insights."""

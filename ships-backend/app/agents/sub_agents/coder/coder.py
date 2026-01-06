@@ -753,8 +753,12 @@ IMPORTANT:
                 # Track tool calls for file writes
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:
                     for tc in msg.tool_calls:
-                        if tc.get("name") == "write_file_to_disk":
-                            path = tc.get("args", {}).get("file_path", "")
+                        # Handle both dict and TypedDict access patterns
+                        tc_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
+                        tc_args = tc.get("args", {}) if isinstance(tc, dict) else getattr(tc, "args", {})
+                        
+                        if tc_name == "write_file_to_disk":
+                            path = tc_args.get("file_path", "") if isinstance(tc_args, dict) else ""
                             if path:
                                 files_written.append(path)
             
