@@ -124,7 +124,7 @@ class PreviewManager:
 
     def _kill_processes_by_path(self, project_path: str):
         """
-        Aggressively kills all node.exe processes running from the given project path
+        Aggressively kills all node.exe and npm.exe processes running from the given project path
         using PowerShell and WMI. This is required because npm often spawns detached 
         child processes (vite, node) that survive simple termination.
         """
@@ -133,22 +133,21 @@ class PreviewManager:
             # We want to match command lines containing this path.
             normalized_path = project_path.replace("\\", "\\\\")
             
-            # PowerShell command:
-            # 1. Get all processes named 'node'
-            # 2. Filter where CommandLine contains the project path
-            # 3. For each match, kill by ID explicitly (more robust than Invoke-CimMethod)
-            ps_command = (
-                f"Get-CimInstance Win32_Process -Filter \"Name = 'node.exe'\" | "
-                f"Where-Object {{ $_.CommandLine -like '*{normalized_path}*' }} | "
-                f"ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}"
-            )
-            
-            subprocess.run(
-                ["powershell", "-NoProfile", "-Command", ps_command],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                create_new_console=True 
-            )
+            # PowerShell command - kill both node.exe AND npm.exe
+            # Also kill any process on the dev server port
+            for process_name in ['node.exe', 'npm.exe', 'npx.exe']:
+                ps_command = (
+                    f"Get-CimInstance Win32_Process -Filter \"Name = '{process_name}'\" | "
+                    f"Where-Object {{ $_.CommandLine -like '*{normalized_path}*' }} | "
+                    f"ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}"
+                )
+                
+                subprocess.run(
+                    ["powershell", "-NoProfile", "-Command", ps_command],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5
+                )
         except Exception as e:
             print(f"Failed to execute aggressive process kill: {e}")
         

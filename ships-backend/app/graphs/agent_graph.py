@@ -862,18 +862,14 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
     PRIORITY 1: Questions
     - If USER QUESTION is True -> call_chat
     
-    PRIORITY 2: Planning & Review
+    PRIORITY 2: Planning & Execution (AUTONOMOUS MODE)
     - If PHASE is "planning":
        - If NEW FEATURE REQUEST is True -> call_planner (ALWAYS re-plan)
        - If plan missing OR scaffolding NOT done -> call_planner
-       - If plan ready AND scaffolding done:
-           - If USER CONFIRMATION is True -> call_coder (Proceed!)
-           - If USER CONFIRMATION is False -> finish (PAUSE for user review!)
-           
+       - If plan ready AND scaffolding done -> call_coder (AUTO-PROCEED!)
+       
     PRIORITY 3: Execution
-    - If PHASE is "plan_ready":
-       - If USER CONFIRMATION is True -> call_coder
-       - Else -> finish (Wait for approval)
+    - If PHASE is "plan_ready" -> call_coder (NO PAUSING - just build!)
     - If PHASE is "coding" (and files remain) -> call_coder
     
     PRIORITY 4: Validation & Fixes
@@ -882,6 +878,9 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
     - If Validation Passed -> finish
     - If PHASE is "fixing_failed" -> call_planner
     - If Fixer failed > 3 times -> finish
+    
+    NOTE: HITL (Human-in-the-Loop) is DISABLED for routine builds.
+    Only pause for critical architectural decisions (not implemented yet).
     </rules>
     
     <output_format>

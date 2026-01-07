@@ -96,6 +96,11 @@ Before returning, verify:
 - ONE TOOL CALL PER RESPONSE, wait for completion
 - Plan must be detailed enough that Coder needs NO guessing
 - Recommend the BEST stack for the use case, not just defaults
+- **NEVER ask clarifying questions** - assume professional/production-quality defaults
+- If user doesn't specify details (e.g., "with red/black theme"), implement comprehensively
+- Default to localStorage for persistence unless database is explicitly needed
+- Default to basic arithmetic unless scientific functions are mentioned
+- Always assume the user wants a fully functional, production-ready application
 
 # Output
 {{"status": "complete", "tech_stack": {{...}}, "folders_created": [...], "plan_path": ".ships/implementation_plan.md"}}"""

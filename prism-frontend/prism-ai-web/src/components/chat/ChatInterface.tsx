@@ -78,6 +78,21 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
     syncExistingPreview();
   }, []);
 
+  // Cleanup on page unload - stop dev server to prevent orphan processes
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Use sendBeacon for reliable delivery during unload
+      const url = `${API_URL}/preview/stop`;
+      navigator.sendBeacon(url);
+    };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [API_URL]);
+
   const handleSendMessage = async () => {
     if (!inputValue.trim()) return;
 
@@ -185,19 +200,24 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
           const taskCount = (chunk as any).task_count || 0;
           const folderCount = (chunk as any).folders || 0;
           
+          const planText = `📋 **${summary}**\n• ${taskCount} tasks defined\n• ${folderCount} folders to create`;
+          
           setMessages(prev => prev.map(msg => {
             if (msg.id === aiMessageId) {
-              const planText = `📋 **Plan Created:** ${summary}\n• ${taskCount} tasks defined\n• ${folderCount} folders structured`;
               return { 
                 ...msg, 
-                content: msg.content + (msg.content ? '\n\n' : '') + planText
+                content: planText
               };
             }
             return msg;
           }));
+          
+          // Show Accept/Reject buttons
+          setAwaitingConfirmation(true, `Ready to implement: ${summary}`);
+          setActivity('Plan ready - awaiting your approval', 'thinking');
         }
         
-        // Plan Review (HITL)
+        // Plan Review (HITL) - fallback for direct plan_review events
         else if (chunk.type === 'plan_review') {
           const summary = chunk.content || 'Ready to proceed with implementation.';
           setAwaitingConfirmation(true, summary);

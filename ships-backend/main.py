@@ -349,31 +349,59 @@ async def run_agent(request: Request, body: PromptRequest):
                             skip_patterns = [
                                 text.startswith('{') and text.endswith('}'),  # JSON objects
                                 text.startswith('[') and text.endswith(']'),  # JSON arrays
+                                text.startswith('```'),  # Code blocks
+                                '"task_type"' in text,  # Intent classifier output
+                                '"observations"' in text,  # Orchestrator output
+                                '"summary"' in text and '"tasks"' in text,  # Planner output
+                                '"decision"' in text and '"reasoning"' in text,  # Orchestrator decision
                                 'function_call' in text.lower(),
                                 'tool_calls' in text.lower(),
                                 'ACTION REQUIRED' in text,
                                 'MANDATORY FIRST STEP' in text,
                                 'SCAFFOLDING CHECK' in text,
-                                '```json' in text and len(text) < 500,  # Short JSON blocks
                             ]
                             
                             if any(skip_patterns):
+                                # Special case: If this is planner output, extract summary for plan_created event
+                                if '"summary"' in text and '"tasks"' in text:
+                                    try:
+                                        import json as json_mod
+                                        # Try to parse and emit plan_created
+                                        parsed = json_mod.loads(text)
+                                        if isinstance(parsed, dict) and 'summary' in parsed:
+                                            task_count = len(parsed.get('tasks', []))
+                                            folder_count = len(parsed.get('folders', []))
+                                            yield json.dumps({
+                                                "type": "plan_created",
+                                                "summary": parsed.get('summary', 'Plan created'),
+                                                "task_count": task_count,
+                                                "folders": folder_count
+                                            }) + "\n"
+                                            logger.info(f"[STREAM] Emitted plan_created: {parsed.get('summary', '')[:50]}...")
+                                    except:
+                                        pass
+                                        
                                 logger.debug(f"[STREAM] Filtered internal content from {node_name}")
                                 continue
                             
-                            # Stream text to frontend
-                            yield json.dumps({
-                                "type": "message",
-                                "node": node_name,
-                                "content": text
-                            }) + "\n"
+                            # Only stream content from chat node (Q&A responses)
+                            # Other nodes (planner, coder, orchestrator) output is internal
+                            if node_name.lower() in ['chat', 'chatter']:
+                                yield json.dumps({
+                                    "type": "message",
+                                    "node": node_name,
+                                    "content": text
+                                }) + "\n"
+                            else:
+                                # Log but don't stream non-chat AI text
+                                logger.debug(f"[STREAM] Non-chat content from {node_name}: {text[:100]}...")
                             
                         # Handle list content (Gemini sometimes returns list of dicts)
                         elif isinstance(content, list):
                             for item in content:
                                 if isinstance(item, dict) and 'text' in item:
                                     text = item['text'].strip()
-                                    if text:
+                                    if text and node_name.lower() in ['chat', 'chatter']:
                                         yield json.dumps({
                                             "type": "message",
                                             "node": node_name,
