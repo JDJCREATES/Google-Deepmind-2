@@ -69,10 +69,10 @@ class LLMFactory:
             thinking_level = "medium"
             
         elif agent_type == "planner":
-            # Planning needs good reasoning for architecture
+            # Planning needs high reasoning for architecture decisions
             model_name = MODEL_FLASH
             temperature = 1.0  # Per Gemini 3 guidance
-            thinking_level = "medium"
+            thinking_level = "high"  # Upgraded from medium for better plans
             
         elif agent_type == "coder":
             # Code generation needs high reasoning for correctness

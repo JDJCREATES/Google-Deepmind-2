@@ -202,10 +202,57 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
         
         logger.info(f"[PLANNER] ✅ Planner completed")
         
+        # ==================================================================
+        # PLAN VALIDATION (Dynamic, no hardcoded rules)
+        # ==================================================================
+        from app.agents.sub_agents.planner.validator import PlanValidator
+        
+        # Check if plan needs validation (skip if retrying > 2 times)
+        plan_iteration = artifacts.get("plan_iteration", 0)
+        plan_data = result.get("artifacts", {}).get("plan", {})
+        
+        if plan_iteration < 2 and plan_data:
+            logger.info(f"[PLANNER] 🔍 Validating plan (iteration {plan_iteration + 1}/2)")
+            
+            validator = PlanValidator()
+            validation = validator.validate(
+                plan_data=plan_data,
+                user_request=user_request
+            )
+            
+            if validation.status == "needs_revision":
+                logger.warning(f"[PLANNER] ⚠️ Plan needs revision (score: {validation.score})")
+                logger.warning(f"[PLANNER] Missing: {validation.missing_items}")
+                
+                # Return with retry flag + previous plan for editing
+                return {
+                    "phase": "planning",  # Stay in planning phase
+                    "artifacts": {
+                        **artifacts,
+                        "plan_iteration": plan_iteration + 1,
+                        "validation_feedback": validation.suggestions,
+                        "previous_plan": plan_data,  # Pass for incremental editing
+                        "retry_reason": "plan_incomplete"
+                    },
+                    "messages": [AIMessage(content=f"Plan needs revision. Issues: {', '.join(validation.missing_items[:3])}")]
+                }
+            else:
+                logger.info(f"[PLANNER] ✅ Plan validated (score: {validation.score})")
+        
+        # ==================================================================
+        # END VALIDATION
+        # ==================================================================
+        
         # Merge planner artifacts with existing artifacts
         merged_artifacts = {**artifacts}
         if "artifacts" in result:
             merged_artifacts.update(result["artifacts"])
+        
+        # Clear retry state on success
+        merged_artifacts.pop("plan_iteration", None)
+        merged_artifacts.pop("validation_feedback", None)
+        merged_artifacts.pop("previous_plan", None)  # Don't carry over to next request
+        merged_artifacts.pop("retry_reason", None)
         
         # SAVE ARTIFACTS TO DISK (For Frontend Persistence)
         if project_path:

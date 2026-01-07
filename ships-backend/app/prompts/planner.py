@@ -84,7 +84,7 @@ Route, Method, Request/Response shapes
 {deps}
 
 ## You can create one or two extra sections if it'll help the coder with this task 
-{detailed task relevant sections}
+[detailed task relevant sections - your choice]
 ```
 
 ### Step 6: SELF-VALIDATE

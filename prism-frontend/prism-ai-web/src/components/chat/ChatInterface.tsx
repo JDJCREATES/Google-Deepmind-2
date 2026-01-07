@@ -3,7 +3,7 @@ import { PiShippingContainerFill } from "react-icons/pi";
 import { RiShip2Fill } from 'react-icons/ri';
 import { VscLayoutSidebarRightOff } from 'react-icons/vsc';
 
-import ChatMessage, { type Message } from '../ChatMessage';
+import ChatMessage, { type Message } from './ChatMessage';
 import { agentService, type AgentChunk } from '../../services/agentService';
 import { ToolProgress, PhaseIndicator } from '../streaming';
 import { ActivityIndicator } from '../streaming/ActivityIndicator';

@@ -4,7 +4,7 @@ ShipS* Planner Agent
 The Planner converts validated Intent Specs into actionable Plan artifacts.
 It is the translator from intent → artifact-first execution plan.
 
-Uses Gemini 3 Pro for complex planning with streaming support.
+Uses Gemini 3 Flash preview for complex planning with streaming support.
 
 Responsibilities:
 - Translate intent into scope-limited, prioritized tasks
@@ -146,7 +146,7 @@ class Planner(BaseAgent):
         # Tools
         self.tools = PlannerTools()
     
-    def _get_system_prompt(self) -> str:
+    def _get_system_prompt(self, artifacts: Dict[str, Any] = None) -> str:
         """Get the system prompt with project-type-specific conventions injected."""
         # Get base prompt with conventions for this project type
         base_prompt = build_planner_prompt(self.current_project_type)
@@ -173,7 +173,40 @@ OUTPUT: Produce JSON with tasks, folders, api_endpoints, dependencies, risks.
 
 REMEMBER: Fewer than 4 tasks = WRONG. Break it down further!"""
         
-        return base_prompt + task_rules
+        # Add validation feedback if retrying
+        feedback_section = ""
+        if artifacts:
+            validation_feedback = artifacts.get("validation_feedback", [])
+            previous_plan = artifacts.get("previous_plan")  # Get previous attempt
+            
+            if validation_feedback and previous_plan:
+                # Format previous plan for context
+                plan_summary = previous_plan.get("summary", "")
+                task_count = len(previous_plan.get("tasks", []))
+                
+                feedback_section = f"""
+
+# INCREMENTAL EDIT MODE (Fix Existing Plan)
+
+Your previous plan needs minor improvements. DO NOT regenerate from scratch.
+Instead, EDIT the existing plan to address the issues below.
+
+PREVIOUS PLAN SUMMARY:
+{plan_summary}
+({task_count} tasks defined)
+
+ISSUES TO FIX:
+{chr(10).join(f"- {item}" for item in validation_feedback)}
+
+INSTRUCTIONS:
+1. Keep the good parts of the previous plan
+2. Add/modify ONLY what's needed to address the issues above
+3. Maintain consistency with existing structure
+
+EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
+"""
+        
+        return base_prompt + task_rules + feedback_section
     
     def set_project_type(self, project_type: str) -> None:
         """Update project type and regenerate system prompt."""
@@ -243,10 +276,22 @@ REMEMBER: Fewer than 4 tasks = WRONG. Break it down further!"""
         
         # ================================================================
         # SCAFFOLDING DETECTION: Check if project needs setup
-        # ================================================================
+        # ================================================================        # Build environment context
         project_path = environment.get("project_path") if environment else None
-        user_request = intent.get("description", "")
+        file_tree = environment.get("file_tree", {}) if environment else {}
         
+        logger.info(f"[PLANNER.plan] 📋 Planning for request: {intent.get('description', 'N/A')[:100]}...")
+        
+        # Get the system prompt (with validation feedback if retrying)
+        # Pass artifacts from state for incremental editing
+        planner_artifacts = {}
+        if intent and isinstance(intent, dict):
+            planner_artifacts = {
+                "validation_feedback": intent.get("validation_feedback"),
+                "previous_plan": intent.get("previous_plan"),
+            }
+        
+        self.system_prompt = self._get_system_prompt(artifacts=planner_artifacts)
         scaffolding_result = self.tools.analyze_project_for_scaffolding(
             project_path, 
             user_request
