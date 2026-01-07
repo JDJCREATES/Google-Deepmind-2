@@ -2,7 +2,7 @@ import './FeatureTimeline.css'
 import featureTypes from '../featureTypes.ts'
 import { useState, useEffect, useMemo } from 'react'
 
-const FeatureTimeline = ( props: featureTypes ) => {
+const FeatureTimeline = ({props}: {props: featureTypes } ) => {
   const [expandedNodes, setExpandedNodes] = useState(new Set());
   
   const toggleNode = (nodeId: ) => {

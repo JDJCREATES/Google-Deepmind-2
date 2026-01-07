@@ -1,3 +1,13 @@
+**1-7-26** 
+
+[] address comments/incomplete code in app.tsx
+
+[] fully implement ShipS*Tips tooltip helper for an easier UX
+
+[] Test, test, and test!
+  > Contemplate why i chose an agentic coding project 🤔 
+
+
 **1-1-26** HAPPY NEW YEAR JDJ..
 
 [x] fix coder ✅ DONE 
@@ -20,8 +30,8 @@
 
 **12-31-25**
 
-[] Update manually coded components to use onsen ui
-  > Also why two terminal components? is xterm only one used?
+[x] Update manually coded components to use onsen ui
+  > ~~Also why two terminal components? is xterm only one used?~~
   > Fix xterm scrolling/interactivity 
 
 [] Create settings menu UI with onsen

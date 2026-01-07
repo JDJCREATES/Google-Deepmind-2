@@ -1,9 +1,9 @@
 export interface featureTypes {
   name: string;
   stepCount: number;
-  featureType: string; //auth, backend etc
+  featureType: 'auth' | 'api' | ;
   
-  taskList: [string]; //neds to sync with task list system
+  taskList: [string]; //needs to sync with task list system
   
   
 }
