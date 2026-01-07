@@ -7,7 +7,7 @@
  */
 
 export interface AgentChunk {
-  type: 'message' | 'phase' | 'error' | 'tool_start' | 'tool_result' | 'files_created' | 'terminal_output' | 'complete' | 'plan_created';
+  type: 'message' | 'phase' | 'error' | 'tool_start' | 'tool_result' | 'files_created' | 'terminal_output' | 'complete' | 'plan_created' | 'plan_review';
   node?: string;
   content?: string;
   phase?: 'idle' | 'planning' | 'coding' | 'validating' | 'fixing' | 'done' | 'error';

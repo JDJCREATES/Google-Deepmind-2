@@ -7,6 +7,7 @@ import ChatMessage, { type Message } from '../ChatMessage';
 import { agentService, type AgentChunk } from '../../services/agentService';
 import { ToolProgress, PhaseIndicator } from '../streaming';
 import { ActivityIndicator } from '../streaming/ActivityIndicator';
+import { PlanReviewActions } from '../streaming/PlanReviewActions';
 import { useStreamingStore } from '../../store/streamingStore';
 import { useFileSystem } from '../../store/fileSystem';
 
@@ -41,7 +42,8 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
     toolEvents, addToolEvent, clearToolEvents,
     agentPhase, setPhase,
     currentActivity, activityType, setActivity,
-    appendTerminalOutput, setShowTerminal
+    appendTerminalOutput, setShowTerminal,
+    awaitingConfirmation, planSummary, setAwaitingConfirmation
   } = useStreamingStore();
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
@@ -94,6 +96,7 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
     setPhase('planning');
     clearToolEvents();
     setActivity('Initializing...', 'thinking');
+    setAwaitingConfirmation(false);
 
     // Placeholder AI message
     const aiMessageId = (Date.now() + 1).toString();
@@ -194,6 +197,13 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
           }));
         }
         
+        // Plan Review (HITL)
+        else if (chunk.type === 'plan_review') {
+          const summary = chunk.content || 'Ready to proceed with implementation.';
+          setAwaitingConfirmation(true, summary);
+          setActivity('Awaiting your approval...', 'thinking');
+        }
+        
         // Terminal Output
         else if (chunk.type === 'terminal_output') {
           const output = chunk.output || '';
@@ -269,11 +279,32 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
     
     setIsAgentRunning(false);
     setPhase('done');
-    setActivity(''); 
+    setActivity('');
+    // Don't clear awaitingConfirmation here - user may still need to respond
     
     if (filesCreated) {
       refreshFileTree();
     }
+  };
+
+  // HITL Handlers
+  const handleAcceptPlan = () => {
+    setAwaitingConfirmation(false);
+    // Send confirmation to backend
+    setInputValue('Proceed with the plan');
+    setTimeout(() => {
+      handleSendMessage();
+    }, 100);
+  };
+
+  const handleRejectPlan = () => {
+    setAwaitingConfirmation(false);
+    setMessages(prev => [...prev, {
+      id: Date.now().toString(),
+      content: 'Plan rejected. Please describe what you\'d like to change:',
+      sender: 'ai',
+      timestamp: new Date(),
+    }]);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -421,6 +452,15 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
               type={activityType} 
            />
         </div>
+        
+        {awaitingConfirmation && (
+          <PlanReviewActions
+            planSummary={planSummary}
+            onAccept={handleAcceptPlan}
+            onReject={handleRejectPlan}
+            isLoading={isAgentRunning}
+          />
+        )}
         
         <div ref={messagesEndRef} />
       </div>

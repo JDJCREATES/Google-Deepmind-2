@@ -34,6 +34,10 @@ interface StreamingState {
   terminalOutput: string;
   showTerminal: boolean;
   
+  // Human-in-the-Loop state
+  awaitingConfirmation: boolean;
+  planSummary: string;
+  
   // Actions
   addToolEvent: (event: ToolEvent) => void;
   clearToolEvents: () => void;
@@ -44,6 +48,9 @@ interface StreamingState {
   appendTerminalOutput: (output: string) => void;
   setTerminalOutput: (output: string) => void;
   setShowTerminal: (show: boolean) => void;
+  
+  // HITL actions
+  setAwaitingConfirmation: (awaiting: boolean, summary?: string) => void;
   resetStreaming: () => void;
 }
 
@@ -58,6 +65,10 @@ export const useStreamingStore = create<StreamingState>()(
       // Terminal defaults
       terminalOutput: '',
       showTerminal: false,
+      
+      // HITL defaults
+      awaitingConfirmation: false,
+      planSummary: '',
       
       addToolEvent: (event) => 
         set((state) => ({ 
@@ -82,14 +93,17 @@ export const useStreamingStore = create<StreamingState>()(
       setShowTerminal: (show) =>
         set({ showTerminal: show }),
       
+      setAwaitingConfirmation: (awaiting, summary = '') =>
+        set({ awaitingConfirmation: awaiting, planSummary: summary }),
+      
       resetStreaming: () => 
         set({ 
           toolEvents: [], 
           agentPhase: 'idle', 
           currentActivity: '',
           activityType: 'thinking',
-          // Don't reset terminal output on new run, usually we want to keep history
-          // But ensure visibility is managed if needed
+          awaitingConfirmation: false,
+          planSummary: '',
         }),
     }),
     { name: 'streaming-store' }

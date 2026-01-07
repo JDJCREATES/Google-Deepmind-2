@@ -324,6 +324,7 @@ async def run_agent(request: Request, body: PromptRequest):
                                 'coder': 'coding',
                                 'validator': 'validating',
                                 'fixer': 'coding',  # Fixer is part of coding loop
+                                'chat': 'planning', # Chat uses planning phase for UI
                             }
                             phase = phase_map.get(node_name.lower())
                             if phase:
@@ -333,34 +334,51 @@ async def run_agent(request: Request, body: PromptRequest):
                                 }) + "\n"
                         
                         # ============================================================
-                        # FUNDAMENTAL FIX: DO NOT stream raw LLM content to chat
-                        # Only emit structured events - never raw AI text/JSON
+                        # SMART STREAMING: Stream AI text content with filtering
                         # ============================================================
-                        # 
-                        # The previous approach tried to filter out JSON/code patterns,
-                        # but this was a losing battle (whack-a-mole).
-                        # 
-                        # NEW APPROACH: Only log raw content for debugging, never send it.
-                        # The frontend gets information through:
-                        #   - phase events (planning/coding/validating)
-                        #   - tool_start events (when tools are called)
-                        #   - tool_result events (when tools complete)
-                        #   - terminal_output events (for terminal commands)
-                        #   - complete event (final status)
-                        #
-                        # This keeps the UI clean and focused on actions, not AI thinking.
+                        # We stream text content to the chat, but filter out:
+                        # - Internal tool JSON
+                        # - System/debugging messages
+                        # - Code blocks from non-chat nodes
                         
-                        # Log for debugging only
-                        if isinstance(content, str) and content:
-                            preview = content[:100].replace('\n', ' ')
-                            logger.debug(f"[STREAM] AI content from {node_name} (not displayed): {preview}...")
+                        # Handle string content
+                        if isinstance(content, str) and content.strip():
+                            text = content.strip()
+                            
+                            # FILTER: Skip obvious internal/structured content
+                            skip_patterns = [
+                                text.startswith('{') and text.endswith('}'),  # JSON objects
+                                text.startswith('[') and text.endswith(']'),  # JSON arrays
+                                'function_call' in text.lower(),
+                                'tool_calls' in text.lower(),
+                                'ACTION REQUIRED' in text,
+                                'MANDATORY FIRST STEP' in text,
+                                'SCAFFOLDING CHECK' in text,
+                                '```json' in text and len(text) < 500,  # Short JSON blocks
+                            ]
+                            
+                            if any(skip_patterns):
+                                logger.debug(f"[STREAM] Filtered internal content from {node_name}")
+                                continue
+                            
+                            # Stream text to frontend
+                            yield json.dumps({
+                                "type": "message",
+                                "node": node_name,
+                                "content": text
+                            }) + "\n"
+                            
+                        # Handle list content (Gemini sometimes returns list of dicts)
                         elif isinstance(content, list):
-                            logger.debug(f"[STREAM] AI list content from {node_name} (not displayed): {len(content)} items")
-                        elif isinstance(content, dict):
-                            logger.debug(f"[STREAM] AI dict content from {node_name} (not displayed): {list(content.keys())}")
-                        
-                        # DO NOT YIELD RAW CONTENT - that's what caused the wall of JSON!
-                        # The continue here is intentional - we've already emitted tool events above
+                            for item in content:
+                                if isinstance(item, dict) and 'text' in item:
+                                    text = item['text'].strip()
+                                    if text:
+                                        yield json.dumps({
+                                            "type": "message",
+                                            "node": node_name,
+                                            "content": text
+                                        }) + "\n"
                     
                     # Handle dict format (other stream modes)
                     elif isinstance(event, dict):
@@ -393,19 +411,44 @@ async def run_agent(request: Request, body: PromptRequest):
                     
             logger.info("[STREAM] Pipeline completed successfully")
             
-            # Try to get preview_url from the final state
-            # This is set by complete_node when it starts the dev server
+            # Try to get final state info
             preview_url = None
+            is_awaiting_confirmation = False
+            plan_summary = ""
+            
             try:
                 # Get final state from the graph
                 final_state = await graph.aget_state(config)
                 if final_state and hasattr(final_state, 'values'):
                     result = final_state.values.get('result', {})
+                    phase = final_state.values.get('phase', '')
+                    
                     if result:
                         preview_url = result.get('preview_url')
                         logger.info(f"[STREAM] Preview URL from state: {preview_url}")
+                    
+                    # Check if we're waiting for user confirmation (HITL)
+                    if phase in ['plan_ready', 'complete'] and not preview_url:
+                        # Check if scaffolding is done but no files written yet
+                        completed_files = final_state.values.get('completed_files', [])
+                        if len(completed_files) == 0:
+                            is_awaiting_confirmation = True
+                            # Try to get plan summary
+                            artifacts = final_state.values.get('artifacts', {})
+                            plan = artifacts.get('plan', {})
+                            if isinstance(plan, dict):
+                                plan_summary = plan.get('summary', 'Plan ready for your review.')
+                            logger.info("[STREAM] HITL: Awaiting user confirmation")
+                            
             except Exception as e:
                 logger.debug(f"[STREAM] Could not get preview from state: {e}")
+            
+            # Emit plan_review event if awaiting confirmation
+            if is_awaiting_confirmation:
+                yield json.dumps({
+                    "type": "plan_review",
+                    "content": plan_summary or "Implementation plan is ready. Review and approve to proceed with coding."
+                }) + "\n"
             
             # Emit completion with preview_url for Electron to display
             yield json.dumps({
