@@ -602,6 +602,27 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
         }
 
 
+async def chat_node(state: AgentGraphState) -> Dict[str, Any]:
+    """
+    Run the Chatter agent (Question Answerer).
+    """
+    logger.info("[CHAT] 💬 Starting chat node...")
+    
+    # Import locally to avoid circular deps if any, or just for cleanliness
+    from app.agents.mini_agents.chatter import Chatter
+    
+    try:
+        chatter = Chatter()
+        return await chatter.invoke(state)
+        
+    except Exception as e:
+        logger.error(f"[CHAT] ❌ Chat failed: {e}")
+        return {
+            "phase": "error",
+            "messages": [AIMessage(content=f"I couldn't answer that: {e}")]
+        }
+
+
 async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
     """
     Run the Fixer agent.
@@ -807,44 +828,71 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
         # Mark plan as needing refresh
         plan_exists = False
         logger.info("[ORCHESTRATOR] ✓ Old artifacts versioned, forcing re-plan")
+
+    # 3. Check for CONFIRMATION intent (Approval to proceed)
+    is_confirmation = False
+    if current_intent and current_intent.task_type == "confirmation":
+        is_confirmation = True
+        logger.info("[ORCHESTRATOR] 👍 User CONFIRMATION detected")
     
-    # 2. Build Decision Prompt
+    # 4. Check for QUESTION intent
+    is_question = False
+    if current_intent and current_intent.task_type == "question":
+        is_question = True
+        logger.info("[ORCHESTRATOR] ❓ User QUESTION detected")
+
+    # 5. Build Decision Prompt
     system_prompt = f"""<role>
-You are the Master Orchestrator. You decide which agent runs next.
-</role>
-
-<state>
-PHASE: {phase}
-FILES COMPLETED: {len(completed_files)}
-FIX ATTEMPTS: {fix_attempts}
-PLAN EXISTS: {plan_exists}
-SCAFFOLDING DONE: {scaffolding_done}
-NEW FEATURE REQUEST: {is_new_intent}
-</state>
-
-<rules>
-1. If PHASE is "planning":
-   - If NEW FEATURE REQUEST is True -> call_planner (ALWAYS re-plan for new features!)
-   - If plan missing OR scaffolding NOT done -> call_planner
-   - If plan ready AND scaffolding done AND NOT new feature -> call_coder
-2. If PHASE is "plan_ready" -> call_coder
-3. If PHASE is "coding" (and files remain) -> call_coder
-4. If PHASE is "validating" -> call_validator
-5. If PHASE is "fixing" -> call_fixer
-6. If Validation Passed -> finish
-7. If PHASE is "fixing_failed" -> call_planner (to re-scope)
-8. If Fixer failed > 3 times -> finish (escalate to user)
-</rules>
-
-<output_format>
-Return JSON ONLY:
-{{
-  "observations": ["observation 1", "observation 2"],
-  "reasoning": "Explain why you are choosing the next step based on state and rules.",
-  "decision": "call_planner" | "call_coder" | "call_validator" | "call_fixer" | "finish",
-  "confidence": 0.0 to 1.0
-}}
-</output_format>"""
+    You are the Master Orchestrator. You decide which agent runs next.
+    </role>
+    
+    <state>
+    PHASE: {phase}
+    FILES COMPLETED: {len(completed_files)}
+    FIX ATTEMPTS: {fix_attempts}
+    PLAN EXISTS: {plan_exists}
+    SCAFFOLDING DONE: {scaffolding_done}
+    NEW FEATURE REQUEST: {is_new_intent}
+    USER CONFIRMATION: {is_confirmation}
+    USER QUESTION: {is_question}
+    INTENT TYPE: {current_intent.task_type if current_intent else 'None'}
+    </state>
+    
+    <rules>
+    PRIORITY 1: Questions
+    - If USER QUESTION is True -> call_chat
+    
+    PRIORITY 2: Planning & Review
+    - If PHASE is "planning":
+       - If NEW FEATURE REQUEST is True -> call_planner (ALWAYS re-plan)
+       - If plan missing OR scaffolding NOT done -> call_planner
+       - If plan ready AND scaffolding done:
+           - If USER CONFIRMATION is True -> call_coder (Proceed!)
+           - If USER CONFIRMATION is False -> finish (PAUSE for user review!)
+           
+    PRIORITY 3: Execution
+    - If PHASE is "plan_ready":
+       - If USER CONFIRMATION is True -> call_coder
+       - Else -> finish (Wait for approval)
+    - If PHASE is "coding" (and files remain) -> call_coder
+    
+    PRIORITY 4: Validation & Fixes
+    - If PHASE is "validating" -> call_validator
+    - If PHASE is "fixing" -> call_fixer
+    - If Validation Passed -> finish
+    - If PHASE is "fixing_failed" -> call_planner
+    - If Fixer failed > 3 times -> finish
+    </rules>
+    
+    <output_format>
+    Return JSON ONLY:
+    {{
+      "observations": ["observation 1", "observation 2"],
+      "reasoning": "Explain why you are choosing the next step based on state and rules.",
+      "decision": "call_planner" | "call_coder" | "call_validator" | "call_fixer" | "call_chat" | "finish",
+      "confidence": 0.0 to 1.0
+    }}
+    </output_format>"""
 
     # 3. Call Orchestrator Agent
     orchestrator = AgentFactory.create_orchestrator(override_system_prompt=system_prompt)
@@ -896,6 +944,7 @@ Analyze state and decide next step. Respond with JSON.""")
                 elif "coder" in raw_decision: decision = "coder"
                 elif "validator" in raw_decision: decision = "validator"
                 elif "fixer" in raw_decision: decision = "fixer"
+                elif "chat" in raw_decision: decision = "chat"
                 elif "finish" in raw_decision: decision = "complete"
             except Exception as e:
                 logger.error(f"[ORCHESTRATOR] ❌ JSON parse failed: {e}")
@@ -907,6 +956,7 @@ Analyze state and decide next step. Respond with JSON.""")
             elif "call_coder" in response: decision = "coder"
             elif "call_validator" in response: decision = "validator"
             elif "call_fixer" in response: decision = "fixer"
+            elif "call_chat" in response: decision = "chat"
             elif "finish" in response: decision = "complete"
             
     except Exception as e:
@@ -1055,6 +1105,7 @@ def create_agent_graph(checkpointer: Optional[MemorySaver] = None) -> StateGraph
     graph.add_node("coder", coder_node)
     graph.add_node("validator", validator_node)
     graph.add_node("fixer", fixer_node)
+    graph.add_node("chat", chat_node)
     graph.add_node("complete", complete_node)
     
     # EDGE WIRING: Hub and Spoke
@@ -1064,6 +1115,7 @@ def create_agent_graph(checkpointer: Optional[MemorySaver] = None) -> StateGraph
     graph.add_edge("coder", "orchestrator")
     graph.add_edge("validator", "orchestrator")
     graph.add_edge("fixer", "orchestrator")
+    graph.add_edge("chat", "orchestrator")
     
     # ORCHESTRATOR ROUTING
     def route_orchestrator(state: AgentGraphState):
@@ -1080,6 +1132,7 @@ def create_agent_graph(checkpointer: Optional[MemorySaver] = None) -> StateGraph
             "coder": "coder",
             "validator": "validator",
             "fixer": "fixer",
+            "chat": "chat",
             "complete": "complete"
         }
     )
