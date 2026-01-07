@@ -68,6 +68,8 @@ export default function MonacoEditor({
       <div className="empty-editor-state">
         <div className="empty-state-content">
           <p>Select a file to start editing</p>
+          <p>ShipS*
+          </p>
         </div>
       </div>
     );

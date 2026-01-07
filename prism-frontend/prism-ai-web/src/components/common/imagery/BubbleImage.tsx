@@ -1,7 +1,7 @@
 import React from 'react'
 import './BubbleImage.css'
 
-// renders nothing if the imgSrc isn't provided
+// renders nothing if the imgSrc isn't provided for now
 
 export interface BubImgType = {
   imgSrc: string;
@@ -18,8 +18,9 @@ const BubbleImage =({props}: {props: BubImgTypes} ) => {
       <img
         src={props.imgSrc} 
         alt={props.imgAlt} 
-        width={imgWidth}
-        height={imgHeight}
+        width={props.imgWidth}
+        height={props.imgHeight}
+        className="bubble-image"
         />
       }
     </>
