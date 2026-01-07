@@ -90,6 +90,24 @@
   color: var(--text-primary, #ccc);
 }
 
+.tool-progress-item.clickable {
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.tool-progress-item.clickable:hover {
+  background: rgba(78, 201, 176, 0.1);
+}
+
+.tool-progress-item.clickable:hover .tool-item-file {
+  color: #4ec9b0;
+  text-decoration: underline;
+}
+
+.tool-progress-item.clickable:active {
+  transform: scale(0.98);
+}
+
 .tool-progress-item.pending {
   opacity: 0.7;
 }

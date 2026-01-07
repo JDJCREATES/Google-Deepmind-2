@@ -1,4 +1,6 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+
+
 import { join } from 'path';
 import { existsSync, statSync } from 'fs';
 
@@ -87,19 +89,51 @@ if (!gotTheLock) {
     const url = commandLine.find(arg => arg.startsWith('ships://'));
     if (url) {
       console.log('Deep link received:', url);
-      try {
-        const urlObj = new URL(url);
-        const path = urlObj.searchParams.get('path');
-        if (path && isValidProjectPath(path)) {
-            console.log('Syncing project path from deep link:', path);
-            if (store) store.set('lastProjectPath', path);
-            if (mainWindow) mainWindow.reload();
-        }
-      } catch (e) {
-        console.error('Failed to parse deep link:', e);
-      }
+      handleShipsProtocol(url);
     }
   });
+}
+
+// Centralized protocol handler
+function handleShipsProtocol(url: string) {
+  try {
+    const urlObj = new URL(url);
+    const action = urlObj.hostname; // e.g., "preview" or "open"
+    
+    console.log(`[Protocol] Action: ${action}`);
+    
+    if (action === 'preview') {
+      // ships://preview?url=http://localhost:5177&path=/some/path
+      const previewUrl = urlObj.searchParams.get('url');
+      const projectPath = urlObj.searchParams.get('path');
+      
+      console.log(`[Protocol] Preview requested: ${previewUrl}`);
+      
+      if (previewUrl) {
+        // Focus window and load the preview URL in a webview or new window
+        if (mainWindow) {
+          mainWindow.focus();
+          // Send the preview URL to the renderer via IPC
+          mainWindow.webContents.send('open-preview-url', previewUrl);
+        }
+      }
+      
+      if (projectPath && isValidProjectPath(projectPath)) {
+        console.log('Syncing project path from deep link:', projectPath);
+        if (store) store.set('lastProjectPath', projectPath);
+      }
+    } else {
+      // Legacy handler: ships://?path=/some/path
+      const path = urlObj.searchParams.get('path');
+      if (path && isValidProjectPath(path)) {
+        console.log('Syncing project path from deep link:', path);
+        if (store) store.set('lastProjectPath', path);
+        if (mainWindow) mainWindow.reload();
+      }
+    }
+  } catch (e) {
+    console.error('Failed to parse deep link:', e);
+  }
 }
 
 // Handle protocol on macOS
@@ -108,14 +142,7 @@ app.on('open-url', (_event, url) => {
   if (mainWindow) {
     mainWindow.focus();
   }
-  try {
-     const urlObj = new URL(url);
-     const path = urlObj.searchParams.get('path');
-     if (path && isValidProjectPath(path)) {
-        if (store) store.set('lastProjectPath', path);
-        if (mainWindow) mainWindow.reload();
-     }
-  } catch(e) { console.error(e); }
+  handleShipsProtocol(url);
 });
 
 app.on('window-all-closed', () => {
@@ -409,14 +436,18 @@ ipcMain.handle('focus-window', async () => {
 /**
  * Open a preview URL - sends it to the renderer to display in preview panel
  */
+/**
+ * Open a preview URL - opens in default system browser
+ */
 ipcMain.handle('open-preview', async (_event, url: string) => {
   console.log(`[PREVIEW] Opening preview: ${url}`);
   
-  // Send to renderer to display in preview panel/webview
-  if (mainWindow) {
-    mainWindow.webContents.send('preview-url', url);
+  try {
+    // Force open in system browser (Chrome/Edge/Safari)
+    await shell.openExternal(url);
     return { success: true, url };
+  } catch (e: any) {
+    console.error(`[PREVIEW] Failed to open external URL: ${e}`);
+    return { success: false, error: e.message };
   }
-  
-  return { success: false, error: 'No main window' };
 });

@@ -3,7 +3,7 @@ import { RiShip2Fill } from 'react-icons/ri';
 import { PiShippingContainerFill } from "react-icons/pi";
 import { useFileSystem } from '../store/fileSystem';
 import { useAuthStore } from '../store/authStore';
-import AuthModal from './AuthModal';
+import AuthModal from "../components/modals/AuthModal";
 import phrases from '../data/phrases.json';
 
 export default function LandingPage() {

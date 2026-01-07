@@ -45,6 +45,7 @@ class TaskType(str, Enum):
     MODIFY = "modify"           # Change existing functionality
     DELETE = "delete"           # Remove functionality
     QUESTION = "question"       # User asking a question (no code changes)
+    CONFIRMATION = "confirmation" # User approving a plan or action
     UNCLEAR = "unclear"         # Cannot determine task type
 
 
@@ -55,6 +56,7 @@ class ActionType(str, Enum):
     DELETE = "delete"           # Delete files/code
     EXPLAIN = "explain"         # Just explain something
     ANALYZE = "analyze"         # Analyze without changes
+    PROCEED = "proceed"         # Proceed with current state
 
 
 class TargetArea(str, Enum):
@@ -67,6 +69,7 @@ class TargetArea(str, Enum):
     DOCUMENTATION = "documentation"
     TESTING = "testing"
     UNKNOWN = "unknown"
+    SYSTEM = "system"           # System level (pipeline control)
 
 
 class StructuredIntent(BaseModel):
@@ -221,20 +224,21 @@ CLASSIFICATION GUIDE:
 - "remove X" / "delete X" → task_type: delete, action: delete
 - "refactor X" / "clean up X" → task_type: refactor, action: modify
 - "what is X" / "how does X work" / "explain X" → task_type: question, action: explain
+- "looks good" / "proceed" / "yes" / "go ahead" / "approved" → task_type: confirmation, action: proceed
 
 AMBIGUITY TRIGGERS (set is_ambiguous=true):
 - Request mentions multiple unrelated features
 - No clear target (e.g., "make it better")
 - Contradictory requirements
 - References unknown components
-- Very short requests without context (< 5 words)
+- Very short requests without context (< 5 words) BUT EXCLUDE confirmations ("yes", "ok")
 
 OUTPUT FORMAT:
 You MUST output a valid JSON object matching this schema:
 {
-    "task_type": "feature|fix|refactor|modify|delete|question|unclear",
-    "action": "create|modify|delete|explain|analyze",
-    "target_area": "frontend|backend|database|full-stack|configuration|documentation|testing|unknown",
+    "task_type": "feature|fix|refactor|modify|delete|question|confirmation|unclear",
+    "action": "create|modify|delete|explain|analyze|proceed",
+    "target_area": "frontend|backend|database|full-stack|configuration|documentation|testing|system|unknown",
     "description": "Clear, specific description",
     "original_request": "The original request",
     "affected_areas": ["area1", "area2"],

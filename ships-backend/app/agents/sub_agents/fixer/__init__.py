@@ -6,6 +6,8 @@ that moves the system toward Validator: pass.
 
 Note: Strategies are now in central location: app/agents/tools/fixer/
 Import them directly from there if needed.
+
+Note: Uses lazy import for Fixer to avoid circular dependency with tools.
 """
 
 # Import models FIRST (no dependencies on other modules)
@@ -31,11 +33,17 @@ from app.agents.sub_agents.fixer.models import (
     ApprovalType,
 )
 
-# Import Fixer (depends on models and uses strategies from tools internally)
-from app.agents.sub_agents.fixer.fixer import Fixer
+
+def __getattr__(name):
+    """Lazy import Fixer to avoid circular dependency with tools.fixer.strategies."""
+    if name == "Fixer":
+        from app.agents.sub_agents.fixer.fixer import Fixer
+        return Fixer
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
-    # Main agent
+    # Main agent (lazy loaded)
     "Fixer",
     
     # Config

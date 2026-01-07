@@ -1,48 +1,49 @@
 """
-ShipS* Orchestrator State Machine
+ShipS* Orchestrator State Machine (Simplified)
 
-Defines the core state machine for the orchestrator, providing:
-- Deterministic state transitions
-- Transition validation and logging
-- State history for debugging
+This module now provides:
+1. TransitionReason enum - Kept for audit logging
+2. StateTransition dataclass - Kept for history/audit trail
+3. TransitionLogger - Simple logger for tracking phase changes (replaces complex StateMachine)
+4. Phase literals - Aligned with LangGraph's AgentGraphState.phase
 
-States:
-    IDLE → PLANNING → CODING → VALIDATING → COMPLETE
-                        ↓           ↓
-                     FIXING ←───────┘
-                        ↓
-                   ESCALATED (if max retries exceeded)
+The complex OrchestratorState enum and StateMachine class have been simplified
+because LangGraph handles state transitions through conditional edges.
 """
 
 from enum import Enum
 from datetime import datetime
-from typing import Optional, List, Dict, Any, Callable
+from typing import Optional, List, Dict, Any, Callable, Literal
 from dataclasses import dataclass, field
 import uuid
 
 from pydantic import BaseModel, Field
 
 
-class OrchestratorState(str, Enum):
-    """
-    States of the orchestrator state machine.
-    
-    Each state represents a phase in the code generation workflow.
-    """
-    IDLE = "IDLE"                   # Waiting for user request
-    INTERPRETING = "INTERPRETING"   # Request Interpreter processing
-    PLANNING = "PLANNING"           # Planner generating plan
-    CODING = "CODING"               # Coder generating code
-    VALIDATING = "VALIDATING"       # Validators checking code
-    FIXING = "FIXING"               # Fixer addressing issues
-    BUILDING = "BUILDING"           # Build system compiling
-    COMPLETE = "COMPLETE"           # Task successfully finished
-    ESCALATED = "ESCALATED"         # User intervention required
-    FAILED = "FAILED"               # Unrecoverable failure
+# ============================================================================
+# PHASE LITERALS (Aligned with AgentGraphState)
+# ============================================================================
 
+# These match the 'phase' field in AgentGraphState
+Phase = Literal[
+    "idle",
+    "planning",
+    "coding", 
+    "validating",
+    "fixing",
+    "building",
+    "complete",
+    "error",
+    "escalated"
+]
+
+
+# ============================================================================
+# TRANSITION REASONS (Kept for audit logging)
+# ============================================================================
 
 class TransitionReason(str, Enum):
-    """Reasons for state transitions."""
+    """Reasons for state transitions. Useful for audit trails."""
     USER_REQUEST = "user_request"
     REQUEST_INTERPRETED = "request_interpreted"
     PLAN_APPROVED = "plan_approved"
@@ -58,317 +59,125 @@ class TransitionReason(str, Enum):
     UNRECOVERABLE_ERROR = "unrecoverable_error"
 
 
+# ============================================================================
+# TRANSITION RECORD (Kept for audit trail)
+# ============================================================================
+
 @dataclass
 class StateTransition:
-    """Record of a single state transition."""
+    """Record of a single phase transition for audit logging."""
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime = field(default_factory=datetime.utcnow)
-    from_state: OrchestratorState = OrchestratorState.IDLE
-    to_state: OrchestratorState = OrchestratorState.IDLE
-    reason: TransitionReason = TransitionReason.USER_REQUEST
+    from_phase: str = "idle"
+    to_phase: str = "idle"
+    reason: str = "user_request"
     details: Dict[str, Any] = field(default_factory=dict)
     gate_results: Dict[str, bool] = field(default_factory=dict)
 
 
 class TransitionError(Exception):
-    """Raised when a state transition is invalid."""
-    def __init__(self, from_state: OrchestratorState, to_state: OrchestratorState, reason: str):
-        self.from_state = from_state
-        self.to_state = to_state
+    """Raised when a phase transition fails a quality gate."""
+    def __init__(self, from_phase: str, to_phase: str, reason: str):
+        self.from_phase = from_phase
+        self.to_phase = to_phase
         self.reason = reason
-        super().__init__(f"Cannot transition from {from_state} to {to_state}: {reason}")
+        super().__init__(f"Cannot transition from {from_phase} to {to_phase}: {reason}")
 
 
-class StateMachine:
+# ============================================================================
+# TRANSITION LOGGER (Simplified - just tracks history)
+# ============================================================================
+
+class TransitionLogger:
     """
-    Deterministic state machine for the orchestrator.
+    Simple transition logger for audit trails.
     
-    This class manages state transitions with:
-    - Valid transition enforcement
-    - Exit/entry gate checking
-    - Transition history logging
+    This replaces the complex StateMachine class. LangGraph handles
+    actual state transitions through conditional edges.
     
-    The state machine does NOT think - it only routes based on
-    deterministic rules and gate check results.
+    This class only:
+    - Logs phase transitions for debugging
+    - Tracks history for audit trails
+    - Provides summary for status endpoints
     """
-    
-    # Valid transitions: from_state -> [allowed_to_states]
-    VALID_TRANSITIONS: Dict[OrchestratorState, List[OrchestratorState]] = {
-        OrchestratorState.IDLE: [
-            OrchestratorState.INTERPRETING,
-        ],
-        OrchestratorState.INTERPRETING: [
-            OrchestratorState.PLANNING,
-            OrchestratorState.ESCALATED,  # If ambiguous request
-        ],
-        OrchestratorState.PLANNING: [
-            OrchestratorState.CODING,
-            OrchestratorState.ESCALATED,  # If plan rejected
-        ],
-        OrchestratorState.CODING: [
-            OrchestratorState.VALIDATING,
-            OrchestratorState.FIXING,     # If immediate issues detected
-            OrchestratorState.ESCALATED,
-        ],
-        OrchestratorState.VALIDATING: [
-            OrchestratorState.BUILDING,   # All validations passed
-            OrchestratorState.FIXING,     # Validation failed
-            OrchestratorState.ESCALATED,
-        ],
-        OrchestratorState.FIXING: [
-            OrchestratorState.VALIDATING, # Re-validate after fix
-            OrchestratorState.ESCALATED,  # Max retries exceeded
-        ],
-        OrchestratorState.BUILDING: [
-            OrchestratorState.COMPLETE,   # Build succeeded
-            OrchestratorState.FIXING,     # Build failed
-            OrchestratorState.ESCALATED,
-        ],
-        OrchestratorState.COMPLETE: [
-            OrchestratorState.IDLE,       # Ready for next request
-        ],
-        OrchestratorState.ESCALATED: [
-            OrchestratorState.IDLE,       # User resolved, start fresh
-            OrchestratorState.PLANNING,   # User provided more info
-            OrchestratorState.FIXING,     # User made manual fix
-        ],
-        OrchestratorState.FAILED: [
-            OrchestratorState.IDLE,       # Start over
-        ],
-    }
     
     def __init__(self, task_id: Optional[str] = None):
-        """
-        Initialize the state machine.
-        
-        Args:
-            task_id: Optional task identifier for tracking
-        """
+        """Initialize the logger."""
         self.task_id = task_id or str(uuid.uuid4())
-        self.current_state = OrchestratorState.IDLE
+        self.current_phase: str = "idle"
         self.history: List[StateTransition] = []
         self.started_at = datetime.utcnow()
-        
-        # Gate callbacks (set by orchestrator)
-        self._exit_gates: Dict[OrchestratorState, Callable[[], tuple[bool, Dict[str, bool]]]] = {}
-        self._entry_gates: Dict[OrchestratorState, Callable[[], tuple[bool, Dict[str, bool]]]] = {}
     
-    def register_exit_gate(
-        self, 
-        state: OrchestratorState, 
-        gate_fn: Callable[[], tuple[bool, Dict[str, bool]]]
-    ) -> None:
-        """
-        Register an exit gate for a state.
-        
-        The gate function should return (passed, check_results).
-        
-        Args:
-            state: State to register exit gate for
-            gate_fn: Function that returns (passed, {check_name: passed})
-        """
-        self._exit_gates[state] = gate_fn
-    
-    def register_entry_gate(
-        self, 
-        state: OrchestratorState, 
-        gate_fn: Callable[[], tuple[bool, Dict[str, bool]]]
-    ) -> None:
-        """
-        Register an entry gate for a state.
-        
-        Args:
-            state: State to register entry gate for
-            gate_fn: Function that returns (passed, {check_name: passed})
-        """
-        self._entry_gates[state] = gate_fn
-    
-    def can_transition(self, to_state: OrchestratorState) -> bool:
-        """
-        Check if transition to target state is valid.
-        
-        Args:
-            to_state: Target state
-            
-        Returns:
-            True if transition is allowed
-        """
-        allowed = self.VALID_TRANSITIONS.get(self.current_state, [])
-        return to_state in allowed
-    
-    def check_exit_gate(self) -> tuple[bool, Dict[str, bool]]:
-        """
-        Check the exit gate for the current state.
-        
-        Returns:
-            Tuple of (all_passed, individual_check_results)
-        """
-        gate_fn = self._exit_gates.get(self.current_state)
-        if gate_fn is None:
-            return True, {}  # No gate = always pass
-        
-        return gate_fn()
-    
-    def check_entry_gate(self, to_state: OrchestratorState) -> tuple[bool, Dict[str, bool]]:
-        """
-        Check the entry gate for a target state.
-        
-        Args:
-            to_state: State we're trying to enter
-            
-        Returns:
-            Tuple of (all_passed, individual_check_results)
-        """
-        gate_fn = self._entry_gates.get(to_state)
-        if gate_fn is None:
-            return True, {}  # No gate = always pass
-        
-        return gate_fn()
-    
-    def transition(
-        self, 
-        to_state: OrchestratorState, 
-        reason: TransitionReason,
+    def log_transition(
+        self,
+        to_phase: str,
+        reason: str = "transition",
         details: Optional[Dict[str, Any]] = None,
-        skip_gates: bool = False
+        gate_results: Optional[Dict[str, bool]] = None
     ) -> StateTransition:
         """
-        Attempt to transition to a new state.
-        
-        This is the core method. It:
-        1. Validates the transition is allowed
-        2. Checks exit gate of current state
-        3. Checks entry gate of target state
-        4. Logs the transition
-        5. Updates current state
+        Log a phase transition.
         
         Args:
-            to_state: Target state
+            to_phase: Target phase
             reason: Why we're transitioning
             details: Additional context
-            skip_gates: Skip gate checks (for error recovery)
+            gate_results: Results of any quality gate checks
             
         Returns:
             StateTransition record
-            
-        Raises:
-            TransitionError: If transition is invalid or gates fail
         """
-        details = details or {}
-        gate_results: Dict[str, bool] = {}
-        
-        # Validate transition is allowed
-        if not self.can_transition(to_state):
-            raise TransitionError(
-                self.current_state,
-                to_state,
-                f"Transition not allowed from {self.current_state}"
-            )
-        
-        if not skip_gates:
-            # Check exit gate
-            exit_passed, exit_results = self.check_exit_gate()
-            gate_results.update({f"exit_{k}": v for k, v in exit_results.items()})
-            
-            if not exit_passed:
-                raise TransitionError(
-                    self.current_state,
-                    to_state,
-                    f"Exit gate failed: {exit_results}"
-                )
-            
-            # Check entry gate
-            entry_passed, entry_results = self.check_entry_gate(to_state)
-            gate_results.update({f"entry_{k}": v for k, v in entry_results.items()})
-            
-            if not entry_passed:
-                raise TransitionError(
-                    self.current_state,
-                    to_state,
-                    f"Entry gate failed: {entry_results}"
-                )
-        
-        # Create transition record
         transition = StateTransition(
-            from_state=self.current_state,
-            to_state=to_state,
+            from_phase=self.current_phase,
+            to_phase=to_phase,
             reason=reason,
-            details=details,
-            gate_results=gate_results
-        )
-        
-        # Log and transition
-        self.history.append(transition)
-        self.current_state = to_state
-        
-        return transition
-    
-    def force_transition(
-        self, 
-        to_state: OrchestratorState, 
-        reason: str
-    ) -> StateTransition:
-        """
-        Force a transition without validation (for error recovery).
-        
-        Use sparingly - only for error states.
-        
-        Args:
-            to_state: Target state
-            reason: Why we're forcing
-            
-        Returns:
-            StateTransition record
-        """
-        transition = StateTransition(
-            from_state=self.current_state,
-            to_state=to_state,
-            reason=TransitionReason.UNRECOVERABLE_ERROR,
-            details={"forced_reason": reason}
+            details=details or {},
+            gate_results=gate_results or {}
         )
         
         self.history.append(transition)
-        self.current_state = to_state
+        self.current_phase = to_phase
         
         return transition
-    
-    def reset(self) -> None:
-        """Reset state machine to IDLE."""
-        if self.current_state != OrchestratorState.IDLE:
-            self.transition(
-                OrchestratorState.IDLE,
-                TransitionReason.USER_CANCELLED,
-                skip_gates=True
-            )
     
     def get_history(self) -> List[StateTransition]:
         """Get full transition history."""
         return self.history.copy()
     
     def get_summary(self) -> Dict[str, Any]:
-        """Get state machine summary."""
+        """Get logger summary for status endpoints."""
         return {
             "task_id": self.task_id,
-            "current_state": self.current_state.value,
+            "current_phase": self.current_phase,
             "started_at": self.started_at.isoformat(),
             "transition_count": len(self.history),
-            "last_transition": self.history[-1] if self.history else None
+            "last_transition": {
+                "from": self.history[-1].from_phase,
+                "to": self.history[-1].to_phase,
+                "reason": self.history[-1].reason,
+                "timestamp": self.history[-1].timestamp.isoformat()
+            } if self.history else None
         }
+    
+    def reset(self) -> None:
+        """Reset to idle phase."""
+        if self.current_phase != "idle":
+            self.log_transition("idle", "reset")
 
 
 # ============================================================================
-# STATE CONTEXT (for passing between agents)
+# STATE CONTEXT (Kept - useful for passing data between agents)
 # ============================================================================
 
 class StateContext(BaseModel):
     """
-    Context passed between agents during state transitions.
+    Context passed between agents during phase transitions.
     
     This contains all the information an agent needs to
     perform its task without accessing global state.
     """
     task_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    current_state: OrchestratorState = OrchestratorState.IDLE
+    current_phase: str = "idle"
     user_request: Optional[str] = None
     
     # Artifact references (not the artifacts themselves)
@@ -384,6 +193,103 @@ class StateContext(BaseModel):
     # Metadata
     created_at: datetime = Field(default_factory=datetime.utcnow)
     parameters: Dict[str, Any] = Field(default_factory=dict)
+
+
+# ============================================================================
+# BACKWARD COMPATIBILITY (Deprecated - remove in future version)
+# ============================================================================
+
+class OrchestratorState(str, Enum):
+    """
+    DEPRECATED: Use Phase literals instead.
     
-    class Config:
-        use_enum_values = True
+    Kept for backward compatibility with existing code.
+    Will be removed in a future version.
+    """
+    IDLE = "idle"
+    INTERPRETING = "interpreting"  # Mapped to "planning"
+    PLANNING = "planning"
+    CODING = "coding"
+    VALIDATING = "validating"
+    FIXING = "fixing"
+    BUILDING = "building"
+    COMPLETE = "complete"
+    ESCALATED = "escalated"
+    FAILED = "error"  # Mapped to "error"
+
+
+class StateMachine(TransitionLogger):
+    """
+    DEPRECATED: Use TransitionLogger instead.
+    
+    This is a backward-compatible alias that provides the old interface.
+    New code should use TransitionLogger directly.
+    """
+    
+    # Kept for backward compatibility
+    VALID_TRANSITIONS: Dict[str, List[str]] = {
+        "idle": ["planning"],
+        "planning": ["coding", "escalated"],
+        "coding": ["validating", "fixing", "escalated"],
+        "validating": ["building", "fixing", "escalated"],
+        "fixing": ["validating", "escalated"],
+        "building": ["complete", "fixing", "escalated"],
+        "complete": ["idle"],
+        "escalated": ["idle", "planning", "fixing"],
+        "error": ["idle"],
+    }
+    
+    @property
+    def current_state(self) -> OrchestratorState:
+        """Backward-compatible property."""
+        try:
+            return OrchestratorState(self.current_phase)
+        except ValueError:
+            return OrchestratorState.IDLE
+    
+    @current_state.setter
+    def current_state(self, value: OrchestratorState) -> None:
+        """Backward-compatible setter."""
+        self.current_phase = value.value
+    
+    def can_transition(self, to_state: OrchestratorState) -> bool:
+        """Check if transition is valid."""
+        allowed = self.VALID_TRANSITIONS.get(self.current_phase, [])
+        return to_state.value in allowed
+    
+    def transition(
+        self,
+        to_state: OrchestratorState,
+        reason: TransitionReason,
+        details: Optional[Dict[str, Any]] = None,
+        skip_gates: bool = False
+    ) -> StateTransition:
+        """Backward-compatible transition method."""
+        return self.log_transition(
+            to_phase=to_state.value,
+            reason=reason.value,
+            details=details
+        )
+    
+    def force_transition(self, to_state: OrchestratorState, reason: str) -> StateTransition:
+        """Backward-compatible force transition."""
+        return self.log_transition(
+            to_phase=to_state.value,
+            reason=f"forced:{reason}"
+        )
+    
+    def register_exit_gate(self, state: OrchestratorState, gate_fn: Callable) -> None:
+        """No-op for backward compatibility. Gates now handled in agent_graph.py."""
+        pass
+    
+    def register_entry_gate(self, state: OrchestratorState, gate_fn: Callable) -> None:
+        """No-op for backward compatibility. Gates now handled in agent_graph.py."""
+        pass
+    
+    def check_exit_gate(self) -> tuple[bool, Dict[str, bool]]:
+        """No-op - always passes."""
+        return True, {}
+    
+    def check_entry_gate(self, to_state: OrchestratorState) -> tuple[bool, Dict[str, bool]]:
+        """No-op - always passes."""
+        return True, {}

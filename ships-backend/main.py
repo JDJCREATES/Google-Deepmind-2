@@ -3,17 +3,53 @@ load_dotenv()  # Load .env file before anything else
 
 from fastapi import FastAPI, Depends, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from app.auth import router as auth_router, get_current_user
+from app.api.auth_routes import router as google_auth_router
 from app.services.preview_manager import preview_manager
 from app.services.usage_tracker import usage_tracker
+from app.database import health_check, close_database
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
 import os
+import logging
+
+logger = logging.getLogger("ships")
 
 app = FastAPI(title="ShipS* Backend")
 
-# CORS
+# Startup event - check database connection
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup."""
+    logger.info("🚀 Ships* Backend starting...")
+    
+    # Check database health
+    db_healthy = await health_check()
+    if not db_healthy:
+        logger.warning("⚠ Database not available - some features may be limited")
+    
+    logger.info("✓ Startup complete")
+
+# Shutdown event
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown."""
+    logger.info("Shutting down...")
+    await close_database()
+    logger.info("✓ Shutdown complete")
+
+# Session middleware (required for OAuth)
+# Must be added BEFORE other middleware
+SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+
+# Rate limiting middleware
+from app.middleware import RateLimitMiddleware
+app.add_middleware(RateLimitMiddleware)
+
+# CORS - allow credentials for session cookies
 origins = [
     "http://localhost:5173",
     "http://localhost:5174",
@@ -26,7 +62,7 @@ origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,
+    allow_credentials=True,  # Required for session cookies
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -67,6 +103,11 @@ async def ack_focus():
     preview_manager.clear_focus_request()
     return {"status": "success"}
 
+@preview_router.post("/open-terminal")
+async def open_system_terminal(project: ProjectPath):
+    """Open a native system terminal for the user."""
+    return preview_manager.open_system_terminal(project.path)
+
 @preview_router.post("/set-path")
 async def set_project_path(project: ProjectPath):
     """Set the project path without starting a dev server. 
@@ -97,6 +138,7 @@ agent_router = APIRouter(prefix="/agent", tags=["agent"])
 class PromptRequest(BaseModel):
     prompt: str
     project_path: Optional[str] = None  # Path to the user's project directory
+    settings: Optional[dict] = None     # User settings (e.g. artifacts.fileTreeDepth)
 
 from fastapi.responses import StreamingResponse
 import json
@@ -151,7 +193,7 @@ async def run_agent(request: Request, body: PromptRequest):
             logger.info(f"[STREAM] Passing to stream_pipeline: '{body.prompt[:100]}...'")
             current_node = None
             
-            async for event in stream_pipeline(body.prompt, project_path=effective_project_path):
+            async for event in stream_pipeline(body.prompt, project_path=effective_project_path, settings=body.settings):
                 # With subgraphs=True + stream_mode="messages", events are:
                 # (namespace_tuple, (message_chunk, metadata))
                 # namespace_tuple can be () for main graph or ('node:task_id',) for subgraphs
@@ -282,6 +324,7 @@ async def run_agent(request: Request, body: PromptRequest):
                                 'coder': 'coding',
                                 'validator': 'validating',
                                 'fixer': 'coding',  # Fixer is part of coding loop
+                                'chat': 'planning', # Chat uses planning phase for UI
                             }
                             phase = phase_map.get(node_name.lower())
                             if phase:
@@ -291,34 +334,79 @@ async def run_agent(request: Request, body: PromptRequest):
                                 }) + "\n"
                         
                         # ============================================================
-                        # FUNDAMENTAL FIX: DO NOT stream raw LLM content to chat
-                        # Only emit structured events - never raw AI text/JSON
+                        # SMART STREAMING: Stream AI text content with filtering
                         # ============================================================
-                        # 
-                        # The previous approach tried to filter out JSON/code patterns,
-                        # but this was a losing battle (whack-a-mole).
-                        # 
-                        # NEW APPROACH: Only log raw content for debugging, never send it.
-                        # The frontend gets information through:
-                        #   - phase events (planning/coding/validating)
-                        #   - tool_start events (when tools are called)
-                        #   - tool_result events (when tools complete)
-                        #   - terminal_output events (for terminal commands)
-                        #   - complete event (final status)
-                        #
-                        # This keeps the UI clean and focused on actions, not AI thinking.
+                        # We stream text content to the chat, but filter out:
+                        # - Internal tool JSON
+                        # - System/debugging messages
+                        # - Code blocks from non-chat nodes
                         
-                        # Log for debugging only
-                        if isinstance(content, str) and content:
-                            preview = content[:100].replace('\n', ' ')
-                            logger.debug(f"[STREAM] AI content from {node_name} (not displayed): {preview}...")
+                        # Handle string content
+                        if isinstance(content, str) and content.strip():
+                            text = content.strip()
+                            
+                            # FILTER: Skip obvious internal/structured content
+                            skip_patterns = [
+                                text.startswith('{') and text.endswith('}'),  # JSON objects
+                                text.startswith('[') and text.endswith(']'),  # JSON arrays
+                                text.startswith('```'),  # Code blocks
+                                '"task_type"' in text,  # Intent classifier output
+                                '"observations"' in text,  # Orchestrator output
+                                '"summary"' in text and '"tasks"' in text,  # Planner output
+                                '"decision"' in text and '"reasoning"' in text,  # Orchestrator decision
+                                'function_call' in text.lower(),
+                                'tool_calls' in text.lower(),
+                                'ACTION REQUIRED' in text,
+                                'MANDATORY FIRST STEP' in text,
+                                'SCAFFOLDING CHECK' in text,
+                            ]
+                            
+                            if any(skip_patterns):
+                                # Special case: If this is planner output, extract summary for plan_created event
+                                if '"summary"' in text and '"tasks"' in text:
+                                    try:
+                                        import json as json_mod
+                                        # Try to parse and emit plan_created
+                                        parsed = json_mod.loads(text)
+                                        if isinstance(parsed, dict) and 'summary' in parsed:
+                                            task_count = len(parsed.get('tasks', []))
+                                            folder_count = len(parsed.get('folders', []))
+                                            yield json.dumps({
+                                                "type": "plan_created",
+                                                "summary": parsed.get('summary', 'Plan created'),
+                                                "task_count": task_count,
+                                                "folders": folder_count
+                                            }) + "\n"
+                                            logger.info(f"[STREAM] Emitted plan_created: {parsed.get('summary', '')[:50]}...")
+                                    except:
+                                        pass
+                                        
+                                logger.debug(f"[STREAM] Filtered internal content from {node_name}")
+                                continue
+                            
+                            # Only stream content from chat node (Q&A responses)
+                            # Other nodes (planner, coder, orchestrator) output is internal
+                            if node_name.lower() in ['chat', 'chatter']:
+                                yield json.dumps({
+                                    "type": "message",
+                                    "node": node_name,
+                                    "content": text
+                                }) + "\n"
+                            else:
+                                # Log but don't stream non-chat AI text
+                                logger.debug(f"[STREAM] Non-chat content from {node_name}: {text[:100]}...")
+                            
+                        # Handle list content (Gemini sometimes returns list of dicts)
                         elif isinstance(content, list):
-                            logger.debug(f"[STREAM] AI list content from {node_name} (not displayed): {len(content)} items")
-                        elif isinstance(content, dict):
-                            logger.debug(f"[STREAM] AI dict content from {node_name} (not displayed): {list(content.keys())}")
-                        
-                        # DO NOT YIELD RAW CONTENT - that's what caused the wall of JSON!
-                        # The continue here is intentional - we've already emitted tool events above
+                            for item in content:
+                                if isinstance(item, dict) and 'text' in item:
+                                    text = item['text'].strip()
+                                    if text and node_name.lower() in ['chat', 'chatter']:
+                                        yield json.dumps({
+                                            "type": "message",
+                                            "node": node_name,
+                                            "content": text
+                                        }) + "\n"
                     
                     # Handle dict format (other stream modes)
                     elif isinstance(event, dict):
@@ -351,19 +439,44 @@ async def run_agent(request: Request, body: PromptRequest):
                     
             logger.info("[STREAM] Pipeline completed successfully")
             
-            # Try to get preview_url from the final state
-            # This is set by complete_node when it starts the dev server
+            # Try to get final state info
             preview_url = None
+            is_awaiting_confirmation = False
+            plan_summary = ""
+            
             try:
                 # Get final state from the graph
                 final_state = await graph.aget_state(config)
                 if final_state and hasattr(final_state, 'values'):
                     result = final_state.values.get('result', {})
+                    phase = final_state.values.get('phase', '')
+                    
                     if result:
                         preview_url = result.get('preview_url')
                         logger.info(f"[STREAM] Preview URL from state: {preview_url}")
+                    
+                    # Check if we're waiting for user confirmation (HITL)
+                    if phase in ['plan_ready', 'complete'] and not preview_url:
+                        # Check if scaffolding is done but no files written yet
+                        completed_files = final_state.values.get('completed_files', [])
+                        if len(completed_files) == 0:
+                            is_awaiting_confirmation = True
+                            # Try to get plan summary
+                            artifacts = final_state.values.get('artifacts', {})
+                            plan = artifacts.get('plan', {})
+                            if isinstance(plan, dict):
+                                plan_summary = plan.get('summary', 'Plan ready for your review.')
+                            logger.info("[STREAM] HITL: Awaiting user confirmation")
+                            
             except Exception as e:
                 logger.debug(f"[STREAM] Could not get preview from state: {e}")
+            
+            # Emit plan_review event if awaiting confirmation
+            if is_awaiting_confirmation:
+                yield json.dumps({
+                    "type": "plan_review",
+                    "content": plan_summary or "Implementation plan is ready. Review and approve to proceed with coding."
+                }) + "\n"
             
             # Emit completion with preview_url for Electron to display
             yield json.dumps({
@@ -380,6 +493,7 @@ async def run_agent(request: Request, body: PromptRequest):
 
 # Include Routers
 app.include_router(auth_router, tags=["Authentication"])
+app.include_router(google_auth_router)  # Google OAuth routes
 app.include_router(preview_router)
 app.include_router(agent_router)
 
@@ -390,6 +504,10 @@ app.include_router(artifacts_router)
 # Import and include Diagnostics Router
 from app.api.diagnostics import router as diagnostics_router
 app.include_router(diagnostics_router)
+
+# Import and include Billing Router
+from app.api.billing import router as billing_router
+app.include_router(billing_router)
 
 @app.get("/")
 def read_root():

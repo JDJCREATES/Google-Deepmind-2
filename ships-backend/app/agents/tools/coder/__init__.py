@@ -53,6 +53,8 @@ from .edit_operations import (
     EDIT_TOOLS,
 )
 
+from .file_tree import scan_project_tree
+
 # Combined export of all tools for the Coder agent
 # Edit tools listed FIRST as they are preferred for modifications
 # NOTE: Terminal commands removed - Validator handles build/test
@@ -65,6 +67,7 @@ CODER_TOOLS = [
     write_file_to_disk,
     read_file_from_disk,
     list_directory,
+    scan_project_tree,
     # Code analysis (minimal - most is done in prompt)
     generate_file_diff,
     detect_language,
@@ -86,6 +89,7 @@ __all__ = [
     "create_directory",
     "create_directories",
     "view_source_code",
+    "scan_project_tree",
     # Terminal operations
     "run_terminal_command",
     "get_allowed_terminal_commands",

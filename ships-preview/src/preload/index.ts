@@ -109,6 +109,15 @@ contextBridge.exposeInMainWorld('electron', {
         ipcRenderer.on('preview-url', listener);
         return () => ipcRenderer.removeListener('preview-url', listener);
     },
+    
+    /**
+     * Listen for preview URL events from ships:// protocol handler.
+     */
+    onOpenPreviewUrl: (callback: (url: string) => void) => {
+        const listener = (_: any, url: string) => callback(url);
+        ipcRenderer.on('open-preview-url', listener);
+        return () => ipcRenderer.removeListener('open-preview-url', listener);
+    },
 
     // Window Management
     focusWindow: () => ipcRenderer.invoke('focus-window'),

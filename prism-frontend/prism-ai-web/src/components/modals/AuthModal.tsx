@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAuthStore } from '../store/authStore';
+import { useAuthStore } from '../../store/authStore';
 import { RiShip2Fill } from 'react-icons/ri';
 import { AiOutlineLoading3Quarters } from 'react-icons/ai';
 

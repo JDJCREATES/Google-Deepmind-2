@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings Demo</title>
+    <style>
+:root {
+  --primary-color: #FF5E57;
+  --bg-activity-bar: #333333;
+  --bg-sidebar: #252526;
+  --bg-editor: #1e1e1e;
+  --bg-editor-tabs: #2d2d2d;
+  --bg-editor-tab-active: #1e1e1e;
+  --border-color: #3e3e42;
+  --text-primary: #cccccc;
+  --text-secondary: #969696;
+  --hover-bg: #2a2d2e;
+  --selection-bg: #37373d;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  background-color: var(--bg-editor);
+  color: var(--text-primary);
+}
+
+.demo-container {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.demo-header {
+  background-color: var(--bg-activity-bar);
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.demo-header h1 {
+  margin: 0 0 10px 0;
+  color: var(--primary-color);
+}
+
+.demo-header p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.settings-preview {
+  background-color: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 40px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.tab-section {
+  margin-bottom: 40px;
+}
+
+.tab-header {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--primary-color);
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--primary-color);
+}
+
+.settings-section {
+  margin-bottom: 32px;
+}
+
+.settings-section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.settings-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(62, 62, 66, 0.3);
+}
+
+.settings-row:last-child {
+  border-bottom: none;
+}
+
+.settings-label {
+  flex: 1;
+}
+
+.settings-label-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.settings-label-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.settings-control {
+  flex-shrink: 0;
+  margin-left: 16px;
+}
+
+.settings-input, .settings-select {
+  background-color: var(--bg-activity-bar);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  min-width: 120px;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 24px;
+  background-color: var(--border-color);
+  border-radius: 24px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.switch.active {
+  background-color: var(--primary-color);
+}
+
+.switch::after {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  background-color: white;
+  border-radius: 50%;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.3s;
+}
+
+.switch.active::after {
+  transform: translateX(24px);
+}
+
+.settings-button {
+  background-color: var(--primary-color);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.settings-button-secondary {
+  background-color: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.user-info-card {
+  background-color: var(--bg-activity-bar);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.user-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  background-color: var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.user-details {
+  flex: 1;
+}
+
+.user-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.user-email {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+    </style>
+</head>
+<body>
+    <div class="demo-container">
+        <div class="demo-header">
+            <h1>🚢 ShipS* Settings Menu</h1>
+            <p>Implementing OnsenUI with tabs - Clean, consistent styling with 4-8px border radius</p>
+        </div>
+
+        <div class="settings-preview">
+            <!-- Account Settings Tab Preview -->
+            <div class="tab-section">
+                <div class="tab-header">📋 Account Settings</div>
+                
+                <div class="user-info-card">
+                    <div class="user-avatar">TS</div>
+                    <div class="user-details">
+                        <div class="user-name">Test User</div>
+                        <div class="user-email">test@ship.com</div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3 class="settings-section-title">Account Information</h3>
+                    
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <div class="settings-label-text">Username</div>
+                            <div class="settings-label-desc">Your display name</div>
+                        </div>
+                        <div class="settings-control">
+                            <input type="text" class="settings-input" value="Test User" disabled>
+                        </div>
+                    </div>
+
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <div class="settings-label-text">Email</div>
+                            <div class="settings-label-desc">Your email address</div>
+                        </div>
+                        <div class="settings-control">
+                            <input type="email" class="settings-input" value="test@ship.com" disabled>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Monaco Editor Settings Tab Preview -->
+            <div class="tab-section" style="margin-top: 60px;">
+                <div class="tab-header">⚡ Editor Settings</div>
+                
+                <div class="settings-section">
+                    <h3 class="settings-section-title">Appearance</h3>
+                    
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <div class="settings-label-text">Theme</div>
+                            <div class="settings-label-desc">Editor color theme</div>
+                        </div>
+                        <div class="settings-control">
+                            <select class="settings-select">
+                                <option value="vs-dark">Dark</option>
+                                <option value="light">Light</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <div class="settings-label-text">Font Size</div>
+                            <div class="settings-label-desc">Editor font size in pixels</div>
+                        </div>
+                        <div class="settings-control">
+                            <input type="number" class="settings-input" value="14" min="10" max="24">
+                        </div>
+                    </div>
+
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <div class="settings-label-text">Show Minimap</div>
+                            <div class="settings-label-desc">Display code minimap on the right</div>
+                        </div>
+                        <div class="settings-control">
+                            <div class="switch active"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3 class="settings-section-title">Formatting</h3>
+                    
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <div class="settings-label-text">Tab Size</div>
+                            <div class="settings-label-desc">Number of spaces per tab</div>
+                        </div>
+                        <div class="settings-control">
+                            <input type="number" class="settings-input" value="2" min="1" max="8">
+                        </div>
+                    </div>
+
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <div class="settings-label-text">Word Wrap</div>
+                            <div class="settings-label-desc">How lines should wrap</div>
+                        </div>
+                        <div class="settings-control">
+                            <select class="settings-select">
+                                <option value="off">Off</option>
+                                <option value="on">On</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- General Settings Tab Preview -->
+            <div class="tab-section" style="margin-top: 60px;">
+                <div class="tab-header">⚙️ General Settings</div>
+                
+                <div class="settings-section">
+                    <h3 class="settings-section-title">File Management</h3>
+                    
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <div class="settings-label-text">Auto Save</div>
+                            <div class="settings-label-desc">Automatically save files after editing</div>
+                        </div>
+                        <div class="settings-control">
+                            <div class="switch"></div>
+                        </div>
+                    </div>
+
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <div class="settings-label-text">Auto Save Delay</div>
+                            <div class="settings-label-desc">Delay in milliseconds before auto-saving</div>
+                        </div>
+                        <div class="settings-control">
+                            <input type="number" class="settings-input" value="1000" disabled>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3 class="settings-section-title">Application Behavior</h3>
+                    
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <div class="settings-label-text">Confirm Before Exit</div>
+                            <div class="settings-label-desc">Ask for confirmation when closing the app</div>
+                        </div>
+                        <div class="settings-control">
+                            <div class="switch active"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3 class="settings-section-title">Reset</h3>
+                    
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <div class="settings-label-text">Reset to Defaults</div>
+                            <div class="settings-label-desc">Restore all settings to default values</div>
+                        </div>
+                        <div class="settings-control">
+                            <button class="settings-button settings-button-secondary">Reset All Settings</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Add click handlers for switches
+        document.querySelectorAll('.switch').forEach(sw => {
+            sw.addEventListener('click', function() {
+                this.classList.toggle('active');
+            });
+        });
+    </script>
+</body>
+</html>

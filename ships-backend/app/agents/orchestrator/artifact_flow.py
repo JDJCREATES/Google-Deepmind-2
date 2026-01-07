@@ -1,30 +1,26 @@
 """
-ShipS* Artifact Flow Protocol
+ShipS* Artifact Flow Protocol (Simplified)
 
-Implements the artifact handoff protocol between agents with:
-- Immutable artifact versioning
-- Lock/unlock mechanism for concurrent access
-- Dependency tracking and invalidation
-- Stale artifact detection
+This module provides:
+1. Exception classes for artifact errors (kept - useful for error handling)
+2. Simple helper functions for working with LangGraph state.artifacts
+3. Backward-compatible ArtifactRegistry class (deprecated, delegates to helpers)
 
-Agents NEVER access files directly - they go through this registry.
+The complex ArtifactRegistry has been simplified because LangGraph's
+state["artifacts"] dict already provides the core functionality.
 """
 
 from datetime import datetime
-from typing import Optional, List, Dict, Any, TypeVar, Generic
+from typing import Optional, List, Dict, Any, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 import hashlib
-import uuid
 import json
 
 
-class ArtifactStatus(str, Enum):
-    """Status of an artifact."""
-    FRESH = "fresh"
-    STALE = "stale"
-    LOCKED = "locked"
-
+# ============================================================================
+# EXCEPTION CLASSES (Kept - useful for error handling)
+# ============================================================================
 
 class ArtifactError(Exception):
     """Base exception for artifact errors."""
@@ -61,287 +57,152 @@ class MissingOutput(ArtifactError):
     pass
 
 
-@dataclass
-class ArtifactVersion:
+# ============================================================================
+# SIMPLE HELPER FUNCTIONS (Work with LangGraph state)
+# ============================================================================
+
+def ensure_artifacts_exist(state: Dict[str, Any], required: List[str]) -> Tuple[bool, List[str]]:
     """
-    A single immutable version of an artifact.
+    Check that required artifacts exist in state.
     
-    Each time an artifact is updated, a new version is created.
-    Old versions are preserved for rollback and auditing.
+    Use this in gate checks before phase transitions.
+    
+    Args:
+        state: LangGraph state dict with 'artifacts' key
+        required: List of required artifact names
+        
+    Returns:
+        Tuple of (all_exist, missing_list)
     """
-    artifact_type: str
-    version: int
-    data: Dict[str, Any]
-    produced_by: str
-    timestamp: datetime = field(default_factory=datetime.utcnow)
-    hash: str = ""
-    status: ArtifactStatus = ArtifactStatus.FRESH
-    
-    def __post_init__(self):
-        """Compute hash after initialization."""
-        if not self.hash:
-            self.hash = hashlib.sha256(
-                json.dumps(self.data, sort_keys=True, default=str).encode()
-            ).hexdigest()[:16]
+    artifacts = state.get("artifacts", {})
+    missing = [name for name in required if name not in artifacts]
+    return (len(missing) == 0, missing)
 
 
-@dataclass
-class ArtifactLock:
-    """Lock information for an artifact."""
-    artifact_type: str
-    locked_by: str
-    locked_at: datetime = field(default_factory=datetime.utcnow)
+def get_artifact(state: Dict[str, Any], name: str, default: Any = None) -> Any:
+    """
+    Get artifact from state safely.
+    
+    Args:
+        state: LangGraph state dict
+        name: Artifact name
+        default: Default value if not found
+        
+    Returns:
+        Artifact data or default
+    """
+    return state.get("artifacts", {}).get(name, default)
 
 
-class ArtifactRegistry:
+def get_artifact_or_raise(state: Dict[str, Any], name: str) -> Any:
     """
-    Single source of truth for all artifacts.
+    Get artifact from state, raise if missing.
     
-    This registry provides:
-    - Immutable versioning: Every artifact version is preserved
-    - Locking: Prevents concurrent modification
-    - Dependency tracking: Knows what invalidates what
-    - Stale detection: Flags artifacts whose dependencies changed
-    
-    Usage:
-        registry = ArtifactRegistry()
-        registry.register("plan", {"tasks": [...]}, "Planner")
-        plan = registry.get("plan")
+    Args:
+        state: LangGraph state dict
+        name: Artifact name
+        
+    Returns:
+        Artifact data
+        
+    Raises:
+        MissingArtifact: If artifact not found
     """
+    artifacts = state.get("artifacts", {})
+    if name not in artifacts:
+        raise MissingArtifact(f"Required artifact '{name}' not found in state")
+    return artifacts[name]
+
+
+def set_artifact(state: Dict[str, Any], name: str, data: Any) -> Dict[str, Any]:
+    """
+    Set artifact in state (returns updated artifacts dict for state update).
     
-    # Artifact dependency graph
-    # Key depends on values (if value changes, key becomes stale)
-    DEPENDENCIES: Dict[str, List[str]] = {
-        "plan": ["app_blueprint", "structured_intent"],
-        "code_changes": ["plan", "pattern_registry", "contract_definitions", "context_map"],
-        "validation_report": ["code_changes"],
-        "dependency_graph": ["code_changes"],
-        "integration_check": ["code_changes", "dependency_graph"],
-        "build_log": ["code_changes", "validation_report"],
-        "fix_report": ["code_changes", "validation_report"],
-    }
+    Usage in LangGraph node:
+        return {"artifacts": set_artifact(state, "plan", plan_data)}
     
-    def __init__(self):
-        """Initialize empty registry."""
-        self._artifacts: Dict[str, ArtifactVersion] = {}
-        self._versions: Dict[str, List[ArtifactVersion]] = {}
-        self._locks: Dict[str, ArtifactLock] = {}
+    Args:
+        state: LangGraph state dict
+        name: Artifact name
+        data: Artifact data
+        
+    Returns:
+        Updated artifacts dict
+    """
+    artifacts = state.get("artifacts", {}).copy()
+    artifacts[name] = data
+    return artifacts
+
+
+def merge_artifacts(state: Dict[str, Any], new_artifacts: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Merge new artifacts into state artifacts.
     
-    def has(self, artifact_type: str) -> bool:
-        """Check if artifact exists."""
-        return artifact_type in self._artifacts
-    
-    def register(
-        self, 
-        artifact_type: str, 
-        data: Dict[str, Any], 
-        produced_by: str
-    ) -> ArtifactVersion:
-        """
-        Register a new artifact version.
+    Args:
+        state: LangGraph state dict
+        new_artifacts: Dict of new artifacts to add
         
-        Creates a new immutable version. Does not modify existing versions.
-        
-        Args:
-            artifact_type: Type of artifact (e.g., "plan", "code_changes")
-            data: Artifact data
-            produced_by: Name of agent that created this
-            
-        Returns:
-            The new ArtifactVersion
-        """
-        # Initialize version list if needed
-        if artifact_type not in self._versions:
-            self._versions[artifact_type] = []
-        
-        # Calculate version number
-        version = len(self._versions[artifact_type]) + 1
-        
-        # Create new version
-        artifact = ArtifactVersion(
-            artifact_type=artifact_type,
-            version=version,
-            data=data,
-            produced_by=produced_by
-        )
-        
-        # Store
-        self._artifacts[artifact_type] = artifact
-        self._versions[artifact_type].append(artifact)
-        
-        # Invalidate dependents
-        self._invalidate_dependents(artifact_type)
-        
-        return artifact
-    
-    def get(
-        self, 
-        artifact_type: str, 
-        version: Optional[int] = None
-    ) -> ArtifactVersion:
-        """
-        Retrieve artifact by type.
-        
-        Args:
-            artifact_type: Type of artifact
-            version: Specific version (None = latest)
-            
-        Returns:
-            ArtifactVersion
-            
-        Raises:
-            ArtifactNotFound: If artifact doesn't exist
-            ArtifactStale: If artifact is stale
-        """
-        if artifact_type not in self._artifacts:
-            raise ArtifactNotFound(f"Artifact '{artifact_type}' does not exist")
-        
-        if version is None:
-            artifact = self._artifacts[artifact_type]
-        else:
-            versions = self._versions.get(artifact_type, [])
-            if version < 1 or version > len(versions):
-                raise ArtifactNotFound(f"Version {version} of '{artifact_type}' not found")
-            artifact = versions[version - 1]
-        
-        # Check if stale
-        if artifact.status == ArtifactStatus.STALE:
-            raise ArtifactStale(f"Artifact '{artifact_type}' is stale, regenerate first")
-        
-        return artifact
-    
-    def get_data(self, artifact_type: str) -> Dict[str, Any]:
-        """Get just the data from an artifact."""
-        return self.get(artifact_type).data
-    
-    def lock(self, artifact_type: str, agent_name: str) -> None:
-        """
-        Lock artifact for modification.
-        
-        Prevents concurrent modification race conditions.
-        
-        Args:
-            artifact_type: Type to lock
-            agent_name: Agent requesting lock
-            
-        Raises:
-            ArtifactLocked: If already locked by another agent
-        """
-        if artifact_type in self._locks:
-            lock = self._locks[artifact_type]
-            if lock.locked_by != agent_name:
-                raise ArtifactLocked(
-                    f"'{artifact_type}' is locked by {lock.locked_by}"
-                )
-        
-        self._locks[artifact_type] = ArtifactLock(
-            artifact_type=artifact_type,
-            locked_by=agent_name
-        )
-    
-    def unlock(self, artifact_type: str, agent_name: str) -> None:
-        """
-        Release lock after modification.
-        
-        Args:
-            artifact_type: Type to unlock
-            agent_name: Agent releasing lock
-            
-        Raises:
-            UnauthorizedUnlock: If agent doesn't own the lock
-        """
-        lock = self._locks.get(artifact_type)
-        
-        if lock is None:
-            return  # Not locked, nothing to do
-        
-        if lock.locked_by != agent_name:
-            raise UnauthorizedUnlock(
-                f"'{agent_name}' doesn't own lock on '{artifact_type}' (owned by {lock.locked_by})"
-            )
-        
-        del self._locks[artifact_type]
-    
-    def is_locked(self, artifact_type: str) -> bool:
-        """Check if artifact is locked."""
-        return artifact_type in self._locks
-    
-    def get_dependencies(self, artifact_type: str) -> List[str]:
-        """Get artifacts that this artifact depends on."""
-        return self.DEPENDENCIES.get(artifact_type, [])
-    
-    def get_dependents(self, artifact_type: str) -> List[str]:
-        """Get artifacts that depend on this artifact."""
-        dependents = []
-        for dep_type, deps in self.DEPENDENCIES.items():
-            if artifact_type in deps:
-                dependents.append(dep_type)
-        return dependents
-    
-    def _invalidate_dependents(self, artifact_type: str) -> None:
-        """
-        Mark dependent artifacts as stale.
-        
-        Called when an artifact is updated. Cascades to all dependents.
-        """
-        dependents = self.get_dependents(artifact_type)
-        
-        for dep in dependents:
-            if dep in self._artifacts:
-                self._artifacts[dep].status = ArtifactStatus.STALE
-                # Cascade
-                self._invalidate_dependents(dep)
-    
-    def invalidate(self, artifact_type: str) -> None:
-        """Manually invalidate an artifact."""
-        if artifact_type in self._artifacts:
-            self._artifacts[artifact_type].status = ArtifactStatus.STALE
-            self._invalidate_dependents(artifact_type)
-    
-    def get_version_count(self, artifact_type: str) -> int:
-        """Get number of versions for an artifact."""
-        return len(self._versions.get(artifact_type, []))
-    
-    def get_all_versions(self, artifact_type: str) -> List[ArtifactVersion]:
-        """Get all versions of an artifact."""
-        return self._versions.get(artifact_type, []).copy()
-    
-    def rollback(self, artifact_type: str, version: int) -> ArtifactVersion:
-        """
-        Rollback to a previous version.
-        
-        Creates a new version with the old data.
-        
-        Args:
-            artifact_type: Type to rollback
-            version: Version to rollback to
-            
-        Returns:
-            New ArtifactVersion
-        """
-        old_version = self.get(artifact_type, version)
-        return self.register(
-            artifact_type,
-            old_version.data,
-            "Rollback"
-        )
-    
-    def get_summary(self) -> Dict[str, Any]:
-        """Get summary of all artifacts."""
-        summary = {}
-        for artifact_type, artifact in self._artifacts.items():
-            summary[artifact_type] = {
-                "version": artifact.version,
-                "produced_by": artifact.produced_by,
-                "status": artifact.status.value,
-                "locked": self.is_locked(artifact_type),
-                "timestamp": artifact.timestamp.isoformat()
-            }
-        return summary
+    Returns:
+        Merged artifacts dict
+    """
+    artifacts = state.get("artifacts", {}).copy()
+    artifacts.update(new_artifacts)
+    return artifacts
 
 
 # ============================================================================
-# AGENT INVOCATION PROTOCOL
+# ARTIFACT DEPENDENCY GRAPH (Kept - useful for validation)
+# ============================================================================
+
+ARTIFACT_DEPENDENCIES: Dict[str, List[str]] = {
+    "plan": ["structured_intent"],
+    "code_changes": ["plan"],
+    "validation_report": ["code_changes"],
+    "build_log": ["code_changes"],
+    "fix_report": ["code_changes", "validation_report"],
+}
+
+
+def get_required_artifacts_for_phase(phase: str) -> List[str]:
+    """
+    Get artifacts required to enter a phase.
+    
+    Use this in quality gate checks.
+    
+    Args:
+        phase: Target phase name
+        
+    Returns:
+        List of required artifact names
+    """
+    PHASE_REQUIREMENTS = {
+        "planning": [],  # Just needs user request
+        "coding": ["plan"],
+        "validating": ["code_changes"],
+        "fixing": ["code_changes", "validation_report"],
+        "building": ["code_changes"],
+        "complete": ["build_log"],
+    }
+    return PHASE_REQUIREMENTS.get(phase, [])
+
+
+def check_phase_requirements(state: Dict[str, Any], phase: str) -> Tuple[bool, List[str]]:
+    """
+    Check if state has all artifacts required for a phase.
+    
+    Args:
+        state: LangGraph state dict
+        phase: Target phase
+        
+    Returns:
+        Tuple of (ready, missing_artifacts)
+    """
+    required = get_required_artifacts_for_phase(phase)
+    return ensure_artifacts_exist(state, required)
+
+
+# ============================================================================
+# AGENT INVOCATION RESULT (Kept - used by multiple components)
 # ============================================================================
 
 @dataclass
@@ -353,28 +214,138 @@ class AgentInvocationResult:
     duration_ms: Optional[int] = None
 
 
+# ============================================================================
+# BACKWARD COMPATIBILITY (Deprecated)
+# ============================================================================
+
+class ArtifactStatus(str, Enum):
+    """DEPRECATED: Status of an artifact."""
+    FRESH = "fresh"
+    STALE = "stale"
+    LOCKED = "locked"
+
+
+@dataclass
+class ArtifactVersion:
+    """DEPRECATED: Single version of an artifact."""
+    artifact_type: str
+    version: int
+    data: Dict[str, Any]
+    produced_by: str
+    timestamp: datetime = field(default_factory=datetime.utcnow)
+    hash: str = ""
+    status: ArtifactStatus = ArtifactStatus.FRESH
+    
+    def __post_init__(self):
+        if not self.hash:
+            self.hash = hashlib.sha256(
+                json.dumps(self.data, sort_keys=True, default=str).encode()
+            ).hexdigest()[:16]
+
+
+@dataclass
+class ArtifactLock:
+    """DEPRECATED: Lock information."""
+    artifact_type: str
+    locked_by: str
+    locked_at: datetime = field(default_factory=datetime.utcnow)
+
+
+class ArtifactRegistry:
+    """
+    DEPRECATED: Use state['artifacts'] dict directly.
+    
+    This class is kept for backward compatibility with existing code.
+    New code should use the helper functions above.
+    """
+    
+    DEPENDENCIES = ARTIFACT_DEPENDENCIES
+    
+    def __init__(self):
+        self._artifacts: Dict[str, Any] = {}
+        self._versions: Dict[str, List[ArtifactVersion]] = {}
+        self._locks: Dict[str, ArtifactLock] = {}
+    
+    def has(self, artifact_type: str) -> bool:
+        return artifact_type in self._artifacts
+    
+    def register(self, artifact_type: str, data: Dict[str, Any], produced_by: str) -> ArtifactVersion:
+        if artifact_type not in self._versions:
+            self._versions[artifact_type] = []
+        
+        version = len(self._versions[artifact_type]) + 1
+        artifact = ArtifactVersion(
+            artifact_type=artifact_type,
+            version=version,
+            data=data,
+            produced_by=produced_by
+        )
+        
+        self._artifacts[artifact_type] = artifact
+        self._versions[artifact_type].append(artifact)
+        return artifact
+    
+    def get(self, artifact_type: str, version: Optional[int] = None) -> ArtifactVersion:
+        if artifact_type not in self._artifacts:
+            raise ArtifactNotFound(f"Artifact '{artifact_type}' does not exist")
+        
+        if version is None:
+            return self._artifacts[artifact_type]
+        
+        versions = self._versions.get(artifact_type, [])
+        if version < 1 or version > len(versions):
+            raise ArtifactNotFound(f"Version {version} not found")
+        return versions[version - 1]
+    
+    def get_data(self, artifact_type: str) -> Dict[str, Any]:
+        return self.get(artifact_type).data
+    
+    def lock(self, artifact_type: str, agent_name: str) -> None:
+        if artifact_type in self._locks:
+            lock = self._locks[artifact_type]
+            if lock.locked_by != agent_name:
+                raise ArtifactLocked(f"'{artifact_type}' locked by {lock.locked_by}")
+        self._locks[artifact_type] = ArtifactLock(artifact_type, agent_name)
+    
+    def unlock(self, artifact_type: str, agent_name: str) -> None:
+        lock = self._locks.get(artifact_type)
+        if lock and lock.locked_by != agent_name:
+            raise UnauthorizedUnlock(f"Don't own lock on '{artifact_type}'")
+        if artifact_type in self._locks:
+            del self._locks[artifact_type]
+    
+    def is_locked(self, artifact_type: str) -> bool:
+        return artifact_type in self._locks
+    
+    def get_dependencies(self, artifact_type: str) -> List[str]:
+        return self.DEPENDENCIES.get(artifact_type, [])
+    
+    def get_dependents(self, artifact_type: str) -> List[str]:
+        return [k for k, v in self.DEPENDENCIES.items() if artifact_type in v]
+    
+    def get_summary(self) -> Dict[str, Any]:
+        return {
+            atype: {
+                "version": a.version if isinstance(a, ArtifactVersion) else 1,
+                "produced_by": a.produced_by if isinstance(a, ArtifactVersion) else "unknown",
+                "locked": self.is_locked(atype)
+            }
+            for atype, a in self._artifacts.items()
+        }
+
+
 class AgentInvoker:
     """
-    Handles agent invocation with strict artifact contracts.
+    DEPRECATED: Use LangGraph nodes directly.
     
-    This class ensures:
-    - All required artifacts exist and are fresh
-    - Output artifacts are locked during execution
-    - Results are properly registered
+    Kept for backward compatibility.
     """
     
-    def __init__(self, artifact_registry: ArtifactRegistry):
-        """
-        Initialize with artifact registry.
-        
-        Args:
-            artifact_registry: ArtifactRegistry instance
-        """
-        self.artifacts = artifact_registry
+    def __init__(self, artifact_registry: ArtifactRegistry = None):
+        self.artifacts = artifact_registry or ArtifactRegistry()
         self._agent_registry: Dict[str, Any] = {}
     
     def register_agent(self, name: str, agent: Any) -> None:
-        """Register an agent for invocation."""
         self._agent_registry[name] = agent
     
     async def invoke(
@@ -384,46 +355,16 @@ class AgentInvoker:
         expected_outputs: List[str],
         parameters: Optional[Dict[str, Any]] = None
     ) -> AgentInvocationResult:
-        """
-        Invoke an agent with artifact contracts.
-        
-        This method:
-        1. Validates all input artifacts exist and are fresh
-        2. Locks artifacts this agent will modify
-        3. Fetches input artifacts
-        4. Runs the agent
-        5. Validates outputs match expectations
-        6. Registers new artifact versions
-        7. Unlocks artifacts
-        
-        Args:
-            agent_name: Name of agent to invoke
-            required_artifacts: Artifacts the agent needs as input
-            expected_outputs: Artifacts the agent should produce
-            parameters: Additional parameters
-            
-        Returns:
-            AgentInvocationResult
-        """
+        """Invoke an agent with artifact contracts."""
         parameters = parameters or {}
-        locked_types: List[str] = []
         
         try:
-            # 1. Validate all input artifacts exist and are fresh
-            for artifact_type in required_artifacts:
-                if not self.artifacts.has(artifact_type):
-                    raise MissingArtifact(f"Agent '{agent_name}' requires '{artifact_type}'")
-                
-                artifact = self.artifacts.get(artifact_type)
-                if artifact.status == ArtifactStatus.STALE:
-                    raise ArtifactStale(f"'{artifact_type}' is stale, regenerate first")
+            # Validate inputs
+            for atype in required_artifacts:
+                if not self.artifacts.has(atype):
+                    raise MissingArtifact(f"Requires '{atype}'")
             
-            # 2. Lock artifacts this agent will modify
-            for artifact_type in expected_outputs:
-                self.artifacts.lock(artifact_type, agent_name)
-                locked_types.append(artifact_type)
-            
-            # 3. Fetch input artifacts
+            # Build inputs
             agent_inputs = {
                 "artifacts": {
                     atype: self.artifacts.get_data(atype)
@@ -433,41 +374,19 @@ class AgentInvoker:
                 "parameters": parameters
             }
             
-            # 4. Run agent
+            # Run agent
             agent = self._agent_registry.get(agent_name)
-            if agent is None:
+            if not agent:
                 raise ValueError(f"Agent '{agent_name}' not registered")
             
             result = await agent.invoke(agent_inputs)
             
-            # 5. Validate outputs
-            produced_artifacts = result.get("artifacts", {})
-            for artifact_type in expected_outputs:
-                if artifact_type not in produced_artifacts:
-                    raise MissingOutput(f"Agent '{agent_name}' didn't produce '{artifact_type}'")
+            # Register outputs
+            produced = result.get("artifacts", {})
+            for atype, data in produced.items():
+                self.artifacts.register(atype, data, agent_name)
             
-            # 6. Register new versions
-            for artifact_type, data in produced_artifacts.items():
-                self.artifacts.register(artifact_type, data, agent_name)
-            
-            # 7. Unlock
-            for artifact_type in locked_types:
-                self.artifacts.unlock(artifact_type, agent_name)
-            
-            return AgentInvocationResult(
-                success=True,
-                artifacts=produced_artifacts
-            )
+            return AgentInvocationResult(success=True, artifacts=produced)
             
         except Exception as e:
-            # Unlock on failure
-            for artifact_type in locked_types:
-                try:
-                    self.artifacts.unlock(artifact_type, agent_name)
-                except:
-                    pass
-            
-            return AgentInvocationResult(
-                success=False,
-                error=str(e)
-            )
+            return AgentInvocationResult(success=False, error=str(e))

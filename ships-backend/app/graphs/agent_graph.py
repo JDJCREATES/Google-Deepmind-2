@@ -44,6 +44,9 @@ from app.agents.sub_agents.planner.formatter import (
 )
 from app.core.cache import cache_manager # Explicit Caching
 
+# Collective Intelligence - capture successful patterns and fixes
+from app.services.knowledge.hooks import capture_coder_pattern, capture_fixer_success
+
 
 
 # ============================================================================
@@ -89,6 +92,9 @@ class AgentGraphState(TypedDict):
     
     plan: Dict[str, Any]          # The parsed plan (goal, steps, files)
     completed_files: List[str]    # List of files successfully written
+    
+    # Collective Intelligence: pending fix to capture after validation passes
+    pending_fix_context: Optional[Dict[str, Any]]
     active_file: Optional[str]    # File currently being edited
     project_structure: List[str]  # Cached file tree summary
     error_log: List[str]          # Recent errors to avoid repeating
@@ -131,23 +137,63 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
     
     logger.info(f"[PLANNER] 📝 User request: {user_request[:100]}...")
     
-    # Create the Planner instance (now uses create_react_agent internally)
+    
+    # 3. Create agent instances
     planner = Planner()
     
-    # Build structured intent for the planner
-    structured_intent = {
-        "description": user_request,
-        "id": f"intent_{os.path.basename(project_path) if project_path else 'default'}",
-    }
+    # 4. Prepare Planner state
+    # user_request is already defined above
+    structured_intent = state["artifacts"].get("structured_intent", {}) # This will be overwritten later if not present
+    # project_path is already defined above
     
-    # Build state for planner.invoke()
+    # REFRESH FILE TREE ARTIFACT (System-level update)
+    # This ensures the Planner always has the latest file structure without needing to call a tool
+    file_tree_data = {}
+    try:
+        if project_path:
+            from app.agents.tools.coder.file_tree import scan_project_tree
+            
+            # Get settings (injected in stream_pipeline)
+            settings = state.get("artifacts", {}).get("settings", {})
+            # safely extract depth, handle if settings is None or missing keys
+            scan_depth = 3
+            if settings and isinstance(settings, dict):
+                scan_depth = settings.get("artifacts", {}).get("fileTreeDepth", 3)
+            
+            # Scan and save artifact
+            file_tree_data = scan_project_tree.invoke({
+                "subpath": ".",
+                "max_depth": int(scan_depth),
+                "extract_symbols": True,
+                "save_artifact": True
+            })
+            
+            if file_tree_data.get("success"):
+                logger.info(f"[PLANNER_NODE] 🌳 Refreshed file tree artifact ({file_tree_data['stats']['files']} files)")
+            else:
+                logger.warning(f"[PLANNER_NODE] ⚠️ File tree scan returned error: {file_tree_data.get('error')}")
+                file_tree_data = {}
+                
+    except Exception as ft_e:
+        logger.warning(f"[PLANNER_NODE] ⚠️ Failed to refresh file tree: {ft_e}")
+    
     planner_state = {
         **state,
+        "environment": {
+            "project_path": project_path,
+            "file_tree": file_tree_data, # Inject directly into environment
+        },
         "artifacts": {
             **artifacts,
             "structured_intent": structured_intent,
             "project_path": project_path,
         },
+    }
+    
+    # Build structured intent for the planner (keeping original logic for structured_intent)
+    structured_intent = {
+        "description": user_request,
+        "id": f"intent_{os.path.basename(project_path) if project_path else 'default'}",
     }
     
     try:
@@ -364,10 +410,87 @@ ACTUAL FILE STRUCTURE (Disk State):
         current_set.update(files_written)
         current_completed = list(current_set)
         
+        # ================================================================
+        # INTELLIGENT VALIDATION: Compare expected files from plan
+        # ================================================================
+        expected_files = []
+        
+        # Try to extract expected files from plan content
+        plan_content = artifacts.get("plan_content", "")
+        if plan_content:
+            import re
+            # Look for "Files to Create" sections or file paths in plan
+            # Pattern: src/something.tsx or similar paths
+            file_patterns = re.findall(r'(?:src|public|app)/[\w/.-]+\.\w+', plan_content)
+            expected_files = list(set(file_patterns))
+        
+        # Also check folder_map if available
+        ships_dir = Path(project_path) / ".ships" if project_path else None
+        if ships_dir and ships_dir.exists():
+            folder_map_path = ships_dir / "folder_map.json"
+            if folder_map_path.exists():
+                try:
+                    import json
+                    folder_data = json.loads(folder_map_path.read_text(encoding="utf-8"))
+                    entries = folder_data.get("entries", [])
+                    map_files = [e.get("path") for e in entries if not e.get("is_directory", False) and e.get("path")]
+                    expected_files.extend(map_files)
+                except Exception:
+                    pass
+        
+        expected_files = list(set(expected_files))  # Dedupe
+        
+        # Log progress for debugging
+        logger.info(f"[CODER] 📊 Progress: {len(current_completed)} files created")
+        logger.info(f"[CODER] 📋 Expected from plan: {len(expected_files)} files")
+        
+        # Check what's missing (if we have expected files)
+        if expected_files:
+            # Normalize paths for comparison
+            normalized_completed = {str(f).replace("\\", "/").lower() for f in current_completed}
+            normalized_expected = {str(f).replace("\\", "/").lower() for f in expected_files}
+            
+            missing = normalized_expected - normalized_completed
+            if missing:
+                logger.info(f"[CODER] 📝 Missing files: {len(missing)}")
+                for m in list(missing)[:5]:
+                    logger.info(f"[CODER]    - {m}")
+                
+                # If LLM claims complete but files are missing, force continuation
+                if implementation_complete and len(missing) > 0:
+                    logger.warning(
+                        f"[CODER] ⚠️ LLM claimed complete but {len(missing)} expected files missing. "
+                        f"Continuing..."
+                    )
+                    implementation_complete = False
+            else:
+                logger.info(f"[CODER] ✅ All expected files present!")
+        
         # Determine next phase
         next_phase = "validating" if implementation_complete else "coding"
         if implementation_complete:
             logger.info(f"[CODER] ✅ Implementation complete. {len(current_completed)} files created.")
+        else:
+            logger.info(f"[CODER] 🔄 More work needed, continuing in coding phase")
+            
+        # REFRESH FILE TREE ARTIFACT (System-level update after Coder)
+        try:
+             # Get settings (injected in stream_pipeline)
+             settings = state.get("artifacts", {}).get("settings", {})
+             scan_depth = 3
+             if settings and isinstance(settings, dict):
+                 scan_depth = settings.get("artifacts", {}).get("fileTreeDepth", 3)
+
+             from app.agents.tools.coder.file_tree import scan_project_tree
+             scan_project_tree.invoke({
+                 "subpath": ".",
+                 "max_depth": int(scan_depth),
+                 "extract_symbols": True,
+                 "save_artifact": True
+             })
+             logger.info(f"[CODER_NODE] 🌳 Refreshed file tree artifact after coding")
+        except Exception as ft_e:
+             logger.warning(f"[CODER_NODE] ⚠️ Failed to refresh file tree: {ft_e}")
         
         return {
             "messages": [AIMessage(content=f"Coder completed: {result.get('status', 'unknown')}")],
@@ -417,6 +540,29 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
         
         if validation_passed:
             logger.info(f"[VALIDATOR] ✅ All {violation_count} checks passed")
+            
+            # ===== COLLECTIVE INTELLIGENCE: Capture fix if this validated a fix =====
+            pending_fix = state.get("pending_fix_context")
+            if pending_fix:
+                try:
+                    session_id = state.get("thread_id") or state.get("config", {}).get("configurable", {}).get("thread_id")
+                    user_id = state.get("user_id")
+                    
+                    captured = await capture_fixer_success(
+                        state=state,
+                        error_message=pending_fix.get("error_message", ""),
+                        solution_code=pending_fix.get("solution_code", ""),
+                        solution_description=pending_fix.get("description", ""),
+                        diff=pending_fix.get("diff", ""),
+                        before_errors=pending_fix.get("before_errors", []),
+                        session_id=session_id,
+                        user_id=user_id,
+                    )
+                    if captured:
+                        logger.info("[VALIDATOR] 🔧 Fix captured for Collective Intelligence")
+                except Exception as e:
+                    logger.debug(f"[VALIDATOR] Fix capture skipped: {e}")
+            # =================================================================
         else:
             logger.info(f"[VALIDATOR] ❌ Failed at layer: {failure_layer} ({violation_count} violations)")
         
@@ -437,6 +583,7 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
             "phase": "validating",
             "error_log": error_log,
             "artifacts": merged_artifacts,
+            "pending_fix_context": None,  # Clear after capture attempt
             "agent_status": {
                 "status": "pass" if validation_passed else "fail",
                 "failure_layer": failure_layer,
@@ -452,6 +599,27 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
             "phase": "error",
             "error_log": state.get("error_log", []) + [f"Validator error: {str(e)}"],
             "messages": [AIMessage(content=f"Validation error: {e}")]
+        }
+
+
+async def chat_node(state: AgentGraphState) -> Dict[str, Any]:
+    """
+    Run the Chatter agent (Question Answerer).
+    """
+    logger.info("[CHAT] 💬 Starting chat node...")
+    
+    # Import locally to avoid circular deps if any, or just for cleanliness
+    from app.agents.mini_agents.chatter import Chatter
+    
+    try:
+        chatter = Chatter()
+        return await chatter.invoke(state)
+        
+    except Exception as e:
+        logger.error(f"[CHAT] ❌ Chat failed: {e}")
+        return {
+            "phase": "error",
+            "messages": [AIMessage(content=f"I couldn't answer that: {e}")]
         }
 
 
@@ -508,9 +676,26 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
                 "messages": [AIMessage(content=f"Escalating to planner: {reason}")]
             }
         
+        # ===== COLLECTIVE INTELLIGENCE: Store fix context for capture =====
+        # Extract error and fix info for capture after validation passes
+        fix_artifacts = result.get("artifacts", {})
+        fix_patch = fix_artifacts.get("fix_patch", {})
+        validation_report = artifacts.get("validation_report", {})
+        
+        pending_fix_context = {
+            "error_message": validation_report.get("fixer_instructions", "")[:500] or 
+                            str(state.get("error_log", [])[-1] if state.get("error_log") else ""),
+            "solution_code": fix_patch.get("summary", ""),
+            "description": result.get("summary", f"Fix attempt {fix_attempts}"),
+            "diff": fix_patch.get("unified_diff", ""),
+            "before_errors": [str(v.get("message", "")) for v in validation_report.get("violations", [])][:10],
+        }
+        # ==================================================================
+        
         return {
             "fix_attempts": fix_attempts,
             "phase": "validating",  # Go back to validation after fix
+            "pending_fix_context": pending_fix_context,
             "agent_status": {"status": "fixed", "attempt": fix_attempts},
             "messages": [AIMessage(content=f"Fix applied (attempt {fix_attempts})")]
         }
@@ -558,41 +743,155 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
             
     fix_attempts = state.get("fix_attempts", 0)
     
-    # 2. Build Decision Prompt
+    # ================================================================
+    # INTENT CLASSIFICATION: Use IntentClassifier mini-agent
+    # ================================================================
+    from app.agents.mini_agents.intent_classifier import IntentClassifier
+    
+    is_new_intent = False
+    messages = state.get("messages", [])
+    user_request = ""
+    
+    # Get FIRST user message (the current request)
+    for msg in messages:
+        if hasattr(msg, 'content') and msg.__class__.__name__ in ['HumanMessage', 'HumanMessageChunk']:
+            user_request = str(msg.content).strip()
+            break
+    
+    # Classify current intent
+    current_intent = None
+    if user_request:
+        try:
+            classifier = IntentClassifier()
+            # Load folder_map for context if available
+            folder_map_data = None
+            if project_path:
+                folder_map_path = Path(project_path) / ".ships" / "folder_map.json"
+                if folder_map_path.exists():
+                    import json
+                    folder_map_data = json.loads(folder_map_path.read_text(encoding='utf-8'))
+            
+            current_intent = await classifier.classify(user_request, folder_map=folder_map_data)
+            logger.info(f"[ORCHESTRATOR] 🎯 Intent classified: {current_intent.task_type}/{current_intent.action} (conf: {current_intent.confidence:.2f})")
+            
+        except Exception as e:
+            logger.warning(f"[ORCHESTRATOR] Intent classification failed: {e}")
+    
+    # Check if this is a NEW feature/modify request vs continuing previous work
+    if project_path and plan_exists and current_intent:
+        # New feature/modify requests should trigger re-planning
+        if current_intent.task_type in ['feature', 'modify', 'refactor']:
+            plan_manifest_path = Path(project_path) / ".ships" / "plan_manifest.json"
+            if plan_manifest_path.exists():
+                try:
+                    import json
+                    manifest = json.loads(plan_manifest_path.read_text(encoding='utf-8'))
+                    planned_goal = manifest.get('user_goal', '') or manifest.get('intent_summary', '')
+                    planned_description = manifest.get('description', '')
+                    
+                    # Compare intent descriptions
+                    current_desc = current_intent.description.lower()
+                    planned_combined = f"{planned_goal} {planned_description}".lower()
+                    
+                    # Check if key terms from current request are absent in old plan
+                    current_keywords = set(w for w in current_desc.split() if len(w) > 3)
+                    planned_keywords = set(w for w in planned_combined.split() if len(w) > 3)
+                    
+                    overlap = len(current_keywords & planned_keywords)
+                    coverage = overlap / len(current_keywords) if current_keywords else 1.0
+                    
+                    # Less than 50% keyword coverage = likely new intent
+                    if coverage < 0.5:
+                        is_new_intent = True
+                        logger.info(f"[ORCHESTRATOR] 🆕 NEW INTENT detected (keyword coverage: {coverage:.1%})")
+                        logger.info(f"[ORCHESTRATOR]    Type: {current_intent.task_type}, Action: {current_intent.action}")
+                        logger.info(f"[ORCHESTRATOR]    Description: {current_intent.description[:60]}...")
+                        
+                except Exception as e:
+                    logger.warning(f"[ORCHESTRATOR] Could not compare intents: {e}")
+    
+    # If new intent, version old artifacts and force re-plan
+    if is_new_intent and project_path:
+        logger.info("[ORCHESTRATOR] 🔄 Versioning old plan artifacts...")
+        ships_dir = Path(project_path) / ".ships"
+        import shutil
+        from datetime import datetime
+        version_suffix = datetime.now().strftime("_%Y%m%d_%H%M%S")
+        
+        for artifact_name in ["plan_manifest", "task_list", "folder_map", "implementation_plan"]:
+            for ext in [".json", ".md"]:
+                artifact_file = ships_dir / f"{artifact_name}{ext}"
+                if artifact_file.exists():
+                    versioned = ships_dir / f"{artifact_name}{version_suffix}{ext}"
+                    shutil.copy2(artifact_file, versioned)
+        
+        # Mark plan as needing refresh
+        plan_exists = False
+        logger.info("[ORCHESTRATOR] ✓ Old artifacts versioned, forcing re-plan")
+
+    # 3. Check for CONFIRMATION intent (Approval to proceed)
+    is_confirmation = False
+    if current_intent and current_intent.task_type == "confirmation":
+        is_confirmation = True
+        logger.info("[ORCHESTRATOR] 👍 User CONFIRMATION detected")
+    
+    # 4. Check for QUESTION intent
+    is_question = False
+    if current_intent and current_intent.task_type == "question":
+        is_question = True
+        logger.info("[ORCHESTRATOR] ❓ User QUESTION detected")
+
+    # 5. Build Decision Prompt
     system_prompt = f"""<role>
-You are the Master Orchestrator. You decide which agent runs next.
-</role>
-
-<state>
-PHASE: {phase}
-FILES COMPLETED: {len(completed_files)}
-FIX ATTEMPTS: {fix_attempts}
-PLAN EXISTS: {plan_exists}
-SCAFFOLDING DONE: {scaffolding_done}
-</state>
-
-<rules>
-1. If PHASE is "planning":
-   - If plan missing OR scaffolding NOT done -> call_planner
-   - If plan ready AND scaffolding done -> call_coder
-2. If PHASE is "plan_ready" -> call_coder
-3. If PHASE is "coding" (and files remain) -> call_coder
-4. If PHASE is "validating" -> call_validator
-5. If PHASE is "fixing" -> call_fixer
-6. If Validation Passed -> finish
-7. If PHASE is "fixing_failed" -> call_planner (to re-scope)
-8. If Fixer failed > 3 times -> finish (escalate to user)
-</rules>
-
-<output_format>
-Return JSON ONLY:
-{{
-  "observations": ["observation 1", "observation 2"],
-  "reasoning": "Explain why you are choosing the next step based on state and rules.",
-  "decision": "call_planner" | "call_coder" | "call_validator" | "call_fixer" | "finish",
-  "confidence": 0.0 to 1.0
-}}
-</output_format>"""
+    You are the Master Orchestrator. You decide which agent runs next.
+    </role>
+    
+    <state>
+    PHASE: {phase}
+    FILES COMPLETED: {len(completed_files)}
+    FIX ATTEMPTS: {fix_attempts}
+    PLAN EXISTS: {plan_exists}
+    SCAFFOLDING DONE: {scaffolding_done}
+    NEW FEATURE REQUEST: {is_new_intent}
+    USER CONFIRMATION: {is_confirmation}
+    USER QUESTION: {is_question}
+    INTENT TYPE: {current_intent.task_type if current_intent else 'None'}
+    </state>
+    
+    <rules>
+    PRIORITY 1: Questions
+    - If USER QUESTION is True -> call_chat
+    
+    PRIORITY 2: Planning & Execution (AUTONOMOUS MODE)
+    - If PHASE is "planning":
+       - If NEW FEATURE REQUEST is True -> call_planner (ALWAYS re-plan)
+       - If plan missing OR scaffolding NOT done -> call_planner
+       - If plan ready AND scaffolding done -> call_coder (AUTO-PROCEED!)
+       
+    PRIORITY 3: Execution
+    - If PHASE is "plan_ready" -> call_coder (NO PAUSING - just build!)
+    - If PHASE is "coding" (and files remain) -> call_coder
+    
+    PRIORITY 4: Validation & Fixes
+    - If PHASE is "validating" -> call_validator
+    - If PHASE is "fixing" -> call_fixer
+    - If Validation Passed -> finish
+    - If PHASE is "fixing_failed" -> call_planner
+    - If Fixer failed > 3 times -> finish
+    
+    NOTE: HITL (Human-in-the-Loop) is DISABLED for routine builds.
+    Only pause for critical architectural decisions (not implemented yet).
+    </rules>
+    
+    <output_format>
+    Return JSON ONLY:
+    {{
+      "observations": ["observation 1", "observation 2"],
+      "reasoning": "Explain why you are choosing the next step based on state and rules.",
+      "decision": "call_planner" | "call_coder" | "call_validator" | "call_fixer" | "call_chat" | "finish",
+      "confidence": 0.0 to 1.0
+    }}
+    </output_format>"""
 
     # 3. Call Orchestrator Agent
     orchestrator = AgentFactory.create_orchestrator(override_system_prompt=system_prompt)
@@ -644,6 +943,7 @@ Analyze state and decide next step. Respond with JSON.""")
                 elif "coder" in raw_decision: decision = "coder"
                 elif "validator" in raw_decision: decision = "validator"
                 elif "fixer" in raw_decision: decision = "fixer"
+                elif "chat" in raw_decision: decision = "chat"
                 elif "finish" in raw_decision: decision = "complete"
             except Exception as e:
                 logger.error(f"[ORCHESTRATOR] ❌ JSON parse failed: {e}")
@@ -655,6 +955,7 @@ Analyze state and decide next step. Respond with JSON.""")
             elif "call_coder" in response: decision = "coder"
             elif "call_validator" in response: decision = "validator"
             elif "call_fixer" in response: decision = "fixer"
+            elif "call_chat" in response: decision = "chat"
             elif "finish" in response: decision = "complete"
             
     except Exception as e:
@@ -751,6 +1052,22 @@ async def complete_node(state: AgentGraphState) -> Dict[str, Any]:
         preview_url = f"file://{index_html}"
         logger.info(f"[COMPLETE] 📄 Static HTML at: {preview_url}")
     
+    # ===== COLLECTIVE INTELLIGENCE: Capture successful pattern =====
+    try:
+        session_id = state.get("thread_id") or state.get("config", {}).get("configurable", {}).get("thread_id")
+        user_id = state.get("user_id")
+        
+        captured = await capture_coder_pattern(
+            state=state,
+            session_id=session_id,
+            user_id=user_id,
+        )
+        if captured:
+            logger.info("[COMPLETE] 📚 Pattern captured for Collective Intelligence")
+    except Exception as e:
+        logger.debug(f"[COMPLETE] Pattern capture skipped: {e}")
+    # ================================================================
+    
     return {
         "phase": "complete",
         "result": {
@@ -787,6 +1104,7 @@ def create_agent_graph(checkpointer: Optional[MemorySaver] = None) -> StateGraph
     graph.add_node("coder", coder_node)
     graph.add_node("validator", validator_node)
     graph.add_node("fixer", fixer_node)
+    graph.add_node("chat", chat_node)
     graph.add_node("complete", complete_node)
     
     # EDGE WIRING: Hub and Spoke
@@ -796,6 +1114,7 @@ def create_agent_graph(checkpointer: Optional[MemorySaver] = None) -> StateGraph
     graph.add_edge("coder", "orchestrator")
     graph.add_edge("validator", "orchestrator")
     graph.add_edge("fixer", "orchestrator")
+    graph.add_edge("chat", "orchestrator")
     
     # ORCHESTRATOR ROUTING
     def route_orchestrator(state: AgentGraphState):
@@ -812,6 +1131,7 @@ def create_agent_graph(checkpointer: Optional[MemorySaver] = None) -> StateGraph
             "coder": "coder",
             "validator": "validator",
             "fixer": "fixer",
+            "chat": "chat",
             "complete": "complete"
         }
     )
@@ -873,7 +1193,8 @@ async def run_full_pipeline(
 async def stream_pipeline(
     user_request: str,
     thread_id: str = "default",
-    project_path: Optional[str] = None
+    project_path: Optional[str] = None,
+    settings: Optional[dict] = None  # New: User settings
 ):
     """
     Stream the full agent pipeline with token-by-token streaming.
@@ -884,6 +1205,7 @@ async def stream_pipeline(
         user_request: The user's request
         thread_id: Thread ID for state persistence
         project_path: Optional path to user's project directory
+        settings: Optional client-side settings dict
         
     Yields:
         Message chunks as the LLM generates tokens
@@ -909,7 +1231,8 @@ async def stream_pipeline(
         "messages": [human_msg],
         "phase": "planning",
         "artifacts": {
-            "project_path": project_path  # None if not set - agents will check and refuse
+            "project_path": project_path,  # None if not set - agents will check and refuse
+            "settings": settings or {}     # Inject settings into artifacts
         },
         "current_task_index": 0,
         "validation_passed": False,

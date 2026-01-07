@@ -4,6 +4,9 @@ ShipS* Coder Agent
 The Coder converts Planner tasks into minimal, reviewable code changes (file diffs),
 tests, and commit metadata that downstream systems can run, validate, and ship.
 
+Integrates with Collective Intelligence system to leverage proven patterns and
+avoid known pitfalls from past successful code generations.
+
 Uses Gemini 3 flash preview for deterministic code generation.
 
 Responsibilities:
@@ -55,6 +58,9 @@ from app.agents.sub_agents.coder.components import (
     TestAuthor, PreflightChecker, CodeTools,
 )
 
+# Collective Intelligence integration
+from app.services.knowledge import CoderKnowledge
+
 
 class Coder(BaseAgent):
     """
@@ -73,7 +79,8 @@ class Coder(BaseAgent):
         self,
         artifact_manager: Optional[ArtifactManager] = None,
         config: Optional[CoderComponentConfig] = None,
-        cached_content: Optional[str] = None
+        cached_content: Optional[str] = None,
+        knowledge: Optional[CoderKnowledge] = None,
     ):
         """
         Initialize the Coder.
@@ -81,6 +88,8 @@ class Coder(BaseAgent):
         Args:
             artifact_manager: Optional artifact manager
             config: Coder configuration
+            cached_content: Optional cached content
+            knowledge: Optional CoderKnowledge for Collective Intelligence
         """
         # Initialize instance vars BEFORE super().__init__ since it calls _get_system_prompt()
         self.config = config or CoderComponentConfig()
@@ -88,6 +97,8 @@ class Coder(BaseAgent):
         self._injected_api_contracts: Optional[Dict[str, Any]] = None
         self._project_type: str = "generic"
         self._last_thought_signature: Optional[str] = None
+        self._knowledge = knowledge  # Collective Intelligence
+        self._knowledge_prompt: str = ""  # Cached suggestions for current task
         
         super().__init__(
             name="Coder",
@@ -215,6 +226,18 @@ Use these type definitions. Do NOT read from disk.
         context["framework"] = framework
         style_result = self.style_enforcer.process(context)
         context.update(style_result)
+
+        # Step 3.5: Integrate Collective Intelligence knowledge
+        if self._knowledge:
+            try:
+                feature_request = task.get("description", task.get("title", ""))
+                await self._knowledge.get_suggestions(feature_request)
+                self._knowledge_prompt = self._knowledge.format_for_prompt()
+            except Exception as e:
+                # Knowledge retrieval is non-blocking - log and continue
+                import logging
+                logging.getLogger("ships.coder").warning(f"Knowledge retrieval failed: {e}")
+                self._knowledge_prompt = ""
         
         # Step 4: Use LLM for actual code generation
         llm_result = await self._generate_code_with_llm(task, context)
@@ -418,6 +441,10 @@ Use these type definitions. Do NOT read from disk.
         if style:
             parts.append(f"STYLE: {json.dumps(style)}")
         
+        # Collective Intelligence - inject proven patterns
+        if self._knowledge_prompt:
+            parts.append(self._knowledge_prompt)
+        
         # Existing code context
         snippets = context.get("relevant_snippets", {})
         if snippets:
@@ -616,12 +643,23 @@ Use these type definitions. Do NOT read from disk.
                     folder_data = json.loads(folder_map_path.read_text(encoding="utf-8"))
                     entries = folder_data.get("entries", [])
                     files_to_create = [e.get("path") for e in entries if not e.get("is_directory", False)]
+                    
+                    # DEBUG: Log expected files
+                    import logging
+                    logger = logging.getLogger("ships.coder")
+                    logger.info(f"[CODER] 📋 Expected files from folder_map: {len(files_to_create)}")
+                    for f in files_to_create[:10]:
+                        logger.info(f"[CODER]    📄 {f}")
+                    if len(files_to_create) > 10:
+                        logger.info(f"[CODER]    ... and {len(files_to_create) - 10} more")
+                    
                     if files_to_create:
                         artifact_context += "\n## FILES TO CREATE (from folder_map):\n"
                         for f in files_to_create[:15]:
                             artifact_context += f"  - {f}\n"
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging
+                    logging.getLogger("ships.coder").warning(f"[CODER] ⚠️ Failed to read folder_map: {e}")
             
             # Read api_contracts.json
             api_path = ships_dir / "api_contracts.json"
@@ -715,8 +753,12 @@ IMPORTANT:
                 # Track tool calls for file writes
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:
                     for tc in msg.tool_calls:
-                        if tc.get("name") == "write_file_to_disk":
-                            path = tc.get("args", {}).get("file_path", "")
+                        # Handle both dict and TypedDict access patterns
+                        tc_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
+                        tc_args = tc.get("args", {}) if isinstance(tc, dict) else getattr(tc, "args", {})
+                        
+                        if tc_name == "write_file_to_disk":
+                            path = tc_args.get("file_path", "") if isinstance(tc_args, dict) else ""
                             if path:
                                 files_written.append(path)
             

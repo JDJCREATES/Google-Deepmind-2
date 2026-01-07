@@ -3,7 +3,7 @@ import './ActivityIndicator.css';
 
 export interface ActivityProps {
   activity: string; // e.g., "Thinking...", "Writing src/App.tsx..."
-  type?: 'thinking' | 'writing' | 'command' | 'reading';
+  type?: 'thinking' | 'writing' | 'command' | 'reading' | 'working';
 }
 
 export function ActivityIndicator({ activity, type = 'thinking' }: ActivityProps) {

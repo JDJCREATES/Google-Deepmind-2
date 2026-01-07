@@ -40,6 +40,27 @@ def write_file_to_disk(file_path: str, content: str) -> Dict[str, Any]:
         project_root = get_project_root()
         resolved_path = (Path(project_root) / file_path).resolve()
         
+        # ================================================================
+        # AUTO-VERSIONING: Backup implementation_plan.md before overwrite
+        # ================================================================
+        if "implementation_plan.md" in file_path and resolved_path.exists():
+            try:
+                from datetime import datetime
+                history_dir = Path(project_root) / ".ships" / "history"
+                history_dir.mkdir(parents=True, exist_ok=True)
+                
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                backup_name = f"implementation_plan_{timestamp}.md"
+                backup_path = history_dir / backup_name
+                
+                # Copy existing content to backup
+                existing_content = resolved_path.read_text(encoding="utf-8")
+                backup_path.write_text(existing_content, encoding="utf-8")
+                
+                logger.info(f"[PLANNER] 📦 Backed up plan to: .ships/history/{backup_name}")
+            except Exception as backup_err:
+                logger.warning(f"[PLANNER] ⚠️ Failed to backup plan: {backup_err}")
+        
         # Create parent directories
         resolved_path.parent.mkdir(parents=True, exist_ok=True)
         

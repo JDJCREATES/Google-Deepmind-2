@@ -40,14 +40,15 @@
 }
 
 .tab:hover:not(.disabled) {
-  background-color: var(--hover-background, rgba(255, 255, 255, 0.05));
-  color: var(--text-primary, #fff);
+  background-color: rgba(255, 251, 212, 0.08) !important;
+  color: #fffbd4 !important;
+  border-bottom: 2px solid transparent !important;
 }
 
 .tab.active {
-  background-color: var(--active-background, rgba(255, 94, 87, 0.1));
-  color: var(--primary-color, #ff5e57);
-  border-bottom: 2px solid var(--primary-color, #ff5e57);
+  background-color: var(--bg-editor, #1e1e1e) !important;
+  color: #fffbd4 !important;
+  border-bottom: 2px solid var(--primary-color, #e06c75) !important;
 }
 
 .tab.disabled {
@@ -56,8 +57,7 @@
 }
 
 .tab:focus-visible {
-  outline: 2px solid var(--primary-color, #ff5e57);
-  outline-offset: -2px;
+  outline: none;
 }
 
 .tab-icon {

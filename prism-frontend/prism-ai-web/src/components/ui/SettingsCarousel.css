@@ -1,0 +1,134 @@
+/* ─────────────────────────────────────────────────────────────
+   Settings Carousel - Custom carousel with CSS animations
+   ───────────────────────────────────────────────────────────── */
+
+.settings-carousel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.carousel-track-container {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  min-height: 0; /* Important for flex children to not overflow */
+}
+
+.carousel-track {
+  display: flex;
+  height: 100%;
+  transition: transform 0.3s ease-out;
+  will-change: transform;
+}
+
+.carousel-slide-wrapper {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.carousel-slide {
+  height: 100%;
+  width: 100%;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Navigation Container (Arrows + Dots)
+   ───────────────────────────────────────────────────────────── */
+
+.carousel-navigation {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-color, #3e3e42);
+  flex-shrink: 0; /* Prevent navigation from shrinking - stay at bottom */
+  background-color: var(--bg-sidebar, #252526);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Arrow Buttons
+   ───────────────────────────────────────────────────────────── */
+
+.carousel-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-color, #3e3e42);
+  border-radius: 4px;
+  background-color: transparent;
+  color: var(--text-secondary, #888);
+  font-size: 16px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  outline: none !important;
+  flex-shrink: 0;
+}
+
+.carousel-arrow:hover:not(:disabled) {
+  background-color: rgba(255, 251, 212, 0.1);
+  border-color: #fffbd4 !important;
+  color: #fffbd4;
+}
+
+.carousel-arrow:active:not(:disabled) {
+  border-color: var(--primary-color) !important;
+}
+
+.carousel-arrow:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  border-color: var(--border-color, #3e3e42) !important;
+}
+
+.carousel-arrow:focus {
+  outline: none !important;
+  border-color: var(--border-color, #3e3e42);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Pagination Dots
+   ───────────────────────────────────────────────────────────── */
+
+.carousel-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+
+.carousel-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  background-color: var(--text-secondary, #888);
+  opacity: 0.3;
+  transition: opacity 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+  outline: none;
+}
+
+.carousel-dot:hover {
+  opacity: 0.6;
+  transform: scale(1.2);
+}
+
+.carousel-dot.active {
+  background-color: var(--primary-color, #e06c75);
+  opacity: 1;
+}
+
+.carousel-dot:focus {
+  outline: none;
+}
+
