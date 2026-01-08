@@ -115,6 +115,35 @@ function App() {
   // 2. Poll Backend for Preview Status - ALWAYS poll, not just when backendConnected
   // This allows picking up previews started by prism-ai-web
   useEffect(() => {
+    // Helper to probe if a URL is reachable
+    const probeUrl = async (url: string): Promise<boolean> => {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 1000);
+        await fetch(url, { mode: 'no-cors', signal: controller.signal });
+        clearTimeout(timeout);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    // Try common dev server ports
+    const tryCommonPorts = async () => {
+      const ports = ['5177', '5173', '3000', '3001', '8080'];
+      for (const port of ports) {
+        const url = `http://localhost:${port}`;
+        if (await probeUrl(url)) {
+          console.log(`[Preview] Auto-detected dev server at ${url}`);
+          setProjectUrl(url);
+          setIsConnecting(false);
+          setStatusMessage(`✓ Auto-detected: ${url}`);
+          return true;
+        }
+      }
+      return false;
+    };
+
     const checkStatus = async () => {
         try {
             const res = await fetch('http://localhost:8001/preview/status');
@@ -133,6 +162,9 @@ function App() {
                   setCurrentPath(data.project_path);
                   setBackendConnected(true);
                 }
+            } else if (!projectUrl) {
+                // Backend doesn't have a running server - try to auto-detect
+                await tryCommonPorts();
             }
 
             // Check for focus request (Reverse Focus)
@@ -145,7 +177,10 @@ function App() {
                 }
             }
         } catch (e) {
-            // Backend not running - this is ok, just wait
+            // Backend not running - try to auto-detect dev servers directly
+            if (!projectUrl) {
+                await tryCommonPorts();
+            }
         }
     };
     
@@ -154,7 +189,7 @@ function App() {
     
     const interval = setInterval(checkStatus, 2000);
     return () => clearInterval(interval);
-  }, [currentPath]); // Re-run if currentPath changes
+  }, [currentPath, projectUrl]); // Re-run if currentPath or projectUrl changes
 
   // 3. User selects folder
   const handleSelectProject = async () => {

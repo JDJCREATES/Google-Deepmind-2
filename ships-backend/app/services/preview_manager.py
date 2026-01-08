@@ -190,9 +190,9 @@ class PreviewManager:
         except Exception as e:
             self.logs.append(f"[System Error] Log consumption failed: {e}")
         finally:
-            self.is_running = False
-            # Ensure process is marked logs finished if it dies
+            # Only mark as not running if the process actually exited
             if self.process and self.process.poll() is not None:
+                self.is_running = False
                 self.logs.append("[System] Process exited.")
 
     def request_focus(self):

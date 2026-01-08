@@ -49,6 +49,7 @@ function createWindow() {
       preload: join(__dirname, '../preload/index.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      webviewTag: true, // Enable <webview> in renderer
     },
     titleBarStyle: 'hidden',
     titleBarOverlay: {

@@ -343,7 +343,7 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
         </div>
         <div className="chat-header-center" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           {previewStatus === 'running' && previewUrl && (
-            <span style={{ color: '#4ec9b0', fontSize: '12px' }}>● Live: {previewUrl}</span>
+            <span style={{ color: '#4ec9b0', fontSize: '12px' }}>● Server Running (Check Desktop App)</span>
           )}
           {previewStatus === 'starting' && (
             <span style={{ color: '#dcdcaa', fontSize: '12px' }}>○ Starting...</span>
