@@ -257,6 +257,35 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
           }));
         }
         
+        // Agent Reasoning (from planner, coder, orchestrator, etc.)
+        else if (chunk.type === 'reasoning' && chunk.content) {
+          const content = chunk.content;
+          const node = chunk.node || 'agent';
+          
+          // Skip the same internal patterns
+          const skipPatterns = [
+            'ACTION REQUIRED', 'MANDATORY FIRST STEP', 'SCAFFOLDING CHECK',
+            'list_directory', '{"type": "tool_result"',
+          ];
+          
+          if (skipPatterns.some(p => content.includes(p))) {
+            return; 
+          }
+          
+          // Append reasoning with node indicator
+          setMessages(prev => prev.map(msg => {
+            if (msg.id === aiMessageId) {
+              const nodeLabel = node.charAt(0).toUpperCase() + node.slice(1);
+              const formattedContent = `\n**[${nodeLabel}]** ${content}`;
+              return { 
+                ...msg, 
+                content: msg.content + formattedContent
+              };
+            }
+            return msg;
+          }));
+        }
+        
         // Complete
         else if (chunk.type === 'complete') {
           setPhase('done');

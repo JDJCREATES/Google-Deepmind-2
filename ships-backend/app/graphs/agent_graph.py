@@ -888,7 +888,59 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
         is_question = True
         logger.info("[ORCHESTRATOR] ❓ User QUESTION detected")
 
-    # 5. Build Decision Prompt
+    # 5. Check for AMBIGUOUS intent (needs clarification) - CRITICAL FIX
+    # The Intent Classifier can detect ambiguity but we weren't checking it!
+    if current_intent and current_intent.is_ambiguous:
+        clarification_msg = "\n".join(current_intent.clarification_questions) if current_intent.clarification_questions else "I need more information to proceed. Could you clarify what you'd like me to do?"
+        logger.info(f"[ORCHESTRATOR] ❓ AMBIGUOUS request detected - asking for clarification")
+        logger.info(f"[ORCHESTRATOR] Questions: {current_intent.clarification_questions}")
+        
+        return {
+            "phase": "chat",  # Route to chat to show message
+            "messages": [AIMessage(content=f"🤔 **I need clarification:**\n\n{clarification_msg}")],
+            "artifacts": {**artifacts, "pending_intent": current_intent.model_dump() if hasattr(current_intent, 'model_dump') else {}}
+        }
+
+    # 6. Check for NEW INTENT in EXISTING PROJECT (potential conflict)
+    # If user asks for something new but we have existing code, ASK before proceeding
+    if is_new_intent and project_path:
+        src_path = Path(project_path) / "src"
+        if src_path.exists():
+            src_files = list(src_path.glob("**/*.tsx")) + list(src_path.glob("**/*.ts")) + list(src_path.glob("**/*.jsx")) + list(src_path.glob("**/*.js"))
+            if len(src_files) > 5:  # Has meaningful code beyond scaffolding
+                # Get previous goal from plan manifest
+                plan_manifest_path = Path(project_path) / ".ships" / "plan_manifest.json"
+                previous_goal = "an existing application"
+                if plan_manifest_path.exists():
+                    try:
+                        import json
+                        manifest = json.loads(plan_manifest_path.read_text(encoding='utf-8'))
+                        previous_goal = manifest.get('user_goal', '') or manifest.get('description', 'an existing application')
+                    except:
+                        pass
+                
+                clarification_msg = f"""⚠️ **This project already contains code.**
+
+I detected you want to build something new, but this project already has:
+- **Previous goal:** {previous_goal}
+- **{len(src_files)} source files** in the src/ directory
+
+**What would you like to do?**
+1. Reply **"add"** - Add this as a new feature to the existing app
+2. Reply **"replace"** - Clear and rebuild with the new request (⚠️ destructive)
+3. Reply **"new folder"** - Create in a separate project directory
+
+Please clarify before I proceed."""
+
+                logger.info(f"[ORCHESTRATOR] ⚠️ NEW INTENT + EXISTING CODE detected - asking for clarification")
+                
+                return {
+                    "phase": "chat",
+                    "messages": [AIMessage(content=clarification_msg)],
+                    "artifacts": {**artifacts, "pending_new_intent": current_intent.model_dump() if hasattr(current_intent, 'model_dump') else {}}
+                }
+
+    # 7. Build Decision Prompt
     system_prompt = f"""<role>
     You are the Master Orchestrator. You decide which agent runs next.
     </role>
@@ -1166,7 +1218,7 @@ def create_agent_graph(checkpointer: Optional[MemorySaver] = None) -> StateGraph
     # ORCHESTRATOR ROUTING
     def route_orchestrator(state: AgentGraphState):
         decision = state.get("phase")
-        if decision in ["planner", "coder", "validator", "fixer", "complete"]:
+        if decision in ["planner", "coder", "validator", "fixer", "chat", "complete"]:
             return decision
         return "complete" # Default fallback
         

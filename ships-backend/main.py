@@ -398,17 +398,25 @@ async def run_agent(request: Request, body: PromptRequest):
                                     "content": text
                                 }) + "\n"
                             else:
-                                # Log but don't stream non-chat AI text
-                                logger.debug(f"[STREAM] Non-chat content from {node_name}: {text[:100]}...")
+                                # Stream reasoning from other agents too - user wants to see progress!
+                                # Use 'reasoning' type so frontend can style differently
+                                yield json.dumps({
+                                    "type": "reasoning",
+                                    "node": node_name,
+                                    "content": text
+                                }) + "\n"
+                                logger.debug(f"[STREAM] Streaming reasoning from {node_name}: {text[:100]}...")
                             
                         # Handle list content (Gemini sometimes returns list of dicts)
                         elif isinstance(content, list):
                             for item in content:
                                 if isinstance(item, dict) and 'text' in item:
                                     text = item['text'].strip()
-                                    if text and node_name.lower() in ['chat', 'chatter']:
+                                    if text:
+                                        # Stream from any node
+                                        msg_type = "message" if node_name.lower() in ['chat', 'chatter'] else "reasoning"
                                         yield json.dumps({
-                                            "type": "message",
+                                            "type": msg_type,
                                             "node": node_name,
                                             "content": text
                                         }) + "\n"

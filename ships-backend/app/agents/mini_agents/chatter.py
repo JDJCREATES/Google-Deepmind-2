@@ -97,7 +97,7 @@ RULES:
         
         return {
             "messages": [last_message],
-            "phase": "chat_response",
+            "phase": "complete",  # End the pipeline after chat response
             # Clear intent so we don't loop
             "artifacts": {**artifacts, "structured_intent": None}
         }
