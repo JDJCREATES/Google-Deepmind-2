@@ -66,25 +66,23 @@ Create `.ships/implementation_plan.md` with:
 {stack}
 
 ## Project Structure
-[Full folder tree with ALL files to be created, you must think ahead ot what typical production codebase would look like]
+[Full folder tree with ALL files to be created - think ahead to a production codebase]
 
 ## Conventions
 {conventions}
 
-## Types
-[Define all shared interfaces/schemas]
-
 ## Files to Create (In Order)
 For each: Path, Purpose, Exports, Imports
 
-## API Contracts (If Applicable)
-Route, Method, Request/Response shapes
+## Architecture & Logic
+[Modular, Open-Ended Sections as needed for the specific task]
+- Define data models/schemas broadly (Coder will handle specific Types)
+- Outline core algorithms/logic flows
+- Describe state management strategy
+- Add any other relevant sections (e.g. "Security", "Theming", "Routing")
 
 ## Dependencies 
 {deps}
-
-## You can create one or two extra sections if it'll help the coder with this task 
-[detailed task relevant sections - your choice]
 ```
 
 ### Step 6: SELF-VALIDATE

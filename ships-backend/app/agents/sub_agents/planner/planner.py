@@ -37,7 +37,11 @@ from app.agents.sub_agents.planner.models import (
     DependencyPlan, ValidationChecklist, RiskReport,
     ArtifactMetadata, Task, TaskComplexity, TaskPriority,
     PlannerComponentConfig,
+    # LLM Output Schemas
+    LLMPlanOutput, LLMPlanTask, LLMPlanFolder
 )
+
+from app.agents.sub_agents.planner.enricher import PlanEnricher
 
 # Dynamic prompt builder (injects project-type-specific conventions)
 from app.prompts.planner import build_planner_prompt
@@ -51,46 +55,6 @@ from app.agents.sub_agents.planner.components import (
     DependencyPlanner, TestDesigner, RiskAssessor,
 )
 
-
-# ============================================================================
-# PYDANTIC SCHEMAS FOR STRUCTURED LLM OUTPUT
-# ============================================================================
-
-class LLMPlanTask(BaseModel):
-    """Single task in the LLM plan output."""
-    title: str = Field(description="Short task title")
-    description: str = Field(description="Detailed description of what to do")
-    complexity: str = Field(default="medium", description="small, medium, or large")
-    priority: str = Field(default="medium", description="high, medium, or low")
-    estimated_minutes: int = Field(default=60, description="Estimated time in minutes")
-    acceptance_criteria: List[str] = Field(default_factory=list, description="Success criteria")
-    expected_outputs: List[Dict[str, str]] = Field(default_factory=list, description="Files to create")
-
-
-class LLMPlanFolder(BaseModel):
-    """Folder entry in the LLM plan output."""
-    path: str = Field(description="Path like src/components")
-    is_directory: bool = Field(default=True, description="True for folder, False for file")
-    description: str = Field(default="", description="Purpose of this folder/file")
-
-
-class LLMPlanOutput(BaseModel):
-    """Structured output schema for LLM planning - enforces exact format."""
-    summary: str = Field(description="Brief executive summary of the plan")
-    decision_notes: List[str] = Field(default_factory=list, description="Key technical decisions")
-    tasks: List[LLMPlanTask] = Field(default_factory=list, description="Ordered list of tasks")
-    folders: List[LLMPlanFolder] = Field(default_factory=list, description="Folders/files to create")
-    
-    # Dependencies can be a list (simple) or dict (runtime/dev)
-    # We use Dict to match DependencyPlanner expectation, but need to be flexible
-    dependencies: Dict[str, List[Dict[str, str]]] = Field(
-        default_factory=lambda: {"runtime": [], "dev": []}, 
-        description="Dictionary with 'runtime' and 'dev' lists of packages"
-    )
-    
-    api_endpoints: List[Dict[str, str]] = Field(default_factory=list, description="API endpoints to create")
-    risks: List[Dict[str, str]] = Field(default_factory=list, description="Potential risks")
-    clarifying_questions: List[str] = Field(default_factory=list, description="Questions for user")
 
 
 class Planner(BaseAgent):
@@ -141,7 +105,11 @@ class Planner(BaseAgent):
         self.contract_author = ContractAuthor(self.config)
         self.dependency_planner = DependencyPlanner(self.config)
         self.test_designer = TestDesigner(self.config)
+        self.test_designer = TestDesigner(self.config)
         self.risk_assessor = RiskAssessor(self.config)
+        
+        # Data Enricher
+        self.enricher = PlanEnricher()
         
         # Tools
         self.tools = PlannerTools()
@@ -292,6 +260,10 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
             }
         
         self.system_prompt = self._get_system_prompt(artifacts=planner_artifacts)
+        
+        # Define user_request for scaffolding analysis
+        user_request = intent.get("description", "")
+        
         scaffolding_result = self.tools.analyze_project_for_scaffolding(
             project_path, 
             user_request
@@ -335,25 +307,25 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
 
         
         # Enrich task list with LLM insights
-        self._enrich_task_list(task_list, llm_plan)
+        self.enricher.enrich_task_list(task_list, llm_plan)
         context["task_list"] = task_list
         
         # FolderArchitect: Folder structure
         folder_result = self.folder_architect.process(context)
         folder_map = folder_result["folder_map"]
-        self._enrich_folder_map(folder_map, llm_plan)
+        self.enricher.enrich_folder_map(folder_map, llm_plan)
         context["folder_map"] = folder_map
         
         # ContractAuthor: API contracts
         contract_result = self.contract_author.process(context)
         api_contracts = contract_result["api_contracts"]
-        self._enrich_api_contracts(api_contracts, llm_plan)
+        self.enricher.enrich_api_contracts(api_contracts, llm_plan)
         context["api_contracts"] = api_contracts
         
         # DependencyPlanner: Dependencies
         dep_result = self.dependency_planner.process(context)
         dependency_plan = dep_result["dependency_plan"]
-        self._enrich_dependencies(dependency_plan, llm_plan)
+        self.enricher.enrich_dependencies(dependency_plan, llm_plan)
         context["dependency_plan"] = dependency_plan
         
         # TestDesigner: Validation checklist
@@ -363,7 +335,7 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
         # RiskAssessor: Risk report
         risk_result = self.risk_assessor.process(context)
         risk_report = risk_result["risk_report"]
-        self._enrich_risks(risk_report, llm_plan)
+        self.enricher.enrich_risks(risk_report, llm_plan)
         
         # Step 3: Assemble Plan Manifest
         plan_manifest = self.tools.assemble_plan_manifest(
@@ -595,123 +567,7 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
         logger.error(f"[PLANNER] ❌ All JSON parsing failed! Response preview: {response[:300]}...")
         return {"summary": "Plan generated", "tasks": []}
     
-    def _enrich_task_list(self, task_list: TaskList, llm_plan: Dict[str, Any]) -> None:
-        """Enrich task list with LLM insights."""
-        llm_tasks = llm_plan.get("tasks", [])
-        for llm_task in llm_tasks:
-            # Find matching task or create new
-            title = llm_task.get("title", "")
-            existing = next((t for t in task_list.tasks if title.lower() in t.title.lower()), None)
-            
-            if existing:
-                # Enrich existing task
-                if llm_task.get("acceptance_criteria"):
-                    from app.agents.sub_agents.planner.models import AcceptanceCriterion
-                    for criterion in llm_task["acceptance_criteria"]:
-                        existing.acceptance_criteria.append(
-                            AcceptanceCriterion(description=criterion)
-                        )
-            else:
-                # Add new task from LLM
-                new_task = Task(
-                    title=title,
-                    description=llm_task.get("description", ""),
-                    complexity=TaskComplexity(llm_task.get("complexity", "small")),
-                    priority=TaskPriority(llm_task.get("priority", "medium")),
-                    estimated_minutes=llm_task.get("estimated_minutes", 60)
-                )
-                task_list.add_task(new_task)
-    
-    def _enrich_folder_map(self, folder_map: FolderMap, llm_plan: Dict[str, Any]) -> None:
-        """Enrich folder map with LLM insights - folders AND files from tasks."""
-        from app.agents.sub_agents.planner.models import FolderEntry
-        
-        existing_paths = {e.path for e in folder_map.entries}
-        
-        # 1. Add folders from LLM 'folders' array
-        llm_folders = llm_plan.get("folders", [])
-        for folder in llm_folders:
-            path = folder.get("path", "")
-            if path and path not in existing_paths:
-                folder_map.entries.append(FolderEntry(
-                    path=path,
-                    is_directory=folder.get("is_directory", True),
-                    description=folder.get("description", "")
-                ))
-                existing_paths.add(path)
-        
-        # 2. Extract FILES from tasks' expected_outputs
-        llm_tasks = llm_plan.get("tasks", [])
-        for task in llm_tasks:
-            outputs = task.get("expected_outputs", [])
-            for output in outputs:
-                # output can be {"path": "src/...", "type": "file"} or just a string
-                if isinstance(output, dict):
-                    file_path = output.get("path", "")
-                elif isinstance(output, str):
-                    file_path = output
-                else:
-                    continue
-                    
-                if file_path and file_path not in existing_paths:
-                    folder_map.entries.append(FolderEntry(
-                        path=file_path,
-                        is_directory=False,  # These are FILES
-                        description=f"From task: {task.get('title', 'Unknown')}"
-                    ))
-                    existing_paths.add(file_path)
-    
-    def _enrich_api_contracts(self, api_contracts: APIContracts, llm_plan: Dict[str, Any]) -> None:
-        """Enrich API contracts with LLM insights."""
-        llm_endpoints = llm_plan.get("api_endpoints", [])
-        existing_paths = {e.path for e in api_contracts.endpoints}
-        
-        for endpoint in llm_endpoints:
-            path = endpoint.get("path", "")
-            if path and path not in existing_paths:
-                from app.agents.sub_agents.planner.models import APIEndpoint, HTTPMethod
-                api_contracts.endpoints.append(APIEndpoint(
-                    path=path,
-                    method=HTTPMethod(endpoint.get("method", "GET")),
-                    description=endpoint.get("description", "")
-                ))
-    
-    def _enrich_dependencies(self, dependency_plan: DependencyPlan, llm_plan: Dict[str, Any]) -> None:
-        """Enrich dependencies with LLM insights."""
-        llm_deps = llm_plan.get("dependencies", {})
-        existing_names = {d.name for d in dependency_plan.runtime_dependencies}
-        
-        for dep in llm_deps.get("runtime", []):
-            name = dep.get("name", "")
-            if name and name not in existing_names:
-                from app.agents.sub_agents.planner.models import PackageDependency
-                dependency_plan.runtime_dependencies.append(PackageDependency(
-                    name=name,
-                    version=dep.get("version", "latest")
-                ))
-    
-    def _enrich_risks(self, risk_report: RiskReport, llm_plan: Dict[str, Any]) -> None:
-        """Enrich risk report with LLM insights."""
-        llm_risks = llm_plan.get("risks", [])
-        
-        for risk in llm_risks:
-            from app.agents.sub_agents.planner.models import RiskItem, RiskLevel
-            risk_report.add_risk(RiskItem(
-                title=risk.get("title", "Risk"),
-                risk_level=RiskLevel(risk.get("level", "medium")),
-                mitigation=risk.get("mitigation", "")
-            ))
-        
-        # Add clarifying questions
-        questions = llm_plan.get("clarifying_questions", [])
-        if questions:
-            from app.agents.sub_agents.planner.models import RiskItem
-            risk_report.add_risk(RiskItem(
-                title="Clarifications Needed",
-                category="unknown",
-                requires_human_input=True,
-                clarifying_questions=questions
-            ))
+
     
     async def plan_streaming(
         self,

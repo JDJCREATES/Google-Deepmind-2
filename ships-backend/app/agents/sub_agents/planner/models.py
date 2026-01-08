@@ -800,6 +800,47 @@ class PlanManifest(BaseModel):
 
 
 # ============================================================================
+# LLM OUTPUT SCHEMAS (Intermediate Representation)
+# ============================================================================
+
+class LLMPlanTask(BaseModel):
+    """Single task in the LLM plan output."""
+    title: str = Field(description="Short task title")
+    description: str = Field(description="Detailed description of what to do")
+    complexity: str = Field(default="medium", description="small, medium, or large")
+    priority: str = Field(default="medium", description="high, medium, or low")
+    estimated_minutes: int = Field(default=60, description="Estimated time in minutes")
+    acceptance_criteria: List[str] = Field(default_factory=list, description="Success criteria")
+    expected_outputs: List[Dict[str, str]] = Field(default_factory=list, description="Files to create")
+
+
+class LLMPlanFolder(BaseModel):
+    """Folder entry in the LLM plan output."""
+    path: str = Field(description="Path like src/components")
+    is_directory: bool = Field(default=True, description="True for folder, False for file")
+    description: str = Field(default="", description="Purpose of this folder/file")
+
+
+class LLMPlanOutput(BaseModel):
+    """Structured output schema for LLM planning - enforces exact format."""
+    summary: str = Field(description="Brief executive summary of the plan")
+    decision_notes: List[str] = Field(default_factory=list, description="Key technical decisions")
+    tasks: List[LLMPlanTask] = Field(default_factory=list, description="Ordered list of tasks")
+    folders: List[LLMPlanFolder] = Field(default_factory=list, description="Folders/files to create")
+    
+    # Dependencies can be a list (simple) or dict (runtime/dev)
+    # We use Dict to match DependencyPlanner expectation, needs flexibility
+    dependencies: Dict[str, List[Dict[str, str]]] = Field(
+        default_factory=lambda: {"runtime": [], "dev": []}, 
+        description="Dictionary with 'runtime' and 'dev' lists of packages"
+    )
+    
+    api_endpoints: List[Dict[str, str]] = Field(default_factory=list, description="API endpoints to create")
+    risks: List[Dict[str, str]] = Field(default_factory=list, description="Potential risks")
+    clarifying_questions: List[str] = Field(default_factory=list, description="Questions for user")
+
+
+# ============================================================================
 # REPO PROFILE (Discovery Artifact)
 # ============================================================================
 
