@@ -1,0 +1,79 @@
+.thinking-section {
+  margin: 8px 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.thinking-section.live {
+  border-color: var(--node-color, #6366f1);
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.15);
+}
+
+.thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.02);
+  transition: background 0.15s ease;
+  user-select: none;
+}
+
+.thinking-header:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.thinking-toggle {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  width: 14px;
+}
+
+.thinking-title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--node-color, #a1a1aa);
+}
+
+.thinking-live-badge {
+  color: var(--node-color, #6366f1);
+  animation: pulse 1s infinite;
+  font-size: 10px;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.thinking-content {
+  padding: 12px 14px;
+  padding-top: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.75);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.thinking-content p {
+  margin: 4px 0;
+}
+
+.thinking-content p:first-child {
+  margin-top: 12px;
+}
+
+.thinking-cursor {
+  animation: blink 1s infinite;
+  color: var(--node-color, #6366f1);
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}

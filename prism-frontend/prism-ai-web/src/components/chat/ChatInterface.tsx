@@ -8,10 +8,20 @@ import { agentService, type AgentChunk } from '../../services/agentService';
 import { ToolProgress, PhaseIndicator } from '../streaming';
 import { ActivityIndicator } from '../streaming/ActivityIndicator';
 import { PlanReviewActions } from '../streaming/PlanReviewActions';
+import { ThinkingSection } from '../streaming/ThinkingSection';
 import { useStreamingStore } from '../../store/streamingStore';
 import { useFileSystem } from '../../store/fileSystem';
 
 import '../../App.css'; // Keep existing styles for now
+
+// Thinking section state
+interface ThinkingSectionData {
+  id: string;
+  title: string;
+  node: string;
+  content: string;
+  isLive: boolean;
+}
 
 interface ChatInterfaceProps {
   electronProjectPath: string | null;
@@ -29,6 +39,10 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
   ]);
   const [inputValue, setInputValue] = useState('');
   const [isAgentRunning, setIsAgentRunning] = useState(false);
+  
+  // Thinking sections state
+  const [thinkingSections, setThinkingSections] = useState<ThinkingSectionData[]>([]);
+  const currentThinkingSectionRef = useRef<string | null>(null);
   
   // Preview state
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -112,6 +126,10 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
     clearToolEvents();
     setActivity('Initializing...', 'thinking');
     setAwaitingConfirmation(false);
+    
+    // Clear previous thinking sections for new conversation
+    setThinkingSections([]);
+    currentThinkingSectionRef.current = null;
 
     // Placeholder AI message
     const aiMessageId = (Date.now() + 1).toString();
@@ -232,6 +250,42 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
           const fullOutput = `\n\x1b[36m$ ${command}\x1b[0m\n${output}${stderr ? '\n\x1b[31mSTDERR:\x1b[0m ' + stderr : ''}`;
           appendTerminalOutput(fullOutput);
           setShowTerminal(true);
+        }
+        
+        // Thinking Section Start - new section with title
+        else if (chunk.type === 'thinking_start') {
+          const sectionId = `${chunk.node}-${Date.now()}`;
+          
+          // Mark previous sections as not live
+          setThinkingSections(prev => prev.map(s => ({ ...s, isLive: false })));
+          
+          // Create new section
+          setThinkingSections(prev => [...prev, {
+            id: sectionId,
+            title: chunk.title || `Processing (${chunk.node})`,
+            node: chunk.node || 'agent',
+            content: '',
+            isLive: true
+          }]);
+          
+          currentThinkingSectionRef.current = sectionId;
+        }
+        
+        // Thinking Content - append to current section
+        else if (chunk.type === 'thinking' && chunk.content) {
+          const sectionId = currentThinkingSectionRef.current;
+          
+          if (sectionId) {
+            setThinkingSections(prev => prev.map(s => {
+              if (s.id === sectionId) {
+                return {
+                  ...s,
+                  content: s.content + (s.content ? '\n' : '') + chunk.content
+                };
+              }
+              return s;
+            }));
+          }
         }
         
         // AI Message
@@ -492,6 +546,22 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
       <div className="chat-messages">
         {isAgentRunning && agentPhase !== 'idle' && (
           <PhaseIndicator phase={agentPhase} />
+        )}
+
+        {/* Thinking Sections - collapsible agent thought process */}
+        {thinkingSections.length > 0 && (
+          <div className="thinking-sections-container">
+            {thinkingSections.map((section) => (
+              <ThinkingSection
+                key={section.id}
+                title={section.title}
+                node={section.node}
+                content={section.content}
+                isLive={section.isLive}
+                defaultExpanded={section.isLive}
+              />
+            ))}
+          </div>
         )}
 
         {messages.map((message) => (

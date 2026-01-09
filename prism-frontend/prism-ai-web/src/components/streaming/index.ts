@@ -6,3 +6,4 @@
 
 export { ToolProgress, type ToolEvent } from './ToolProgress';
 export { PhaseIndicator, type AgentPhase } from './PhaseIndicator';
+export { ThinkingSection } from './ThinkingSection';

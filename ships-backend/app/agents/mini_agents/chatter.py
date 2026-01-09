@@ -40,7 +40,7 @@ class Chatter(BaseAgent):
         # Define Read-Only Toolset
         self.tools = [read_file_from_disk, list_directory]
         
-    def _get_system_prompt(self, project_path: str) -> str:
+    def _get_system_prompt(self, project_path: str = ".") -> str:
         """Build the system prompt with project context."""
         return f"""You are the Chatter Agent for ShipS*, an expert developer assistant.
 

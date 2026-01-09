@@ -7,7 +7,7 @@
  */
 
 export interface AgentChunk {
-  type: 'message' | 'phase' | 'error' | 'tool_start' | 'tool_result' | 'files_created' | 'terminal_output' | 'complete' | 'plan_created' | 'plan_review';
+  type: 'message' | 'phase' | 'error' | 'tool_start' | 'tool_result' | 'files_created' | 'terminal_output' | 'complete' | 'plan_created' | 'plan_review' | 'thinking_start' | 'thinking';
   node?: string;
   content?: string;
   phase?: 'idle' | 'planning' | 'coding' | 'validating' | 'fixing' | 'done' | 'error';
@@ -26,6 +26,8 @@ export interface AgentChunk {
   exit_code?: number;
   duration_ms?: number;
   execution_mode?: string;
+  // Thinking section fields
+  title?: string;
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
