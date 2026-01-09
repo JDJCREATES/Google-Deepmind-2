@@ -112,14 +112,14 @@ Before returning, verify:
 # Output Format
 You MUST use this format (JSON ONLY):
 ```json
-{
+{{
   "reasoning": "Detailed architectural reasoning and justification...",
   "summary": "Brief executive summary...",
   "decision_notes": ["Key decision 1", "Key decision 2"],
   "tasks": [ ... ],
   "folders": [ ... ],
   ...
-}
+}}
 ```"""
 
 

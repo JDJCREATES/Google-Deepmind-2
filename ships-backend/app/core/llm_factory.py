@@ -104,11 +104,15 @@ class LLMFactory:
             temperature=temperature,
             safety_settings=safety_settings,
             convert_system_message_to_human=True,
-            # Gemini 3 thinking_level for built-in reasoning
-            thinking_level=thinking_level,
-            cached_content=cached_content, # Pass explicit cache name
-            max_retries=30, # Aggressive retries for Hackathon rate limits
+            # thinking_level passed via bind() to avoid Pydantic errors in older libs
+            cached_content=cached_content, 
+            max_retries=30,
         )
+        
+        # Bind the thinking configuration
+        # Matches Gemini 3 structure: generation_config={"thinking_config": {"thinking_level": ...}}
+        if thinking_level in ["low", "medium", "high", "minimal"]:
+             return llm.bind(generation_config={"thinking_config": {"thinking_level": thinking_level}})
         
         return llm
 

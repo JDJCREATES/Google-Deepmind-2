@@ -395,7 +395,20 @@ Use these type definitions. Do NOT read from disk.
                 return {"error": "Empty LLM response", "files": []}
             
             # Handle list content (Gemini format)
+            captured_signature = None
             if isinstance(content, list):
+                # Extract thought signature from extras before flattening
+                for part in content:
+                    if isinstance(part, dict):
+                        extras = part.get("extras", {})
+                        if "signature" in extras:
+                            captured_signature = extras["signature"]
+                            break
+                        # Some versions might have it at top level
+                        if "signature" in part:
+                            captured_signature = part["signature"]
+                            break
+                            
                 text_parts = [p.get('text', '') if isinstance(p, dict) else str(p) for p in content]
                 content = ''.join(text_parts)
             
@@ -403,7 +416,14 @@ Use these type definitions. Do NOT read from disk.
                 logger.warning("[CODER] LLM returned empty content")
                 return {"error": "Empty content", "files": []}
             
-            return self._parse_code_response(content)
+            result = self._parse_code_response(content)
+            
+            # Attach captured signature to result
+            if captured_signature:
+                result["thought_signature"] = captured_signature
+                logger.info("[CODER] Captured Gemini 3 Thought Signature")
+                
+            return result
         except Exception as e:
             logger.error(f"[CODER] LLM generation failed: {e}")
             return {"error": str(e), "files": []}
