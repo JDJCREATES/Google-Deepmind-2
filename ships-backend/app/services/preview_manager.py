@@ -143,6 +143,8 @@ class PreviewManager:
         # We search for any node.exe running in this project path.
         if os.name == 'nt' and self.current_project_path:
             self._kill_processes_by_path(self.current_project_path)
+            # Fallback: Kill anything listening on the dev port
+            self._kill_process_by_port(self.SHIPS_DEV_PORT)
 
         self.process = None
         self.is_running = False
@@ -159,7 +161,8 @@ class PreviewManager:
         try:
             # Normalize path for WMI comparison (double backslashes are safer for WQL but we use PowerShell filtering)
             # We want to match command lines containing this path.
-            normalized_path = project_path.replace("\\", "\\\\")
+            # FIX: Do not escape backslashes for PowerShell string comparison
+            normalized_path = project_path
             
             # PowerShell command - kill both node.exe AND npm.exe
             # Also kill any process on the dev server port
@@ -180,6 +183,32 @@ class PreviewManager:
             print(f"Failed to execute aggressive process kill: {e}")
         
         return {"status": "not_running"}
+
+    def _kill_process_by_port(self, port: str):
+        """
+        Kills any process listening on the specified port using netstat and taskkill.
+        Windows only implementation.
+        """
+        try:
+            # Find PID using netstat
+            cmd = f'netstat -ano | findstr :{port}'
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            
+            pids = set()
+            for line in result.stdout.splitlines():
+                parts = line.split()
+                if len(parts) >= 5:
+                    pid = parts[-1]
+                    # Ensure it's a number and not 0
+                    if pid.isdigit() and pid != "0":
+                        pids.add(pid)
+            
+            if pids:
+                print(f"[PreviewManager] Found processes on port {port}: {pids}. Killing...")
+                for pid in pids:
+                    subprocess.run(f"taskkill /F /PID {pid}", shell=True, capture_output=True)
+        except Exception as e:
+            print(f"[PreviewManager] Failed to kill by port {port}: {e}")
 
     def _consume_logs(self):
         """

@@ -445,8 +445,12 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
         """Build the prompt for LLM planning."""
         parts = []
         
+        # EXPLICITLY Surface the raw request to prevent summarization loss
+        raw_req = intent.get("original_request") or intent.get("description")
+        parts.append(f"USER RAW REQUEST: \"{raw_req}\"\n")
+        
         # Intent
-        parts.append(f"INTENT:\n{json.dumps(intent, indent=2)}")
+        parts.append(f"INTENT ANALYSIS:\n{json.dumps(intent, indent=2)}")
         
         # Framework
         parts.append(f"FRAMEWORK: {context.get('framework', 'react')}")
