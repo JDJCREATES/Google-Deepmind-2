@@ -40,6 +40,7 @@ class FailureLayer(str, Enum):
     COMPLETENESS = "completeness"
     DEPENDENCY = "dependency"
     SCOPE = "scope"
+    BUILD = "build"
 
 
 class RecommendedAction(str, Enum):
@@ -128,7 +129,19 @@ class ScopeViolation(Violation):
         "assumption_violated", "non_goal_touched"
     ] = "scope_exceeded"
     expected: Optional[str] = None
+    expected: Optional[str] = None
     actual: Optional[str] = None
+
+
+class BuildViolation(Violation):
+    """Build failure or build script missing."""
+    layer: FailureLayer = FailureLayer.BUILD
+    violation_type: Literal[
+        "build_failure", "missing_build_script", "config_error"
+    ] = "build_failure"
+    command: Optional[str] = None
+    stdout: Optional[str] = None
+    stderr: Optional[str] = None
 
 
 # ============================================================================
@@ -235,8 +248,10 @@ class ValidatorConfig(BaseModel):
     # Layer toggles
     run_structural: bool = True
     run_completeness: bool = True
+    run_completeness: bool = True
     run_dependency: bool = True
     run_scope: bool = True
+    run_build: bool = True
     
     # Strictness
     fail_on_todo: bool = True

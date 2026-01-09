@@ -12,6 +12,9 @@ Layer 4: Scope - Does implementation match Blueprint?
 Each layer is a ruthless gate, not a helper.
 """
 
+
+import subprocess
+import json
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime
@@ -22,7 +25,8 @@ from app.agents.sub_agents.validator.models import (
     ValidationStatus, FailureLayer, RecommendedAction,
     ViolationSeverity, Violation, LayerResult,
     StructuralViolation, CompletenessViolation,
-    DependencyViolation, ScopeViolation,
+    DependencyViolation, ScopeViolation, BuildViolation,
+    ValidatorConfig,
     ValidatorConfig,
 )
 
@@ -582,7 +586,127 @@ class ScopeLayer(ValidationLayer):
 
 
 # ============================================================================
-# LAYER 5: UNIFIED LANGUAGE CHECKER (TypeScript, Python, Rust, Go, CSS, ESLint)
+# LAYER 5: BUILD VALIDATION
+# ============================================================================
+
+class BuildLayer(ValidationLayer):
+    """
+    Layer 5: Does it build?
+    
+    Checks:
+    - Runs 'npm run build' (if package.json exists)
+    - Verifies exit code 0
+    - Captures stderr/stdout
+    
+    This is the ultimate truth. Code that doesn't build is useless.
+    """
+    
+    def __init__(self, config: Optional[ValidatorConfig] = None):
+        super().__init__(config)
+        self.layer_name = FailureLayer.BUILD
+    
+    def validate(self, context: Dict[str, Any]) -> LayerResult:
+        """Run build verification."""
+        start = datetime.utcnow()
+        violations = []
+        checks_run = 0
+        
+        project_path = context.get("project_path", "")
+        if not project_path or not os.path.exists(project_path):
+            # No project path, cannot build
+            return self._create_result(True, [], 0, 0)
+            
+        # Check for package.json
+        pkg_path = os.path.join(project_path, "package.json")
+        if not os.path.exists(pkg_path):
+            # No package.json, maybe not a node project. Skip.
+            # (CompletenessLayer should check for missing files if needed)
+            return self._create_result(True, [], 0, 0)
+        
+        # Check for build script
+        checks_run += 1
+        try:
+            with open(pkg_path, "r", encoding="utf-8") as f:
+                pkg_data = json.load(f)
+            
+            scripts = pkg_data.get("scripts", {})
+            if "build" not in scripts:
+                # No build script - warn but maybe pass?
+                # For strict validation, we might want to flag this.
+                # But simple apps might not have build step.
+                # Letting it pass for now unless config strictness increases.
+                pass
+            else:
+                checks_run += 1
+                # Run build
+                # Use shell=True for Windows compatibility with npm
+                cmd = "npm run build"
+                try:
+                    # Capture output
+                    result = subprocess.run(
+                        cmd,
+                        cwd=project_path,
+                        shell=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=120  # 2 minute timeout for build
+                    )
+                    
+                    if result.returncode != 0:
+                        # Build failed
+                        violations.append(BuildViolation(
+                            rule="build_success",
+                            message="Build failed with exit code 1",
+                            layer=FailureLayer.BUILD,
+                            severity=ViolationSeverity.CRITICAL,
+                            command=cmd,
+                            stdout=result.stdout[:1000] if result.stdout else "",
+                            stderr=result.stderr[:1000] if result.stderr else "",
+                            fix_hint="Fix build errors identified in stderr"
+                        ))
+                        
+                except subprocess.TimeoutExpired:
+                    violations.append(BuildViolation(
+                        rule="build_timeout",
+                        message="Build timed out after 120s",
+                        layer=FailureLayer.BUILD,
+                        severity=ViolationSeverity.MAJOR,
+                        fix_hint="Optimize build or increase timeout"
+                    ))
+                except Exception as e:
+                    violations.append(BuildViolation(
+                        rule="build_execution_error",
+                        message=f"Failed to execute build: {str(e)}",
+                        layer=FailureLayer.BUILD,
+                        severity=ViolationSeverity.CRITICAL,
+                        fix_hint="Check system environment"
+                    ))
+                    
+        except json.JSONDecodeError:
+             violations.append(BuildViolation(
+                rule="valid_package_json",
+                message="package.json is invalid JSON",
+                layer=FailureLayer.BUILD,
+                severity=ViolationSeverity.CRITICAL,
+                file_path=pkg_path,
+                fix_hint="Fix JSON syntax in package.json"
+            ))
+        except Exception as e:
+             violations.append(BuildViolation(
+                rule="package_json_read_error",
+                message=f"Could not read package.json: {str(e)}",
+                layer=FailureLayer.BUILD,
+                severity=ViolationSeverity.MAJOR
+            ))
+            
+        duration = int((datetime.utcnow() - start).total_seconds() * 1000)
+        passed = len([v for v in violations if v.severity in [ViolationSeverity.CRITICAL, ViolationSeverity.MAJOR]]) == 0
+        
+        return self._create_result(passed, violations, checks_run, duration)
+
+
+# ============================================================================
+# LAYER 6: UNIFIED LANGUAGE CHECKER (TypeScript, Python, Rust, Go, CSS, ESLint)
 # ============================================================================
 
 class LanguageCheckerLayer(ValidationLayer):

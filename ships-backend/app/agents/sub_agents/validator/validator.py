@@ -39,7 +39,7 @@ from app.agents.sub_agents.validator.models import (
 # Layers are in central location: app/agents/tools/validator/
 from app.agents.tools.validator.layers import (
     ValidationLayer, StructuralLayer, CompletenessLayer,
-    DependencyLayer, ScopeLayer, TypeScriptLayer,
+    DependencyLayer, ScopeLayer, TypeScriptLayer, BuildLayer,
 )
 
 
@@ -96,6 +96,9 @@ class Validator(BaseAgent):
         
         # TypeScript layer always runs for TS projects (auto-detects tsconfig)
         self.layers.append(TypeScriptLayer(self.config))
+        
+        if self.config.run_build:
+            self.layers.append(BuildLayer(self.config))
     
     def _get_system_prompt(self) -> str:
         """Get the system prompt for validation."""

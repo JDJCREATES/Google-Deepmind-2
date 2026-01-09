@@ -57,6 +57,12 @@ Determine from the user request:
 Use `create_directories([...])` to create ALL folders in ONE call.
 NEVER call `create_directory` multiple times!
 
+## WARNING: SCAFFOLDING SAFETY
+- If you use a scaffolding command (like `create-vite`, `create-next-app`), **DO NOT** add a separate `npm init` step.
+- The scaffolding command ALREADY creates `package.json`. Running `npm init` afterwards will OVERWRITE it and break the project.
+- **DO** include a separate task/step to run `npm install` immediately after scaffolding commands to ensure dependencies are present.
+- TRUST the scaffolding command.
+
 ## Step 5: WRITE IMPLEMENTATION PLAN
 Create `.ships/implementation_plan.md` with:
 
