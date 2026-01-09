@@ -25,6 +25,15 @@ async def startup_event():
     """Initialize services on startup."""
     logger.info("🚀 Ships* Backend starting...")
     
+    # Silence access logs for /preview/status polling
+    # This prevents the console from being flooded by the 1s poll interval
+    class EndpointFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            return record.getMessage().find("/preview/status") == -1
+
+    # Filter uvicorn access logs
+    logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
+    
     # Check database health
     db_healthy = await health_check()
     if not db_healthy:
@@ -91,7 +100,7 @@ async def get_status():
     is_actually_running = process_exists and process_poll is None
     
     # Debug logging
-    logger.info(f"[PREVIEW_STATUS] process={process_exists}, poll={process_poll}, is_running={is_actually_running}, url={preview_manager.current_url}")
+    logger.debug(f"[PREVIEW_STATUS] process={process_exists}, poll={process_poll}, is_running={is_actually_running}, url={preview_manager.current_url}")
     
     return {
         "is_running": is_actually_running,

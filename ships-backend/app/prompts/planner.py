@@ -34,6 +34,7 @@ Default to TypeScript for web projects and Python fastapi or Mongo depending on 
 
 ## Step 0: ANALYZE INTENT
 Determine from the user request:
+**CRITICAL: Focus on the LATEST user message as the primary goal.**
 1. Project TYPE: web_app, api, cli, desktop, mobile, library
 2. User PREFERENCES: mentioned technologies, existing codebase?
 3. PLATFORM: web, desktop, cross-platform, server?

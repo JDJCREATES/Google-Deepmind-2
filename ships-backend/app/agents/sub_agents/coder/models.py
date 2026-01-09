@@ -81,7 +81,7 @@ class CoderMetadata(BaseModel):
 
 class CoderComponentConfig(BaseModel):
     """Configuration for coder components."""
-    max_tokens: int = 4000
+    max_tokens: int = 100000
     temperature: float = 0.0
     enable_web_search: bool = False
     project_root: str = "."
