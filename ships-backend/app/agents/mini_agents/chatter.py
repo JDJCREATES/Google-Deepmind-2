@@ -80,11 +80,17 @@ RULES:
         system_prompt = self._get_system_prompt(project_path)
         
         # Create React Agent (allows tool usage)
-        # We wrap the underlying LLM with ReAct capability
+        # Use 'prompt' parameter (state_modifier is deprecated in langgraph 2025)
+        from langchain_core.messages import SystemMessage
+        
+        def prompt_fn(state):
+            """Add system prompt to the messages."""
+            return [SystemMessage(content=system_prompt)] + state.get("messages", [])
+        
         agent = create_react_agent(
             self.llm, 
             self.tools, 
-            state_modifier=system_prompt
+            prompt=prompt_fn
         )
         
         # Run

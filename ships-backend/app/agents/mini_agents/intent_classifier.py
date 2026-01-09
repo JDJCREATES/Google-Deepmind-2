@@ -275,12 +275,12 @@ You MUST output a valid JSON object matching this schema:
         
         return "\n\n".join(parts)
     
-    def _parse_json_response(self, response: str) -> Dict[str, Any]:
+    def _parse_json_response(self, response: Any) -> Dict[str, Any]:
         """
-        Parse JSON from LLM response, handling common issues.
+        Parse JSON from LLM response, handling common issues and list outputs.
         
         Args:
-            response: Raw LLM response
+            response: Raw LLM response (str or list)
             
         Returns:
             Parsed JSON dict
@@ -288,14 +288,35 @@ You MUST output a valid JSON object matching this schema:
         Raises:
             ValueError: If JSON cannot be parsed
         """
+        text_content = ""
+        
+        # Handle list-based content (common with Gemini/Vertex)
+        if isinstance(response, list):
+            # Try to find the first text block
+            for item in response:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    text_content = item.get("text", "")
+                    break
+                elif isinstance(item, str):
+                    text_content = item
+                    break
+            
+            # If still empty, try dumping it (fallback)
+            if not text_content:
+                text_content = json.dumps(response)
+        elif isinstance(response, str):
+            text_content = response
+        else:
+            text_content = str(response)
+            
         # Try direct parse
         try:
-            return json.loads(response)
+            return json.loads(text_content)
         except json.JSONDecodeError:
             pass
         
         # Try extracting JSON from markdown code block
-        json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', response)
+        json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', text_content)
         if json_match:
             try:
                 return json.loads(json_match.group(1))
@@ -303,14 +324,14 @@ You MUST output a valid JSON object matching this schema:
                 pass
         
         # Try extracting JSON object
-        json_match = re.search(r'\{[\s\S]*\}', response)
+        json_match = re.search(r'\{[\s\S]*\}', text_content)
         if json_match:
             try:
                 return json.loads(json_match.group(0))
             except json.JSONDecodeError:
                 pass
         
-        raise ValueError(f"Could not parse JSON from response: {response[:200]}...")
+        raise ValueError(f"Could not parse JSON from response: {text_content[:200]}...")
     
     def _create_default_intent(
         self, 
@@ -325,7 +346,10 @@ You MUST output a valid JSON object matching this schema:
             description="Could not classify request",
             original_request=user_request,
             is_ambiguous=True,
-            clarification_questions=["Could you please provide more details about what you want to accomplish?"],
+            clarification_questions=[
+                f"I encountered an error understanding your request: {error}" if error else "Could you please provide more details?",
+                "Could you rephrase your request?"
+            ],
             assumptions=[f"Classification failed: {error}" if error else "Classification failed"],
             confidence=0.0
         )
