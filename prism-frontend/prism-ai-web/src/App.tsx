@@ -20,18 +20,18 @@ import { XTerminal } from './components/terminal/XTerminal';
 
 import { useFileSystem } from './store/fileSystem';
 import { useArtifactStore } from './store/artifactStore';
-import { useSettingsStore } from './store/settingsStore';
 import { useAuthStore } from './store/authStore';
 import { useStreamingStore } from './store/streamingStore';
 import { useMonacoDiagnostics } from './hooks/useMonacoDiagnostics';
+import { useProjectPath } from './hooks/useProjectPath';
+import { useTheme } from './hooks/useTheme';
 
 import './App.css';
 
 type SidebarView = 'files' | 'artifacts' | 'search';
 
 function App() {
-  const { monaco } = useSettingsStore();
-  const [theme, setTheme] = useState<'vs-dark' | 'light'>(monaco.theme);
+  const { theme, toggleTheme } = useTheme();
   const [showExplorer, setShowExplorer] = useState(true);
   const [activeSidebarView, setActiveSidebarView] = useState<SidebarView>('files');
   const [showSettings, setShowSettings] = useState(false);
@@ -48,7 +48,7 @@ function App() {
   const [terminalCollapsed, setTerminalCollapsed] = useState(false);
   
   // Project path handling
-  const [electronProjectPath, setElectronProjectPath] = useState<string | null>(null);
+  const { electronProjectPath } = useProjectPath();
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
   
   // Monaco Diagnostics
@@ -58,84 +58,10 @@ function App() {
     enabled: !!electronProjectPath, 
   });
   
-  const PROJECT_PATH_KEY = 'ships_project_path';
-  
-  // Sync project path with backend
-  const syncProjectPathWithBackend = async (path: string) => {
-    try {
-      await fetch(`${API_URL}/preview/set-path`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path })
-      });
-      console.log('[App] Synced project path with backend:', path);
-      localStorage.setItem(PROJECT_PATH_KEY, path);
-    } catch (error) {
-      console.warn('[App] Failed to sync project path with backend:', error);
-    }
-  };
-  
-  const getProjectPath = async (): Promise<string | null> => {
-    // 1. Electron
-    if (window.electron?.getLastProject) {
-      try {
-        const result = await window.electron.getLastProject();
-        if (result.path) return result.path;
-      } catch (e) {
-        console.warn('[App] Electron connection unavailable');
-      }
-    }
-    
-    // 2. LocalStorage
-    const savedPath = localStorage.getItem(PROJECT_PATH_KEY);
-    if (savedPath) return savedPath;
-    
-    // 3. Backend
-    try {
-      const response = await fetch(`${API_URL}/preview/path`);
-      const data = await response.json();
-      if (data.project_path) return data.project_path;
-    } catch (e) {
-      console.warn('[App] Failed to fetch project path from backend');
-    }
-    
-    return null;
-  };
-  
   useEffect(() => {
-    const fetchAndSync = async () => {
-      const path = await getProjectPath();
-      if (path) {
-        setElectronProjectPath(path);
-        await syncProjectPathWithBackend(path);
-      }
-    };
-    fetchAndSync();
-    
     const { checkSession } = useAuthStore.getState();
     checkSession();
-    
-    // Periodic re-sync
-    const syncInterval = setInterval(async () => {
-      const path = await getProjectPath();
-      if (path) {
-        await syncProjectPathWithBackend(path);
-      }
-    }, 30000);
-    
-    return () => clearInterval(syncInterval);
   }, []);
-
-  // Theme Sync
-  useEffect(() => {
-    setTheme(monaco.theme);
-  }, [monaco.theme]);
-
-  const toggleTheme = () => {
-    const newTheme = theme === 'vs-dark' ? 'light' : 'vs-dark';
-    setTheme(newTheme);
-    useSettingsStore.getState().updateMonacoSettings({ theme: newTheme });
-  };
   
   const handleSidebarClick = (view: SidebarView) => {
     if (activeSidebarView === view) {
