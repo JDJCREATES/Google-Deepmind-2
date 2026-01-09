@@ -53,16 +53,21 @@ export default function LandingPage() {
     <div className="landing-container">
       <div className="landing-content">
         {dailyPhrase && <p className="landing-phrase">{dailyPhrase}</p>}
-        {/* ... */}
-        
-      <AuthModal 
-        isOpen={isAuthModalOpen} 
-        onClose={closeAuthModal}
-        onSuccess={handleAuthSuccess}
-      />
+
         <div className="brand-header">
           <RiShip2Fill className="brand-icon" size={48} color="var(--primary-color)" />
           <h1 className="brand-title">ShipS*</h1>
+          
+          <div style={{ position: 'absolute', top: '2rem', right: '2rem' }}>
+            {!isAuthenticated && (
+              <button className="text-btn" onClick={openAuthModal}>
+                Sign In
+              </button>
+            )}
+            {isAuthenticated && (
+               <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Welcome back!</span>
+            )}
+          </div>
         </div>
         
         <p className="landing-subtitle">

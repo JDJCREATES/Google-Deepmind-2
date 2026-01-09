@@ -21,6 +21,9 @@ interface AuthState {
   logout: () => Promise<void>;
   checkSession: () => Promise<void>;
   clearError: () => void;
+  isAuthModalOpen: boolean;
+  openAuthModal: () => void;
+  closeAuthModal: () => void;
 }
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
@@ -33,7 +36,10 @@ export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
   isLoading: false,
   error: null,
+  isAuthModalOpen: false,
 
+  openAuthModal: () => set({ isAuthModalOpen: true }),
+  closeAuthModal: () => set({ isAuthModalOpen: false, error: null }),
   clearError: () => set({ error: null }),
 
   /**
