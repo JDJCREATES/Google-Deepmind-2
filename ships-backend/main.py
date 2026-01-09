@@ -86,10 +86,13 @@ async def stop_preview():
 @preview_router.get("/status")
 async def get_status():
     # Dynamically check if process is actually running (not just the flag)
-    is_actually_running = (
-        preview_manager.process is not None and 
-        preview_manager.process.poll() is None
-    )
+    process_exists = preview_manager.process is not None
+    process_poll = preview_manager.process.poll() if process_exists else "N/A"
+    is_actually_running = process_exists and process_poll is None
+    
+    # Debug logging
+    logger.info(f"[PREVIEW_STATUS] process={process_exists}, poll={process_poll}, is_running={is_actually_running}, url={preview_manager.current_url}")
+    
     return {
         "is_running": is_actually_running,
         "logs": preview_manager.logs[-50:],

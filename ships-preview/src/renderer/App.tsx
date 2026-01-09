@@ -115,15 +115,34 @@ function App() {
   // 2. Poll Backend for Preview Status - ALWAYS poll, not just when backendConnected
   // This allows picking up previews started by prism-ai-web
   useEffect(() => {
-    // Helper to probe if a URL is reachable
+    // Helper to probe if a URL is reachable - improved version
     const probeUrl = async (url: string): Promise<boolean> => {
       try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 1000);
-        await fetch(url, { mode: 'no-cors', signal: controller.signal });
+        const timeout = setTimeout(() => controller.abort(), 2000);
+        
+        // Use regular fetch - will throw on connection refused
+        // Note: CORS may block the response, but connection success means server is running
+        const response = await fetch(url, { 
+          method: 'HEAD',  // Just check if server responds
+          signal: controller.signal 
+        });
         clearTimeout(timeout);
+        console.log(`[Preview] Probe ${url}: OK (${response.status})`);
         return true;
-      } catch {
+      } catch (e: any) {
+        // Distinguish between CORS error (server running) vs connection refused (not running)
+        // CORS errors mean the server IS running but denying our request
+        if (e.name === 'TypeError' && e.message?.includes('CORS')) {
+          console.log(`[Preview] Probe ${url}: CORS error (server is running)`);
+          return true;
+        }
+        // AbortError means timeout - server probably not running
+        if (e.name === 'AbortError') {
+          console.log(`[Preview] Probe ${url}: Timeout`);
+          return false;
+        }
+        console.log(`[Preview] Probe ${url}: Failed - ${e.message || e}`);
         return false;
       }
     };
@@ -131,16 +150,19 @@ function App() {
     // Try common dev server ports
     const tryCommonPorts = async () => {
       const ports = ['5177', '5173', '3000', '3001', '8080'];
+      console.log('[Preview] Auto-detecting dev server on ports:', ports);
+      
       for (const port of ports) {
         const url = `http://localhost:${port}`;
         if (await probeUrl(url)) {
-          console.log(`[Preview] Auto-detected dev server at ${url}`);
+          console.log(`[Preview] ✓ Auto-detected dev server at ${url}`);
           setProjectUrl(url);
           setIsConnecting(false);
           setStatusMessage(`✓ Auto-detected: ${url}`);
           return true;
         }
       }
+      console.log('[Preview] No dev server found on common ports');
       return false;
     };
 
@@ -148,8 +170,10 @@ function App() {
         try {
             const res = await fetch('http://localhost:8001/preview/status');
             const data = await res.json();
+            console.log('[Preview] Backend status:', { is_running: data.is_running, url: data.url, project_path: data.project_path });
             
             if (data.is_running && data.url) {
+                console.log('[Preview] ✓ Backend has running server at:', data.url);
                 setProjectUrl(data.url);
                 setIsConnecting(false);
                 setStatusMessage('');
@@ -164,6 +188,7 @@ function App() {
                 }
             } else if (!projectUrl) {
                 // Backend doesn't have a running server - try to auto-detect
+                console.log('[Preview] Backend has no server, trying auto-detect...');
                 await tryCommonPorts();
             }
 
@@ -177,6 +202,7 @@ function App() {
                 }
             }
         } catch (e) {
+            console.log('[Preview] Backend not reachable, trying auto-detect...');
             // Backend not running - try to auto-detect dev servers directly
             if (!projectUrl) {
                 await tryCommonPorts();
@@ -243,6 +269,7 @@ function App() {
   }, [backendConnected, currentPath]);
 
   if (projectUrl) {
+      console.log('[Preview] Rendering webview with URL:', projectUrl);
       return (
           <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column' }}>
              <webview 

@@ -1105,13 +1105,17 @@ async def complete_node(state: AgentGraphState) -> Dict[str, Any]:
     Run when pipeline completes successfully.
     Starts the dev server via preview_manager so ships-preview can display it.
     """
+    logger.info("=" * 60)
     logger.info("[COMPLETE] 🎉 Pipeline completed successfully!")
+    logger.info("=" * 60)
     
     artifacts = state.get("artifacts", {})
     project_path = artifacts.get("project_path")
     
+    logger.info(f"[COMPLETE] Project path from artifacts: {project_path}")
+    
     if not project_path:
-        logger.warning("[COMPLETE] No project path set, cannot launch preview")
+        logger.warning("[COMPLETE] ❌ No project path set, cannot launch preview")
         return {
             "phase": "complete",
             "result": {"success": True, "preview_url": None}
@@ -1124,6 +1128,9 @@ async def complete_node(state: AgentGraphState) -> Dict[str, Any]:
     package_json = Path(project_path) / "package.json"
     index_html = Path(project_path) / "index.html"
     
+    logger.info(f"[COMPLETE] Checking package.json: {package_json} - exists: {package_json.exists()}")
+    logger.info(f"[COMPLETE] Checking index.html: {index_html} - exists: {index_html.exists()}")
+    
     preview_url = None
     
     if package_json.exists():
@@ -1131,6 +1138,7 @@ async def complete_node(state: AgentGraphState) -> Dict[str, Any]:
         # This sets current_url which ships-preview polls via /preview/status
         logger.info("[COMPLETE] 🚀 Starting dev server via preview_manager...")
         result = preview_manager.start_dev_server(project_path)
+        logger.info(f"[COMPLETE] start_dev_server result: {result}")
         
         if result.get("status") == "starting":
             # Wait briefly for URL to be detected

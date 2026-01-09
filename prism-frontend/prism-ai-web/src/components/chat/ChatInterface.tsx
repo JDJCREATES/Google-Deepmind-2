@@ -413,7 +413,7 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
                 // Poll for URL
                 let attempts = 0;
                 const maxAttempts = 30; 
-                let lastLogSeen = "";
+                let lastLogCount = 0;  // Track how many logs we've seen
                 
                 const pollInterval = setInterval(async () => {
                   attempts++;
@@ -421,12 +421,15 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
                       const statusRes = await fetch(`${API_URL}/preview/status`);
                       const status = await statusRes.json();
                       
-                      if (status.logs && status.logs.length > 0) {
-                         const latest = status.logs[status.logs.length - 1];
-                         if (latest && latest !== lastLogSeen) {
-                             appendTerminalOutput(`\n${latest}`);
-                             lastLogSeen = latest;
+                      // Display ALL new logs since last poll
+                      if (status.logs && status.logs.length > lastLogCount) {
+                         const newLogs = status.logs.slice(lastLogCount);
+                         for (const logLine of newLogs) {
+                             if (logLine) {
+                                 appendTerminalOutput(`\n${logLine}`);
+                             }
                          }
+                         lastLogCount = status.logs.length;
                       }
                       
                       if (status.url) {

@@ -61,15 +61,27 @@ class PreviewManager:
         self.current_url = None
         
         try:
-            # Determine command based on OS, using class-level port constant
+            # Find npm dynamically to avoid PATH issues in subprocess
+            import shutil
+            npm_path = shutil.which('npm')
+            
+            if not npm_path:
+                return {"status": "error", "message": "npm not found in PATH. Please ensure Node.js is installed."}
+            
+            print(f"[PreviewManager] Found npm at: {npm_path}")
+            
             if os.name == 'nt':
-                cmd = ["npm.cmd", "run", "dev", "--", "--port", self.SHIPS_DEV_PORT]
+                # Use full path to npm on Windows
+                cmd = f'"{npm_path}" run dev -- --port {self.SHIPS_DEV_PORT}'
+                use_shell = True
             else:
-                cmd = ["npm", "run", "dev", "--", "--port", self.SHIPS_DEV_PORT]
+                cmd = [npm_path, "run", "dev", "--", "--port", self.SHIPS_DEV_PORT]
+                use_shell = False
             
             print(f"[PreviewManager] Starting dev server on port {self.SHIPS_DEV_PORT}")
-            print(f"[PreviewManager] Command: {' '.join(cmd)}")
+            print(f"[PreviewManager] Command: {cmd}")
             print(f"[PreviewManager] CWD: {project_path}")
+            print(f"[PreviewManager] Shell: {use_shell}")
             
             # Spawn process without opening a new window (Windows specific)
             creation_flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
@@ -81,13 +93,26 @@ class PreviewManager:
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
-                creationflags=creation_flags
+                creationflags=creation_flags,
+                shell=use_shell  # Use shell to resolve npm from PATH
             )
             self.is_running = True
             self.current_project_path = project_path  # Store the project path
             
             # Start a background thread to consume logs and detect URL
             threading.Thread(target=self._consume_logs, daemon=True).start()
+            
+            # Check if process is still running after a brief moment
+            import time
+            time.sleep(0.5)
+            poll_result = self.process.poll()
+            print(f"[PreviewManager] After 0.5s - poll: {poll_result}, logs so far: {self.logs[:5]}")
+            
+            if poll_result is not None:
+                print(f"[PreviewManager] ❌ Process exited immediately with code: {poll_result}")
+                # Try to capture any error output
+                remaining = self.process.stdout.read() if self.process.stdout else ""
+                print(f"[PreviewManager] Remaining output: {remaining[:500]}")
             
             return {
                 "status": "starting", 
@@ -97,6 +122,9 @@ class PreviewManager:
 
         except Exception as e:
             self.is_running = False
+            print(f"[PreviewManager] Exception: {e}")
+            import traceback
+            traceback.print_exc()
             return {"status": "error", "message": f"Failed to start server: {str(e)}"}
 
     def stop_dev_server(self) -> Dict[str, str]:
