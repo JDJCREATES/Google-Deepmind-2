@@ -109,8 +109,18 @@ Before returning, verify:
 - Default to basic arithmetic unless scientific functions are mentioned
 - Always assume the user wants a fully functional, production-ready application
 
-# Output
-{{"status": "complete", "tech_stack": {{...}}, "folders_created": [...], "plan_path": ".ships/implementation_plan.md"}}"""
+# Output Format
+You MUST use this format (JSON ONLY):
+```json
+{
+  "reasoning": "Detailed architectural reasoning and justification...",
+  "summary": "Brief executive summary...",
+  "decision_notes": ["Key decision 1", "Key decision 2"],
+  "tasks": [ ... ],
+  "folders": [ ... ],
+  ...
+}
+```"""
 
 
 def build_planner_prompt(project_type: str = "generic") -> str:

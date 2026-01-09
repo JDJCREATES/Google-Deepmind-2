@@ -35,12 +35,12 @@ FRONTEND_TEMPLATES = {
 └── assets/              # Static assets (images, fonts)""",
         "conventions": """- Files: kebab-case (user-profile.tsx)
 - Components: PascalCase (UserProfile.tsx exports UserProfile)
-- Hooks: camelCase with use prefix (useAuth.ts)
-- Variables: camelCase
-- Constants: SCREAMING_SNAKE_CASE
-- Exports: Named exports preferred (export function UserProfile)
-- State: Zustand for global, useState/useReducer for local
-- Async: async/await with React Query or SWR""",
+- Hooks: camelCase with use prefix (useAuth.ts) - EXTRACT COMPLEX LOGIC HERE
+- DRY Principle: ALWAYS map over arrays for repetitive elements (nav items, cards).
+- Styling: Use Tailwind utility classes. Use `clsx` or `tailwind-merge` for conditionals.
+- State: Zustand for global, useState for local.
+- Async: React Query for data. ALWAYS handle loading/error states.
+- Constants: Extract magic numbers/strings to constants or config.""",
         "deps": "npm install zustand @tanstack/react-query tailwindcss postcss autoprefixer",
     },
     
@@ -66,12 +66,12 @@ public/                  # Static assets""",
         "conventions": """- Files: kebab-case for routes, PascalCase for components
 - Pages: page.tsx (default export)
 - Layouts: layout.tsx (default export)
-- API Routes: route.ts with GET/POST/etc exports
-- Server Components: Default (no 'use client')
-- Client Components: Add 'use client' directive at top
-- Server Actions: 'use server' for mutations
-- Data Fetching: fetch() in Server Components, no useEffect
-- Caching: Next.js handles via fetch options""",
+- Logic: Extract business logic to `src/hooks` or `src/lib`.
+- DRY: Map over data. Create reusable `components/ui` elements.
+- Server Components: Default (no 'use client').
+- Client Components: 'use client' only for interactivity.
+- Data Fetching: fetch() in Server Components.
+- Styling: Tailwind CSS. Use `cn()` helper for class merging.""",
         "deps": "npm install @prisma/client next-auth zod",
     },
     

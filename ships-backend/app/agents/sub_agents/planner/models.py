@@ -823,6 +823,7 @@ class LLMPlanFolder(BaseModel):
 
 class LLMPlanOutput(BaseModel):
     """Structured output schema for LLM planning - enforces exact format."""
+    reasoning: str = Field(description="Detailed architectural reasoning and design thinking process")
     summary: str = Field(description="Brief executive summary of the plan")
     decision_notes: List[str] = Field(default_factory=list, description="Key technical decisions")
     tasks: List[LLMPlanTask] = Field(default_factory=list, description="Ordered list of tasks")

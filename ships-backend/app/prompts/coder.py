@@ -117,6 +117,21 @@ Before returning, verify:
 - Verify that your search block exists exactly in the file.
 - Small targeted edits > full file rewrites.
 
-# Output
-After each file: `{"status": "in_progress", "file": "path/file.tsx", "remaining": N}`
-When done: `{"status": "complete", "files_created": [...], "message": "Implementation complete."}`"""
+# Output Format
+You MUST use this format:
+
+## 1. REASONING
+(Text block)
+- Plan your changes content and strategy here.
+- Explain why you are using specific patterns (e.g. "Using .map() to avoid repetition").
+- Verify against constraints.
+
+## 2. JSON
+(The actual output object)
+```json
+{
+  "status": "complete",
+  "files": [ ... ],
+  "message": "..."
+}
+```"""

@@ -453,7 +453,7 @@ Use these type definitions. Do NOT read from disk.
                 parts.append(f"--- {path} ---")
                 parts.append(content[:1000])  # Limit size
         
-        parts.append("\nGenerate the implementation. Output ONLY valid JSON:")
+        parts.append("\nGenerate the implementation. Use the REASONING block first, then the JSON block:")
         
         return "\n\n".join(parts)
     
