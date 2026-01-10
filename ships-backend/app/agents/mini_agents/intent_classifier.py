@@ -30,6 +30,9 @@ from app.agents.base.base_agent import BaseAgent
 from app.graphs.state import AgentState
 from app.artifacts import ArtifactManager
 from app.security.input_sanitizer import sanitize_input, SanitizationResult
+from app.core.logger import get_logger, dev_log, truncate_for_log
+
+logger = get_logger("intent")
 from app.prompts.security_prefix import wrap_system_prompt
 
 
@@ -416,6 +419,15 @@ You MUST output a valid JSON object matching this schema:
                 security_risk_score=sanitization.risk_score,
                 security_warnings=sanitization.detected_patterns
             )
+            
+            # ================================================================
+            # VISIBILITY LOGS: Show what Intent Classifier produced
+            # ================================================================
+            logger.info(f"[INTENT] 📋 Classified: {intent.task_type}/{intent.action} → {intent.target_area} (conf: {intent.confidence:.2f})")
+            dev_log(logger, f"[INTENT] 📝 Description: {truncate_for_log(intent.description, 150)}")
+            dev_log(logger, f"[INTENT] 🎯 Original: {truncate_for_log(intent.original_request, 150)}")
+            if intent.is_ambiguous:
+                logger.info(f"[INTENT] ⚠️ Marked AMBIGUOUS: {intent.clarification_questions[:2]}")
             
             # Check confidence threshold
             if intent.confidence < self.AMBIGUITY_THRESHOLD and not intent.is_ambiguous:

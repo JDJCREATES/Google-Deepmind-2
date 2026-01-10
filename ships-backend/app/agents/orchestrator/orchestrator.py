@@ -18,7 +18,6 @@ from dataclasses import dataclass, field
 import uuid
 import json
 import re
-import logging
 
 from .state_machine import TransitionLogger, TransitionReason, StateContext
 from .error_recovery import ErrorRecoverySystem, ErrorType, RecoveryResult, RecoveryStatus
@@ -32,7 +31,9 @@ from .artifact_flow import (
 # Import ArtifactManager for disk sync (the production persistence layer)
 from app.artifacts import ArtifactManager, AgentType, AgentLogEntry
 
-logger = logging.getLogger("ships.orchestrator")
+# Use centralized logging
+from app.core.logger import get_logger, dev_log
+logger = get_logger("orchestrator")
 
 
 @dataclass

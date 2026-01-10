@@ -15,7 +15,10 @@ from typing import Optional
 import os
 import logging
 
-logger = logging.getLogger("ships")
+# Initialize centralized logging FIRST
+from app.core.logger import setup_logging, get_logger
+setup_logging()
+logger = get_logger("main")
 
 app = FastAPI(title="ShipS* Backend")
 
@@ -23,7 +26,6 @@ app = FastAPI(title="ShipS* Backend")
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup."""
-    logger.info("🚀 Ships* Backend starting...")
     
     # Silence access logs for /preview/status polling
     # This prevents the console from being flooded by the 1s poll interval

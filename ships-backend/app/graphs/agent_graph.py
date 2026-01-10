@@ -1373,6 +1373,5 @@ async def stream_pipeline(
     # Use stream_mode="messages" for token-by-token streaming
     # This yields (message_chunk, metadata) tuples as the LLM generates
     async for event in graph.astream(initial_state, config=config, stream_mode="messages", subgraphs=True):
-        logger.debug(f"[AGENT] Stream event type: {type(event)}")
         yield event
 

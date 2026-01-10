@@ -18,19 +18,23 @@ Responsibilities:
 from datetime import datetime
 from typing import Optional, Dict, Any, List, AsyncIterator
 import json
-import logging
 import re
 import uuid
 
 from pydantic import BaseModel, Field
 
-logger = logging.getLogger("ships.planner")
+# Use centralized logging
+from app.core.logger import get_logger, dev_log, truncate_for_log
+logger = get_logger("planner")
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.base.base_agent import BaseAgent
 from app.graphs.state import AgentState
 from app.artifacts import ArtifactManager
+
+# Formatter for creating implementation_plan.md
+from app.agents.sub_agents.planner.formatter import format_implementation_plan
 
 from app.agents.sub_agents.planner.models import (
     PlanManifest, TaskList, FolderMap, APIContracts,
@@ -379,6 +383,9 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
         """Use LLM for high-level planning insights with structured output."""
         prompt = self._build_planning_prompt(intent, context)
         
+        # DEV: Log prompt preview (never in production - may contain user data)
+        dev_log(logger, f"[PLANNER] 📤 Prompt Preview: {truncate_for_log(prompt, 500)}")
+        
         messages = [
             SystemMessage(content=self.system_prompt),
             HumanMessage(content=prompt)
@@ -395,11 +402,19 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
             # Convert Pydantic model to dict for downstream compatibility
             plan_dict = result.model_dump()
             
+            # ================================================================
+            # VISIBILITY LOGS: Show what Planner produced
+            # ================================================================
             logger.info(
                 f"[PLANNER] ✅ Structured output received: "
                 f"{len(plan_dict.get('tasks', []))} tasks, "
                 f"{len(plan_dict.get('folders', []))} folders"
             )
+            dev_log(logger, f"[PLANNER] 📋 Summary: {truncate_for_log(plan_dict.get('summary', 'N/A'), 200)}")
+            
+            # Log task titles in dev mode for debugging
+            for i, task in enumerate(plan_dict.get('tasks', [])[:5]):
+                dev_log(logger, f"[PLANNER]   Task {i+1}: {task.get('title', 'Untitled')}")
             
             return plan_dict
             
@@ -685,7 +700,29 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
                 except Exception as write_err:
                     logger.warning(f"[PLANNER] Failed to write {artifact_name}: {write_err}")
             
-            logger.info(f"[PLANNER] 💾 Wrote 6 artifacts to {dot_ships}")
+            # ================================================================
+            # CRITICAL: Write formatted implementation_plan.md BEFORE scaffolding
+            # This ensures Coder reads the ACTUAL plan, not LLM hallucinations
+            # ================================================================
+            try:
+                # Get user request for plan context
+                user_request_for_plan = intent.get("description", "Project")[:100]
+                
+                # Format the complete implementation plan using generated artifacts
+                plan_md_content = format_implementation_plan(
+                    artifacts=plan_artifacts,
+                    project_name=user_request_for_plan
+                )
+                
+                plan_md_path = dot_ships / "implementation_plan.md"
+                with open(plan_md_path, "w", encoding="utf-8") as f:
+                    f.write(plan_md_content)
+                
+                logger.info(f"[PLANNER] 📝 Wrote implementation_plan.md ({len(plan_md_content)} chars)")
+            except Exception as plan_write_err:
+                logger.error(f"[PLANNER] ❌ Failed to write implementation_plan.md: {plan_write_err}")
+            
+            logger.info(f"[PLANNER] 💾 Wrote 7 artifacts to {dot_ships}")
         
         # ================================================================
         # PHASE 2: Execute Scaffolding using create_react_agent
@@ -709,7 +746,12 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
                         if getattr(entry, 'is_directory', False)
                     ]
                     
+                    # Get user request for context in scaffolding
+                    user_request_summary = intent.get("description", "")
+                    
                     scaffold_prompt = f"""PROJECT PATH: {project_path}
+
+USER REQUEST: "{user_request_summary[:200]}"
 
 SCAFFOLDING REQUIRED: Execute these steps in order:
 
@@ -722,15 +764,15 @@ SCAFFOLDING REQUIRED: Execute these steps in order:
 3. Create ALL these folders in ONE call using create_directories:
    create_directories({json.dumps(folders_to_create[:20])})
 
-4. Write the implementation plan to .ships/implementation_plan.md using write_file_to_disk
-
-5. Verify scaffolding: call list_directory(".") to confirm structure
+4. Verify scaffolding: call list_directory(".") to confirm structure
 
 IMPORTANT:
 - Use -y flags to avoid prompts
 - Use create_directories (batch) NOT multiple create_directory calls
 - If a command fails, log and continue
-- Do NOT write actual code - just structure"""
+- Do NOT write actual code - just structure
+- The implementation_plan.md has ALREADY been written - do NOT overwrite it"""
+
 
                     # Create ReAct agent with planner tools
                     llm = LLMFactory.get_model("planner")
