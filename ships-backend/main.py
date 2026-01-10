@@ -561,6 +561,10 @@ app.include_router(diagnostics_router)
 from app.api.billing import router as billing_router
 app.include_router(billing_router)
 
+# Import and include Sync Router
+from app.api.sync import router as sync_router
+app.include_router(sync_router)
+
 @app.get("/")
 def read_root():
     return {"message": "ShipS* Backend is Running"}
