@@ -2,6 +2,7 @@
  * Agent Service
  * 
  * Handles interaction with the backend Agent API, including streaming responses.
+ * Includes artifact data from Electron for LLM context.
  * 
  * @module services/agentService
  */
@@ -30,7 +31,65 @@ export interface AgentChunk {
   title?: string;
 }
 
+// Artifact context sent to backend
+export interface ArtifactContext {
+  fileTree?: {
+    version: string;
+    fileCount: number;
+    files: Record<string, {
+      language: string;
+      symbols: {
+        functions: Array<{ name: string; parameters: string[]; visibility: string }>;
+        classes: Array<{ name: string }>;
+        imports: Array<{ module: string; items: string[] }>;
+        exports: string[];
+      };
+    }>;
+  };
+  dependencyGraph?: {
+    version: string;
+    circularDependencies: string[][];
+    orphanedFiles: string[];
+  };
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+
+/**
+ * Fetch artifact context from Electron
+ */
+async function getArtifactContext(): Promise<ArtifactContext | null> {
+  try {
+    // Check if we're in Electron
+    if (typeof window !== 'undefined' && (window as any).electron) {
+      const electron = (window as any).electron;
+      
+      // Try to get artifacts
+      const [fileTree, depGraph] = await Promise.all([
+        electron.getFileTree?.(),
+        electron.getDependencyGraph?.(),
+      ]);
+      
+      if (fileTree || depGraph) {
+        return {
+          fileTree: fileTree ? {
+            version: fileTree.version,
+            fileCount: Object.keys(fileTree.files || {}).length,
+            files: fileTree.files,
+          } : undefined,
+          dependencyGraph: depGraph ? {
+            version: depGraph.version,
+            circularDependencies: depGraph.circularDependencies || [],
+            orphanedFiles: depGraph.orphanedFiles || [],
+          } : undefined,
+        };
+      }
+    }
+  } catch (error) {
+    console.warn('[AgentService] Failed to get artifact context:', error);
+  }
+  return null;
+}
 
 export const agentService = {
   /**
@@ -48,12 +107,21 @@ export const agentService = {
     onError: (error: any) => void
   ): Promise<void> {
     try {
+      // Fetch artifact context from Electron (if available)
+      const artifactContext = await getArtifactContext();
+      
+      if (artifactContext) {
+        console.log('[AgentService] Including artifact context with request');
+      }
+
       const response = await fetch(`${API_BASE_URL}/agent/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           prompt,
-          project_path: projectPath 
+          project_path: projectPath,
+          // Include artifact context for LLM
+          artifact_context: artifactContext,
         }),
       });
 
@@ -95,5 +163,20 @@ export const agentService = {
       console.error("Agent run error:", error);
       onError(error);
     }
-  }
+  },
+
+  /**
+   * Refresh artifacts in Electron before a run
+   */
+  async refreshArtifacts(): Promise<boolean> {
+    try {
+      if (typeof window !== 'undefined' && (window as any).electron) {
+        const result = await (window as any).electron.generateArtifacts?.();
+        return result?.success ?? false;
+      }
+    } catch (error) {
+      console.warn('[AgentService] Failed to refresh artifacts:', error);
+    }
+    return false;
+  },
 };

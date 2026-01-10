@@ -121,4 +121,31 @@ contextBridge.exposeInMainWorld('electron', {
 
     // Window Management
     focusWindow: () => ipcRenderer.invoke('focus-window'),
+    
+    // === Artifacts ===
+    /**
+     * Generate all project artifacts (file_tree, dependency_graph, etc.)
+     */
+    generateArtifacts: () => ipcRenderer.invoke('artifacts:generate'),
+    
+    /**
+     * Get file tree artifact with symbols
+     */
+    getFileTree: () => ipcRenderer.invoke('artifacts:getFileTree'),
+    
+    /**
+     * Get dependency graph artifact
+     */
+    getDependencyGraph: () => ipcRenderer.invoke('artifacts:getDependencyGraph'),
+    
+    /**
+     * Build LLM context for specific files
+     */
+    buildArtifactContext: (scopeFiles: string[]) => 
+        ipcRenderer.invoke('artifacts:buildContext', scopeFiles),
+    
+    /**
+     * Get artifacts summary for API requests
+     */
+    getArtifactsSummary: () => ipcRenderer.invoke('artifacts:getSummary'),
 });

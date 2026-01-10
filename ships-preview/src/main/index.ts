@@ -244,6 +244,11 @@ ipcMain.handle('select-project-folder', async () => {
       console.log("Path stored");
   }
   
+  // Initialize artifact service for this project
+  const { registerArtifactHandlers } = require('./services');
+  registerArtifactHandlers(selectedPath);
+  console.log('[ARTIFACTS] Handlers registered for:', selectedPath);
+  
   return { success: true, path: selectedPath };
 });
 
