@@ -594,9 +594,10 @@ class BuildLayer(ValidationLayer):
     Layer 5: Does it build?
     
     Checks:
+    - Runs 'npm install' to ensure dependencies are present
     - Runs 'npm run build' (if package.json exists)
     - Verifies exit code 0
-    - Captures stderr/stdout
+    - Captures stderr/stdout and extracts specific error messages
     
     This is the ultimate truth. Code that doesn't build is useless.
     """
@@ -606,7 +607,10 @@ class BuildLayer(ValidationLayer):
         self.layer_name = FailureLayer.BUILD
     
     def validate(self, context: Dict[str, Any]) -> LayerResult:
-        """Run build verification."""
+        """Run build verification with npm install + npm run build."""
+        import logging
+        logger = logging.getLogger("ships.validator")
+        
         start = datetime.utcnow()
         violations = []
         checks_run = 0
@@ -614,14 +618,17 @@ class BuildLayer(ValidationLayer):
         project_path = context.get("project_path", "")
         if not project_path or not os.path.exists(project_path):
             # No project path, cannot build
+            logger.debug("[BUILD] No project_path provided, skipping build validation")
             return self._create_result(True, [], 0, 0)
             
         # Check for package.json
         pkg_path = os.path.join(project_path, "package.json")
         if not os.path.exists(pkg_path):
             # No package.json, maybe not a node project. Skip.
-            # (CompletenessLayer should check for missing files if needed)
+            logger.debug("[BUILD] No package.json found, skipping build validation")
             return self._create_result(True, [], 0, 0)
+        
+        logger.info(f"[BUILD] 🔨 Running build validation for: {project_path}")
         
         # Check for build script
         checks_run += 1
@@ -630,21 +637,93 @@ class BuildLayer(ValidationLayer):
                 pkg_data = json.load(f)
             
             scripts = pkg_data.get("scripts", {})
+            
+            # Step 1: Run npm install to ensure dependencies are present
+            checks_run += 1
+            logger.info("[BUILD] 📦 Running npm install...")
+            try:
+                install_result = subprocess.run(
+                    "npm install",
+                    cwd=project_path,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=180  # 3 minute timeout for install
+                )
+                
+                if install_result.returncode != 0:
+                    # npm install failed - likely invalid package.json or network issue
+                    error_msg = self._extract_error_message(install_result.stderr, install_result.stdout)
+                    violations.append(BuildViolation(
+                        rule="npm_install_success",
+                        message=f"npm install failed: {error_msg}",
+                        layer=FailureLayer.BUILD,
+                        severity=ViolationSeverity.CRITICAL,
+                        command="npm install",
+                        stdout=install_result.stdout[-1500:] if install_result.stdout else "",
+                        stderr=install_result.stderr[-1500:] if install_result.stderr else "",
+                        fix_hint="Check package.json for invalid dependencies or syntax errors"
+                    ))
+                    # Don't continue to build if install failed
+                    duration = int((datetime.utcnow() - start).total_seconds() * 1000)
+                    return self._create_result(False, violations, checks_run, duration)
+                else:
+                    logger.info("[BUILD] ✅ npm install succeeded")
+                    
+            except subprocess.TimeoutExpired:
+                violations.append(BuildViolation(
+                    rule="npm_install_timeout",
+                    message="npm install timed out after 180s",
+                    layer=FailureLayer.BUILD,
+                    severity=ViolationSeverity.MAJOR,
+                    fix_hint="Check network connection or remove problematic dependencies"
+                ))
+                duration = int((datetime.utcnow() - start).total_seconds() * 1000)
+                return self._create_result(False, violations, checks_run, duration)
+            
+            # Step 2: Run npm run build (if script exists)
             if "build" not in scripts:
-                # No build script - warn but maybe pass?
-                # For strict validation, we might want to flag this.
-                # But simple apps might not have build step.
-                # Letting it pass for now unless config strictness increases.
-                pass
+                # No build script - try dev script with a quick timeout to catch import errors
+                if "dev" in scripts:
+                    logger.info("[BUILD] No build script, running quick dev check...")
+                    checks_run += 1
+                    try:
+                        # Run dev server briefly to catch import errors
+                        dev_result = subprocess.run(
+                            "npm run dev",
+                            cwd=project_path,
+                            shell=True,
+                            capture_output=True,
+                            text=True,
+                            timeout=15  # 15 second timeout - just to catch initial errors
+                        )
+                        # Dev server will timeout (which is expected), check stderr for errors
+                        if dev_result.stderr:
+                            error_msg = self._extract_error_message(dev_result.stderr, dev_result.stdout)
+                            if error_msg and ("failed to resolve" in error_msg.lower() or 
+                                            "module not found" in error_msg.lower() or
+                                            "cannot find module" in error_msg.lower()):
+                                violations.append(BuildViolation(
+                                    rule="dev_server_error",
+                                    message=f"Dev server error: {error_msg}",
+                                    layer=FailureLayer.BUILD,
+                                    severity=ViolationSeverity.CRITICAL,
+                                    command="npm run dev",
+                                    stderr=dev_result.stderr[-1500:],
+                                    fix_hint=f"Install missing dependency: {error_msg}"
+                                ))
+                    except subprocess.TimeoutExpired:
+                        # Timeout is expected for dev server - this is fine
+                        logger.info("[BUILD] Dev server check passed (no immediate errors)")
+                else:
+                    logger.debug("[BUILD] No build or dev script found")
             else:
                 checks_run += 1
-                # Run build
-                # Use shell=True for Windows compatibility with npm
-                cmd = "npm run build"
+                logger.info("[BUILD] 🏗️ Running npm run build...")
                 try:
                     # Capture output
                     result = subprocess.run(
-                        cmd,
+                        "npm run build",
                         cwd=project_path,
                         shell=True,
                         capture_output=True,
@@ -653,17 +732,22 @@ class BuildLayer(ValidationLayer):
                     )
                     
                     if result.returncode != 0:
-                        # Build failed
+                        # Build failed - extract meaningful error
+                        error_msg = self._extract_error_message(result.stderr, result.stdout)
+                        logger.error(f"[BUILD] ❌ Build failed: {error_msg}")
+                        
                         violations.append(BuildViolation(
                             rule="build_success",
-                            message="Build failed with exit code 1",
+                            message=f"Build failed: {error_msg}",
                             layer=FailureLayer.BUILD,
                             severity=ViolationSeverity.CRITICAL,
-                            command=cmd,
-                            stdout=result.stdout[:1000] if result.stdout else "",
-                            stderr=result.stderr[:1000] if result.stderr else "",
-                            fix_hint="Fix build errors identified in stderr"
+                            command="npm run build",
+                            stdout=result.stdout[-1500:] if result.stdout else "",
+                            stderr=result.stderr[-1500:] if result.stderr else "",
+                            fix_hint=f"Fix: {error_msg}"
                         ))
+                    else:
+                        logger.info("[BUILD] ✅ npm run build succeeded")
                         
                 except subprocess.TimeoutExpired:
                     violations.append(BuildViolation(
@@ -702,7 +786,38 @@ class BuildLayer(ValidationLayer):
         duration = int((datetime.utcnow() - start).total_seconds() * 1000)
         passed = len([v for v in violations if v.severity in [ViolationSeverity.CRITICAL, ViolationSeverity.MAJOR]]) == 0
         
+        if passed:
+            logger.info(f"[BUILD] ✅ Build validation passed in {duration}ms")
+        else:
+            logger.warning(f"[BUILD] ❌ Build validation failed with {len(violations)} violations")
+        
         return self._create_result(passed, violations, checks_run, duration)
+    
+    def _extract_error_message(self, stderr: str, stdout: str) -> str:
+        """Extract the most relevant error message from build output."""
+        combined = (stderr or "") + (stdout or "")
+        
+        # Common error patterns to look for
+        patterns = [
+            r"Failed to resolve import ['\"]([^'\"]+)['\"]",  # Vite/ESBuild import error
+            r"Module not found: Error: Can't resolve ['\"]([^'\"]+)['\"]",  # Webpack
+            r"Cannot find module ['\"]([^'\"]+)['\"]",  # Node.js
+            r"error TS\d+: (.+)",  # TypeScript errors
+            r"SyntaxError: (.+)",  # JS Syntax errors
+            r"Error: (.+)",  # Generic errors
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, combined, re.IGNORECASE)
+            if match:
+                return match.group(0)[:200]  # Return the full match, truncated
+        
+        # Fallback: find any line with "error" in it
+        for line in combined.split("\n"):
+            if "error" in line.lower() and len(line.strip()) > 10:
+                return line.strip()[:200]
+        
+        return "Unknown build error (check full output)"
 
 
 # ============================================================================

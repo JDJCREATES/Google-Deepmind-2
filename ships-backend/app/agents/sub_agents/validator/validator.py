@@ -362,6 +362,7 @@ Output ONLY: pass or fail, with specific violations if failing."""
         current_task = artifacts.get("current_task") or parameters.get("task")
         app_blueprint = artifacts.get("app_blueprint")
         dependency_plan = artifacts.get("dependency_plan")
+        project_path = artifacts.get("project_path")  # CRITICAL: Required for BuildLayer
         
         # Validate
         report = await self.validate(
@@ -371,7 +372,8 @@ Output ONLY: pass or fail, with specific violations if failing."""
             app_blueprint=app_blueprint,
             dependency_plan=dependency_plan,
             task_id=parameters.get("task_id", ""),
-            plan_id=parameters.get("plan_id")
+            plan_id=parameters.get("plan_id"),
+            project_path=project_path  # Pass to enable BuildLayer npm run build
         )
         
         return {

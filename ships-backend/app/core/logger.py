@@ -109,6 +109,8 @@ def setup_logging() -> logging.Logger:
         ("urllib3", logging.WARNING),
         ("asyncio", logging.WARNING),
         ("websockets", logging.WARNING),
+        ("langsmith", logging.WARNING),
+        ("langsmith.client", logging.WARNING),
     ]
     
     for logger_name, log_level in noisy_loggers:

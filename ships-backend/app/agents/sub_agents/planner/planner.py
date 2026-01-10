@@ -767,12 +767,25 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
                 # Dependencies section
                 dep_plan = plan_result.get("dependency_plan")
                 if dep_plan:
-                    packages = dep_plan.packages if hasattr(dep_plan, 'packages') else dep_plan.get('packages', [])
+                    # Handle both Pydantic objects and dicts
+                    if hasattr(dep_plan, 'packages'):
+                        packages = dep_plan.packages
+                    elif isinstance(dep_plan, dict):
+                        packages = dep_plan.get('packages', [])
+                    else:
+                        packages = []
+                    
                     if packages:
                         plan_lines.append("## Dependencies")
                         for pkg in packages:
-                            name = pkg.name if hasattr(pkg, 'name') else pkg.get('name', '')
-                            version = pkg.version if hasattr(pkg, 'version') else pkg.get('version', '')
+                            if hasattr(pkg, 'name'):
+                                name = pkg.name
+                                version = getattr(pkg, 'version', '')
+                            elif isinstance(pkg, dict):
+                                name = pkg.get('name', '')
+                                version = pkg.get('version', '')
+                            else:
+                                continue
                             plan_lines.append(f"- {name}: {version}")
                         plan_lines.append("")
                 
