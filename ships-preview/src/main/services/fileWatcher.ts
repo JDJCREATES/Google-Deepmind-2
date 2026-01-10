@@ -7,7 +7,11 @@
 
 import * as chokidar from 'chokidar';
 import * as path from 'path';
-import { ArtifactService } from './artifactService';
+
+// Interface for artifact generator (can be ArtifactService or ArtifactGenerator)
+interface IArtifactGenerator {
+  generateAll(): Promise<any>;
+}
 
 // Debounce timeout in ms
 const DEBOUNCE_MS = 500;
@@ -30,12 +34,12 @@ const IGNORE_PATTERNS = [
 
 export class FileWatcher {
   private watcher: chokidar.FSWatcher | null = null;
-  private artifactService: ArtifactService;
+  private artifactGenerator: IArtifactGenerator;
   private pendingUpdate: NodeJS.Timeout | null = null;
   private onUpdateCallback: (() => void) | null = null;
 
-  constructor(artifactService: ArtifactService) {
-    this.artifactService = artifactService;
+  constructor(artifactGenerator: IArtifactGenerator) {
+    this.artifactGenerator = artifactGenerator;
   }
 
   /**
@@ -117,7 +121,7 @@ export class FileWatcher {
       
       try {
         console.log(`[FILE_WATCHER] Regenerating artifacts...`);
-        await this.artifactService.generateAll();
+        await this.artifactGenerator.generateAll();
         
         if (this.onUpdateCallback) {
           this.onUpdateCallback();

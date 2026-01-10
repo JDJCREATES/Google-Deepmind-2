@@ -27,7 +27,9 @@
     "vite": "^6.4.1"
   },
   "dependencies": {
+    "chokidar": "^5.0.0",
     "electron-store": "^8.1.0",
-    "node-pty": "^1.1.0"
+    "node-pty": "^1.1.0",
+    "web-tree-sitter": "^0.26.3"
   }
 }

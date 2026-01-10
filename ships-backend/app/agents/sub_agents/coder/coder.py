@@ -180,7 +180,8 @@ Use these type definitions. Do NOT read from disk.
         api_contracts: Optional[Dict[str, Any]] = None,
         dependency_plan: Optional[Dict[str, Any]] = None,
         existing_code: Optional[Dict[str, str]] = None,
-        policy: Optional[Dict[str, Any]] = None
+        policy: Optional[Dict[str, Any]] = None,
+        artifact_context: Optional[Dict[str, Any]] = None  # File tree & deps from Electron
     ) -> CoderOutput:
         """
         Generate code for a task.
@@ -194,6 +195,7 @@ Use these type definitions. Do NOT read from disk.
             dependency_plan: Allowed dependencies
             existing_code: Map of path -> content for context
             policy: Style and security policies
+            artifact_context: File tree & dependency data from Electron
             
         Returns:
             CoderOutput with all artifacts
@@ -217,6 +219,7 @@ Use these type definitions. Do NOT read from disk.
             "folder_map": folder_map or {},
             "existing_code": existing_code or {},
             "objectives": interpretation["objectives"],
+            "artifact_context": artifact_context,  # Pass artifact data for LLM context
         })
         context_result = self.context_consumer.process(context)
         context.update(context_result)
@@ -455,6 +458,52 @@ Use these type definitions. Do NOT read from disk.
             for o in outputs:
                 path = o.get("file_path", o.get("path", "")) if isinstance(o, dict) else str(o)
                 parts.append(f"  - {path}")
+        
+        # ================================================================
+        # ARTIFACT CONTEXT - Prevents LLM hallucinations
+        # ================================================================
+        artifact_context = context.get("artifact_context") or {}
+        file_tree = artifact_context.get("fileTree", {})
+        files = file_tree.get("files", {})
+        
+        if files:
+            # Get relevant files for this task
+            scope_files = [
+                o.get("file_path", o.get("path", "")) if isinstance(o, dict) else str(o)
+                for o in outputs
+            ]
+            
+            # Build valid functions list
+            valid_functions = []
+            valid_imports = []
+            
+            for file_path in scope_files:
+                file_data = files.get(file_path, {})
+                symbols = file_data.get("symbols", {})
+                
+                # Functions
+                for func in symbols.get("functions", []):
+                    name = func.get("name", "")
+                    params = ", ".join(func.get("parameters", []))
+                    visibility = func.get("visibility", "")
+                    valid_functions.append(f"  {'[export] ' if visibility == 'export' else ''}{name}({params})")
+                
+                # Imports
+                for imp in symbols.get("imports", []):
+                    module = imp.get("module", "")
+                    items = imp.get("items", [])
+                    if items:
+                        valid_imports.append(f"  from '{module}': {', '.join(items)}")
+                    else:
+                        valid_imports.append(f"  import '{module}'")
+            
+            if valid_functions:
+                parts.append("VALID FUNCTIONS (Do NOT invent new ones):")
+                parts.extend(valid_functions[:15])  # Limit to 15
+            
+            if valid_imports:
+                parts.append("VALID IMPORTS (Use ONLY these):")
+                parts.extend(valid_imports[:10])  # Limit to 10
         
         # Style rules
         style = context.get("naming_rules", {})

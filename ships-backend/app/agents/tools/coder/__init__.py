@@ -53,7 +53,7 @@ from .edit_operations import (
     EDIT_TOOLS,
 )
 
-from .file_tree import scan_project_tree
+from .file_tree import scan_project_tree, get_file_tree, get_artifact
 
 # Combined export of all tools for the Coder agent
 # Edit tools listed FIRST as they are preferred for modifications
@@ -67,7 +67,8 @@ CODER_TOOLS = [
     write_file_to_disk,
     read_file_from_disk,
     list_directory,
-    scan_project_tree,
+    get_file_tree,      # Prefers .ships/ artifact, falls back to scan
+    get_artifact,        # Read any artifact from .ships/
     # Code analysis (minimal - most is done in prompt)
     generate_file_diff,
     detect_language,
@@ -90,6 +91,8 @@ __all__ = [
     "create_directories",
     "view_source_code",
     "scan_project_tree",
+    "get_file_tree",
+    "get_artifact",
     # Terminal operations
     "run_terminal_command",
     "get_allowed_terminal_commands",

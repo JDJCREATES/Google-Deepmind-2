@@ -124,9 +124,14 @@ contextBridge.exposeInMainWorld('electron', {
     
     // === Artifacts ===
     /**
-     * Generate all project artifacts (file_tree, dependency_graph, etc.)
+     * Generate all project artifacts (file_tree, dependency_graph, security)
      */
     generateArtifacts: () => ipcRenderer.invoke('artifacts:generate'),
+    
+    /**
+     * Get artifact generation status
+     */
+    getArtifactStatus: () => ipcRenderer.invoke('artifacts:status'),
     
     /**
      * Get file tree artifact with symbols
@@ -139,6 +144,11 @@ contextBridge.exposeInMainWorld('electron', {
     getDependencyGraph: () => ipcRenderer.invoke('artifacts:getDependencyGraph'),
     
     /**
+     * Get security report artifact
+     */
+    getSecurityReport: () => ipcRenderer.invoke('artifacts:getSecurityReport'),
+    
+    /**
      * Build LLM context for specific files
      */
     buildArtifactContext: (scopeFiles: string[]) => 
@@ -148,4 +158,13 @@ contextBridge.exposeInMainWorld('electron', {
      * Get artifacts summary for API requests
      */
     getArtifactsSummary: () => ipcRenderer.invoke('artifacts:getSummary'),
+    
+    /**
+     * Listen for artifact update events
+     */
+    onArtifactsUpdated: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on('artifacts:updated', listener);
+        return () => ipcRenderer.removeListener('artifacts:updated', listener);
+    },
 });

@@ -1301,7 +1301,8 @@ async def stream_pipeline(
     user_request: str,
     thread_id: str = "default",
     project_path: Optional[str] = None,
-    settings: Optional[dict] = None  # New: User settings
+    settings: Optional[dict] = None,  # User settings
+    artifact_context: Optional[dict] = None  # File tree & dependency data from Electron
 ):
     """
     Stream the full agent pipeline with token-by-token streaming.
@@ -1313,6 +1314,7 @@ async def stream_pipeline(
         thread_id: Thread ID for state persistence
         project_path: Optional path to user's project directory
         settings: Optional client-side settings dict
+        artifact_context: Optional artifact data (file tree, deps) from Electron
         
     Yields:
         Message chunks as the LLM generates tokens
@@ -1324,6 +1326,8 @@ async def stream_pipeline(
     logger.info(f"[PIPELINE] 📨 Received user_request: '{user_request}'")
     logger.info(f"[PIPELINE] Request length: {len(user_request)} chars")
     logger.info(f"[PIPELINE] Project path: {project_path or 'Not set (using backend dir)'}")
+    if artifact_context:
+        logger.info(f"[PIPELINE] Artifact context: {len(artifact_context.get('fileTree', {}).get('files', {}))} files provided")
     logger.info("=" * 60)
     
     checkpointer = MemorySaver()
@@ -1339,7 +1343,8 @@ async def stream_pipeline(
         "phase": "planning",
         "artifacts": {
             "project_path": project_path,  # None if not set - agents will check and refuse
-            "settings": settings or {}     # Inject settings into artifacts
+            "settings": settings or {},    # Inject settings into artifacts
+            "artifact_context": artifact_context,  # File tree & deps from Electron
         },
         "current_task_index": 0,
         "validation_passed": False,

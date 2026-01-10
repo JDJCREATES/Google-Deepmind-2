@@ -17,7 +17,8 @@ from app.agents.tools.coder import (
     list_directory, 
     create_directory,
     create_directories,
-    scan_project_tree,
+    get_file_tree,    # Prefers .ships/ artifact, falls back to scan
+    get_artifact,     # Read dependency_graph.json, security_report.json
 )
 from app.agents.tools.coder.terminal_operations import run_terminal_command
 
@@ -25,7 +26,8 @@ from app.agents.tools.coder.terminal_operations import run_terminal_command
 # Tools re-exported from coder for project scaffolding
 PLANNER_TOOLS = [
     list_directory,          # Check if project exists
-    scan_project_tree,       # Comprehensive file tree with symbols
+    get_file_tree,           # File tree from .ships/ artifact (preferred)
+    get_artifact,            # Read dependency/security artifacts
     run_terminal_command,    # npx create-vite, npm install (first time only)
     create_directory,        # Create single folder
     create_directories,      # Create multiple folders at once (PREFERRED)
@@ -45,4 +47,7 @@ __all__ = [
     "create_directory",
     "create_directories",
     "write_file_to_disk",
+    "get_file_tree",
+    "get_artifact",
 ]
+

@@ -1,76 +1,120 @@
 /**
  * Artifact IPC Handlers
  *
- * Exposes artifact service to renderer via IPC.
+ * Exposes artifact generation to renderer via IPC.
+ * Uses production ArtifactGenerator with tree-sitter, dependency-cruiser, etc.
  */
 
-import { ipcMain } from 'electron';
-import { ArtifactService } from './artifactService';
+import { ipcMain, BrowserWindow } from 'electron';
+import { ArtifactGenerator } from './artifactGenerator';
+import { FileWatcher } from './fileWatcher';
 
-let artifactService: ArtifactService | null = null;
+let artifactGenerator: ArtifactGenerator | null = null;
+let fileWatcher: FileWatcher | null = null;
+let mainWindow: BrowserWindow | null = null;
 
 /**
  * Register artifact IPC handlers
  */
-export function registerArtifactHandlers(projectPath: string): void {
-  artifactService = new ArtifactService(projectPath);
+export function registerArtifactHandlers(projectPath: string, window?: BrowserWindow): void {
+  artifactGenerator = new ArtifactGenerator(projectPath);
+  mainWindow = window || null;
 
-  // Generate all artifacts
-  ipcMain.handle('artifacts:generate', async () => {
-    if (!artifactService) return { success: false, error: 'No project loaded' };
-    try {
-      await artifactService.generateAll();
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: String(error) };
+  // Set up file watcher
+  if (fileWatcher) {
+    fileWatcher.stop();
+  }
+  fileWatcher = new FileWatcher(artifactGenerator as any);
+  fileWatcher.onUpdate(() => {
+    if (mainWindow) {
+      mainWindow.webContents.send('artifacts:updated');
     }
+  });
+  fileWatcher.start(projectPath);
+
+  // Generate all artifacts on project load
+  ipcMain.handle('artifacts:generate', async () => {
+    if (!artifactGenerator) return { success: false, error: 'No project loaded' };
+    try {
+      const result = await artifactGenerator.generateAll();
+      return result;
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Get artifact status
+  ipcMain.handle('artifacts:status', async () => {
+    if (!artifactGenerator) return null;
+    return artifactGenerator.getStatus();
   });
 
   // Get file tree
   ipcMain.handle('artifacts:getFileTree', async () => {
-    if (!artifactService) return null;
-    return artifactService.getArtifact('file_tree.json');
+    if (!artifactGenerator) return null;
+    return artifactGenerator.getArtifact('file_tree.json');
   });
 
   // Get dependency graph
   ipcMain.handle('artifacts:getDependencyGraph', async () => {
-    if (!artifactService) return null;
-    return artifactService.getArtifact('dependency_graph.json');
+    if (!artifactGenerator) return null;
+    return artifactGenerator.getArtifact('dependency_graph.json');
+  });
+
+  // Get security report
+  ipcMain.handle('artifacts:getSecurityReport', async () => {
+    if (!artifactGenerator) return null;
+    return artifactGenerator.getArtifact('security_report.json');
   });
 
   // Build LLM context
   ipcMain.handle('artifacts:buildContext', async (_, scopeFiles: string[]) => {
-    if (!artifactService) return '';
-    return artifactService.buildContext(scopeFiles);
+    if (!artifactGenerator) return '';
+    return artifactGenerator.buildLLMContext(scopeFiles);
   });
 
-  // Get all artifacts summary (for API requests)
+  // Get summary for API requests
   ipcMain.handle('artifacts:getSummary', async () => {
-    if (!artifactService) return null;
+    if (!artifactGenerator) return null;
     
-    const fileTree = artifactService.getArtifact('file_tree.json');
-    const depGraph = artifactService.getArtifact('dependency_graph.json');
+    const fileTree = artifactGenerator.getArtifact('file_tree.json');
+    const depGraph = artifactGenerator.getArtifact('dependency_graph.json');
+    const security = artifactGenerator.getArtifact('security_report.json');
     
     return {
       fileTree: fileTree ? {
         version: fileTree.version,
-        fileCount: Object.keys(fileTree.files).length,
+        fileCount: fileTree.totalFiles,
         generatedAt: fileTree.generatedAt,
       } : null,
       dependencyGraph: depGraph ? {
         version: depGraph.version,
-        nodeCount: Object.keys(depGraph.nodes).length,
+        moduleCount: depGraph.totalModules,
+        circularDeps: depGraph.circularDependencies?.length || 0,
         generatedAt: depGraph.generatedAt,
+      } : null,
+      security: security ? {
+        critical: security.summary?.critical || 0,
+        high: security.summary?.high || 0,
+        secrets: security.summary?.secrets || 0,
+        generatedAt: security.generatedAt,
       } : null,
     };
   });
+
+  console.log('[ArtifactHandlers] Registered for:', projectPath);
 }
 
 /**
- * Update project path (when user selects new folder)
+ * Update project path
  */
 export function updateProjectPath(projectPath: string): void {
-  artifactService = new ArtifactService(projectPath);
+  if (fileWatcher) {
+    fileWatcher.stop();
+  }
+  artifactGenerator = new ArtifactGenerator(projectPath);
+  fileWatcher = new FileWatcher(artifactGenerator as any);
+  fileWatcher.start(projectPath);
 }
 
 /**
@@ -78,9 +122,17 @@ export function updateProjectPath(projectPath: string): void {
  */
 export function removeArtifactHandlers(): void {
   ipcMain.removeHandler('artifacts:generate');
+  ipcMain.removeHandler('artifacts:status');
   ipcMain.removeHandler('artifacts:getFileTree');
   ipcMain.removeHandler('artifacts:getDependencyGraph');
+  ipcMain.removeHandler('artifacts:getSecurityReport');
   ipcMain.removeHandler('artifacts:buildContext');
   ipcMain.removeHandler('artifacts:getSummary');
-  artifactService = null;
+  
+  if (fileWatcher) {
+    fileWatcher.stop();
+    fileWatcher = null;
+  }
+  artifactGenerator = null;
+  mainWindow = null;
 }
