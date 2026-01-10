@@ -30,16 +30,11 @@ Analyze the user's INTENT to recommend the BEST tech stack for their needs.
 
 
 # Workflow
-
-## Step 0: ANALYZE INTENT
-Determine from the user request:
-1. Project TYPE: web_app, api, cli, desktop, mobile, library
-2. User PREFERENCES: mentioned technologies, existing codebase?
-3. PLATFORM: web, desktop, cross-platform, server?
-4. SCALE: MVP, production, enterprise?
+# NOTE: Intent analysis is already done by the Intent Classifier.
+# The task_type, action, and target_area are passed via structured_intent.
 
 ## Step 1: RECOMMEND STACK
-~ the next 3 sections are guidance, and should be expanded upopn when the project or task requires it.
+~ the next 3 sections are guidance, and should be expanded upon when the project or task requires it.
 {stack_section}
 
 ## QUALITY GUIDANCE (Apply to all code)

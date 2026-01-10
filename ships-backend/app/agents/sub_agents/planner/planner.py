@@ -657,6 +657,33 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
                 "id": str(uuid.uuid4()),
             }
         
+        # ================================================================
+        # USE INTENT CLASSIFICATION TO SELECT CORRECT TEMPLATE
+        # Map task_type and target_area to project template keys
+        # ================================================================
+        task_type = intent.get("task_type", "feature")
+        target_area = intent.get("target_area", "frontend")
+        
+        # Map target_area to template key
+        template_mapping = {
+            "frontend": "react-vite",  # Default frontend
+            "backend": "fastapi",      # Default backend
+            "full-stack": "nextjs",    # Full-stack default
+            "database": "fastapi",     # DB work -> backend
+            "testing": "react-vite",   # Testing inherits from project type
+            "configuration": "generic",
+            "documentation": "generic",
+            "system": "generic",
+            "unknown": "generic",
+        }
+        
+        # Get template key from target_area
+        detected_template = template_mapping.get(target_area, "react-vite")
+        
+        # Update current_project_type to inject correct conventions
+        self.current_project_type = detected_template
+        logger.info(f"[PLANNER] 🎯 Using template '{detected_template}' based on target_area='{target_area}'")
+        
         app_blueprint = artifacts.get("app_blueprint")
         constraints = artifacts.get("constraints")
         environment = {"project_path": project_path}
