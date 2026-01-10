@@ -33,9 +33,6 @@ from app.agents.base.base_agent import BaseAgent
 from app.graphs.state import AgentState
 from app.artifacts import ArtifactManager
 
-# Formatter for creating implementation_plan.md
-from app.agents.sub_agents.planner.formatter import format_implementation_plan
-
 from app.agents.sub_agents.planner.models import (
     PlanManifest, TaskList, FolderMap, APIContracts,
     DependencyPlan, ValidationChecklist, RiskReport,
@@ -701,18 +698,58 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
                     logger.warning(f"[PLANNER] Failed to write {artifact_name}: {write_err}")
             
             # ================================================================
-            # CRITICAL: Write formatted implementation_plan.md BEFORE scaffolding
-            # This ensures Coder reads the ACTUAL plan, not LLM hallucinations
+            # CRITICAL: Write implementation_plan.md BEFORE scaffolding
+            # Uses LLM-generated plan data directly, NOT a rigid formatter
             # ================================================================
             try:
-                # Get user request for plan context
-                user_request_for_plan = intent.get("description", "Project")[:100]
+                user_request_summary = intent.get("description", "Project")
                 
-                # Format the complete implementation plan using generated artifacts
-                plan_md_content = format_implementation_plan(
-                    artifacts=plan_artifacts,
-                    project_name=user_request_for_plan
-                )
+                # Build dynamic markdown from LLM plan output
+                plan_lines = []
+                plan_lines.append(f"# Implementation Plan")
+                plan_lines.append(f"")
+                plan_lines.append(f"## Summary")
+                plan_lines.append(f"{plan_result.get('plan_manifest', {}).get('summary', user_request_summary) if hasattr(plan_result.get('plan_manifest', {}), 'get') else getattr(plan_result.get('plan_manifest', {}), 'summary', user_request_summary)}")
+                plan_lines.append(f"")
+                
+                # Files section from folder_map
+                folder_map = plan_result.get("folder_map")
+                if folder_map:
+                    entries = folder_map.entries if hasattr(folder_map, 'entries') else folder_map.get('entries', [])
+                    if entries:
+                        plan_lines.append("## Files")
+                        for entry in entries:
+                            path = entry.path if hasattr(entry, 'path') else entry.get('path', '')
+                            desc = entry.description if hasattr(entry, 'description') else entry.get('description', '')
+                            plan_lines.append(f"- `{path}`: {desc}")
+                        plan_lines.append("")
+                
+                # Tasks section
+                task_list = plan_result.get("task_list")
+                if task_list:
+                    tasks = task_list.tasks if hasattr(task_list, 'tasks') else task_list.get('tasks', [])
+                    if tasks:
+                        plan_lines.append("## Tasks")
+                        for i, task in enumerate(tasks, 1):
+                            title = task.title if hasattr(task, 'title') else task.get('title', f'Task {i}')
+                            desc = task.description if hasattr(task, 'description') else task.get('description', '')
+                            plan_lines.append(f"### {i}. {title}")
+                            plan_lines.append(f"{desc}")
+                            plan_lines.append("")
+                
+                # Dependencies section
+                dep_plan = plan_result.get("dependency_plan")
+                if dep_plan:
+                    packages = dep_plan.packages if hasattr(dep_plan, 'packages') else dep_plan.get('packages', [])
+                    if packages:
+                        plan_lines.append("## Dependencies")
+                        for pkg in packages:
+                            name = pkg.name if hasattr(pkg, 'name') else pkg.get('name', '')
+                            version = pkg.version if hasattr(pkg, 'version') else pkg.get('version', '')
+                            plan_lines.append(f"- {name}: {version}")
+                        plan_lines.append("")
+                
+                plan_md_content = "\n".join(plan_lines)
                 
                 plan_md_path = dot_ships / "implementation_plan.md"
                 with open(plan_md_path, "w", encoding="utf-8") as f:

@@ -18,10 +18,10 @@ Each template includes:
 # =============================================================================
 
 FRONTEND_TEMPLATES = {
-    # React with Vite (default modern React)
+    # React with Vite (default modern React 2025)
     "react-vite": {
-        "stack": "Vite + React 18+ + TypeScript + TailwindCSS",
-        "alt_stacks": ["Next.js", "Remix", "Create React App"],
+        "stack": "Vite 6 + React 19 + TypeScript 5.x + TailwindCSS 4",
+        "alt_stacks": ["Next.js 15", "Remix", "Astro"],
         "scaffold_cmd": "npx -y create-vite@latest . --template react-ts && npm install",
         "structure": """src/
 ├── components/
@@ -30,54 +30,54 @@ FRONTEND_TEMPLATES = {
 ├── hooks/               # Custom React hooks (useAuth, useFetch)
 ├── lib/                 # Utilities, helpers, constants
 ├── types/               # TypeScript interfaces
-├── stores/              # Zustand/Jotai stores
+├── stores/              # Zustand stores (global state)
 ├── api/                 # API client functions
 └── assets/              # Static assets (images, fonts)""",
         "conventions": """- Files: kebab-case (user-profile.tsx)
 - Components: PascalCase (UserProfile.tsx exports UserProfile)
 - Hooks: camelCase with use prefix (useAuth.ts) - EXTRACT COMPLEX LOGIC HERE
-- DRY Principle: ALWAYS map over arrays for repetitive elements (nav items, cards).
-- Styling: Use Tailwind utility classes. Use `clsx` or `tailwind-merge` for conditionals.
-- State: Zustand for global, useState for local.
-- Async: React Query for data. ALWAYS handle loading/error states.
-- Constants: Extract magic numbers/strings to constants or config.""",
-        "deps": "npm install zustand @tanstack/react-query tailwindcss postcss autoprefixer",
+- DRY Principle: ALWAYS map over arrays for repetitive elements.
+- Styling: Tailwind utility classes. Use `clsx` or `tailwind-merge` for conditionals.
+- State: Zustand v5 for global, useState for local. Avoid prop drilling.
+- Async: TanStack Query v5 for data fetching. ALWAYS handle loading/error states.
+- Memoization: Use React.memo, useMemo sparingly - profile first.
+- TypeScript: strict mode, explicit types for props and return values.""",
+        "deps": "npm install zustand @tanstack/react-query tailwindcss postcss autoprefixer clsx",
     },
     
-    # Next.js 14+ App Router
+    # Next.js 15 App Router (2025)
     "nextjs": {
-        "stack": "Next.js 14+ App Router + TypeScript + TailwindCSS",
+        "stack": "Next.js 15 App Router + React 19 + TypeScript 5.x + TailwindCSS 4",
         "alt_stacks": ["Vite + React", "Remix", "Astro"],
-        "scaffold_cmd": "npx -y create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias '@/*' --yes",
+        "scaffold_cmd": "npx -y create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias '@/*' --turbopack --yes",
         "structure": """src/
 ├── app/
-│   ├── (routes)/        # Route groups
+│   ├── (routes)/        # Route groups (doesn't affect URL)
 │   ├── api/             # API routes (route.ts)
+│   ├── actions/         # Server Actions
 │   ├── layout.tsx       # Root layout
 │   └── page.tsx         # Home page
 ├── components/
 │   ├── ui/              # Shadcn/UI components
 │   └── [feature]/       # Feature components
-├── lib/                 # Utilities, db client
+├── lib/                 # Utilities, db client, cn() helper
 ├── types/               # TypeScript types
-└── hooks/               # Custom hooks
-prisma/                  # Prisma schema (if using)
+└── hooks/               # Custom hooks (client-side only)
 public/                  # Static assets""",
         "conventions": """- Files: kebab-case for routes, PascalCase for components
-- Pages: page.tsx (default export)
-- Layouts: layout.tsx (default export)
-- Logic: Extract business logic to `src/hooks` or `src/lib`.
-- DRY: Map over data. Create reusable `components/ui` elements.
-- Server Components: Default (no 'use client').
-- Client Components: 'use client' only for interactivity.
-- Data Fetching: fetch() in Server Components.
-- Styling: Tailwind CSS. Use `cn()` helper for class merging.""",
-        "deps": "npm install @prisma/client next-auth zod",
+- Pages: page.tsx (default export), Layouts: layout.tsx
+- Server Components: Default (no 'use client'). Fetch data here.
+- Client Components: 'use client' only for interactivity (forms, state, effects).
+- Server Actions: Use for mutations (form submissions, data updates).
+- Data Fetching: async/await in Server Components. Cache with revalidateTag().
+- Styling: Tailwind CSS. Use cn() helper for class merging.
+- Route Groups: Use (name) folders to organize without affecting URLs.""",
+        "deps": "npm install zod next-safe-action @t3-oss/env-nextjs",
     },
     
-    # Vue 3 Composition API
+    # Vue 3 Composition API (2025)
     "vue": {
-        "stack": "Vue 3 + Vite + TypeScript + Pinia + TailwindCSS",
+        "stack": "Vue 3.5+ + Vite 6 + TypeScript 5.x + Pinia + TailwindCSS 4",
         "alt_stacks": ["Nuxt 3", "Quasar"],
         "scaffold_cmd": "npx -y create-vue@latest . --typescript --pinia --router --eslint --prettier",
         "structure": """src/
@@ -88,19 +88,19 @@ public/                  # Static assets""",
 ├── composables/         # Reusable logic (useAuth, useNotifications)
 ├── layouts/             # Layout wrappers
 ├── router/              # Vue Router config
-├── stores/              # Pinia stores
+├── stores/              # Pinia stores (useXxxStore)
 ├── types/               # TypeScript interfaces
 ├── views/               # Route-level page components
 └── api/                 # API service layer""",
         "conventions": """- Files: kebab-case (user-profile.vue)
-- Components: PascalCase in template, multi-word required (UserProfile)
+- Components: PascalCase, multi-word names required (UserProfile)
 - Base Components: Prefix with Base or App (BaseButton)
-- Single-Instance: Prefix with The (TheHeader)
-- Composables: useXxx naming (useAuth, useCart)
-- Stores: useXxxStore naming (useUserStore)
-- Props: camelCase in script, kebab-case in template
-- Composition API: <script setup lang="ts"> preferred
-- Reactivity: ref() for primitives, reactive() for objects""",
+- Composables: useXxx naming (useAuth), store in composables/
+- Stores: Pinia with useXxxStore naming, Composition API style
+- State Access: Use storeToRefs() for reactive destructuring
+- Composition API: <script setup lang="ts"> ALWAYS
+- Reactivity: ref() for primitives, reactive() for objects
+- Actions: Keep mutations in store actions, not components""",
         "deps": "npm install pinia @vueuse/core tailwindcss postcss autoprefixer",
     },
     
@@ -133,9 +133,9 @@ public/                  # Static assets""",
         "deps": "npm install @pinia/nuxt @nuxtjs/tailwindcss",
     },
     
-    # Angular 17+ (Standalone Components)
+    # Angular 19 (Standalone Components + Signals)
     "angular": {
-        "stack": "Angular 17+ + TypeScript + TailwindCSS + NgRx (optional)",
+        "stack": "Angular 19 + TypeScript 5.x + TailwindCSS 4 + Signals",
         "alt_stacks": ["React", "Vue"],
         "scaffold_cmd": "npx -y @angular/cli@latest new . --standalone --style=scss --routing --skip-git",
         "structure": """src/app/
@@ -147,7 +147,7 @@ public/                  # Static assets""",
 │   ├── components/
 │   ├── directives/
 │   └── pipes/
-├── features/            # Feature modules
+├── features/            # Feature folders (standalone components)
 │   └── [feature]/
 │       ├── components/
 │       ├── pages/
@@ -156,65 +156,70 @@ public/                  # Static assets""",
 └── models/              # TypeScript interfaces""",
         "conventions": """- Files: kebab-case with type suffix (user.service.ts, user-list.component.ts)
 - Classes: PascalCase (UserService, UserListComponent)
-- Components: Standalone by default (Angular 17+)
-- Selectors: app-prefixed kebab-case (app-user-list)
+- Standalone: All components standalone by default (Angular 19)
+- Signals: Use signal() for state, computed() for derived, effect() for side effects
+- DI: Use inject() function instead of constructor injection
 - Services: Singleton in root (providedIn: 'root')
-- Smart/Dumb: Container components (smart) vs Presentational (dumb)
-- Lazy Loading: loadComponent() for routes
-- RxJS: Use async pipe, avoid manual subscriptions
-- State: Signals or NgRx for complex state""",
-        "deps": "npm install @ngrx/store @ngrx/effects tailwindcss",
+- Change Detection: OnPush by default, signals auto-update
+- RxJS: Use async pipe or toSignal() for observables
+- Lazy Loading: loadComponent() for routes""",
+        "deps": "npm install @angular/cdk tailwindcss",
     },
     
-    # Svelte / SvelteKit
+    # Svelte 5 / SvelteKit 2 (Runes)
     "svelte": {
-        "stack": "SvelteKit + TypeScript + TailwindCSS",
-        "alt_stacks": ["Vite + Svelte", "Astro"],
-        "scaffold_cmd": "npx -y create-svelte@latest . && npm install",
+        "stack": "SvelteKit 2 + Svelte 5 + TypeScript 5.x + TailwindCSS 4",
+        "alt_stacks": ["Astro", "Vite + Svelte"],
+        "scaffold_cmd": "npx -y sv create . && npm install",
         "structure": """src/
 ├── lib/
 │   ├── components/      # Reusable components
-│   ├── stores/          # Svelte stores
-│   └── utils/           # Utilities
+│   ├── stores/          # Shared state (using runes)
+│   └── utils/           # Utilities ($lib alias)
 ├── routes/              # File-based routing
 │   ├── +page.svelte     # Page component
-│   ├── +page.ts         # Load function
+│   ├── +page.ts         # Universal load function
+│   ├── +page.server.ts  # Server-only load
 │   ├── +layout.svelte   # Layout
 │   └── api/             # API endpoints (+server.ts)
 ├── params/              # Param matchers
 └── app.d.ts             # Type declarations
 static/                  # Static assets""",
         "conventions": """- Files: kebab-case (+page.svelte, user-profile.svelte)
-- Components: PascalCase import, PascalCase usage
-- Routes: +page.svelte, +layout.svelte, +server.ts
-- Stores: writable, readable, derived
-- Reactivity: $: for reactive statements
-- Props: export let propName
-- Load Functions: +page.ts, +page.server.ts
-- API Routes: +server.ts with GET/POST exports""",
+- Components: PascalCase import and usage
+- Svelte 5 Runes: $state for reactive state, $derived for computed
+- Side Effects: $effect() for reactions to state changes
+- Props: let { value } = $props() (new syntax)
+- Two-way Binding: $bindable() for bindable props
+- Load Functions: +page.ts (universal), +page.server.ts (server-only)
+- API Routes: +server.ts with GET/POST/PUT/DELETE exports
+- TypeScript: Native support, no preprocessor needed""",
         "deps": "npm install @sveltejs/adapter-auto tailwindcss",
     },
     
-    # Astro
+    # Astro 5 (Content Layer API)
     "astro": {
-        "stack": "Astro + TypeScript + TailwindCSS + React/Vue/Svelte islands",
+        "stack": "Astro 5 + TypeScript + TailwindCSS 4 + React/Vue/Svelte islands",
         "alt_stacks": ["Next.js", "Nuxt", "SvelteKit"],
         "scaffold_cmd": "npx -y create-astro@latest . --template minimal --typescript strict",
         "structure": """src/
-├── components/          # .astro and framework components
-├── content/             # Content collections (MDX, Markdown)
+├── components/          # .astro and framework components (islands)
+├── content/             # Content collections (MDX, Markdown, JSON)
+├── content.config.ts    # Content Layer config with Zod schemas
 ├── layouts/             # Layout components
 ├── pages/               # File-based routing (.astro, .md)
 ├── styles/              # Global styles
 └── utils/               # Utilities
 public/                  # Static assets""",
         "conventions": """- Files: kebab-case for pages, PascalCase for components
-- Components: .astro (static), .tsx/.vue (islands)
-- Hydration: client:load, client:idle, client:visible
-- Content: Content Collections for typed Markdown/MDX
-- Routing: src/pages/ file-based
-- Zero JS: Default, add islands for interactivity""",
-        "deps": "npm install @astrojs/tailwind @astrojs/react",
+- Components: .astro (static), .tsx/.vue/.svelte (islands)
+- Hydration: client:load, client:idle, client:visible directives
+- Content Layer: Use glob/file loaders, Zod schemas for validation
+- Collections: Define in src/content.config.ts, query with getCollection()
+- Routing: src/pages/ file-based, dynamic routes with [param].astro
+- Zero JS: Ship zero JS by default, add islands only for interactivity
+- SEO: Use <svelte:head> or Astro.props for meta tags""",
+        "deps": "npm install @astrojs/tailwind @astrojs/react astro-seo",
     },
     
     # Solid.js
@@ -244,37 +249,38 @@ public/                  # Static assets""",
 # =============================================================================
 
 BACKEND_TEMPLATES = {
-    # FastAPI (Python)
+    # FastAPI (Python 2025)
     "fastapi": {
-        "stack": "Python FastAPI + Pydantic + SQLAlchemy + Alembic",
-        "alt_stacks": ["Django", "Flask", "Litestar"],
-        "scaffold_cmd": "pip install fastapi uvicorn sqlalchemy pydantic alembic python-dotenv",
+        "stack": "Python 3.12+ + FastAPI + Pydantic v2 + SQLAlchemy 2.x + Alembic",
+        "alt_stacks": ["Django", "Litestar", "Flask"],
+        "scaffold_cmd": "pip install fastapi uvicorn sqlalchemy pydantic pydantic-settings alembic python-dotenv",
         "structure": """app/
 ├── api/
 │   ├── v1/              # API version
-│   │   ├── routes/      # Route handlers
-│   │   └── deps.py      # Dependencies
+│   │   ├── routes/      # Route handlers (user.py, auth.py)
+│   │   └── deps.py      # Shared dependencies
 ├── core/
-│   ├── config.py        # Settings (pydantic BaseSettings)
-│   ├── security.py      # Auth, JWT
-│   └── database.py      # DB session
-├── models/              # SQLAlchemy models
-├── schemas/             # Pydantic schemas (DTOs)
-├── services/            # Business logic
-├── crud/                # CRUD operations
+│   ├── config.py        # Settings (pydantic-settings BaseSettings)
+│   ├── security.py      # Auth, JWT, password hashing
+│   └── database.py      # Async DB session, engine
+├── models/              # SQLAlchemy 2.x models (Mapped, mapped_column)
+├── schemas/             # Pydantic v2 schemas (model_validator, field_validator)
+├── services/            # Business logic layer (keep routes thin)
+├── repositories/        # Data access layer (optional, for complex queries)
 └── utils/               # Helpers
 alembic/                 # Migrations
+pyproject.toml           # Modern dependency management
 main.py                  # FastAPI app entry""",
         "conventions": """- Files: snake_case (user_service.py)
 - Classes: PascalCase (UserService, UserCreate)
-- Functions: snake_case (get_user_by_id)
-- Variables: snake_case
-- Constants: SCREAMING_SNAKE_CASE
-- Async: async def for all endpoints
+- Functions: snake_case, async def for all endpoints
+- Pydantic v2: Use model_validator, field_validator, ConfigDict
 - Schemas: Create/Update/Response suffixes (UserCreate, UserResponse)
-- Dependencies: Depends() for injection
-- Validation: Pydantic for all I/O""",
-        "deps": "pip install fastapi[all] sqlalchemy alembic pydantic-settings python-jose passlib bcrypt",
+- Dependencies: Annotated[T, Depends()] for type-safe injection
+- Services: Keep routes thin, business logic in services/
+- Async: Use async/await consistently, avoid blocking I/O
+- Validation: Pydantic for all I/O, never trust raw input""",
+        "deps": "pip install fastapi uvicorn[standard] sqlalchemy[asyncio] alembic pydantic-settings python-jose[cryptography] passlib[bcrypt]",
     },
     
     # Django + DRF
