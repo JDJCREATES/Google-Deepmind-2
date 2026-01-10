@@ -12,38 +12,24 @@ from datetime import datetime
 
 def format_implementation_plan(artifacts: Dict[str, Any], project_name: str = "Project") -> str:
     """
-    Format complete implementation plan using ShipS* 19-section template.
+    Format implementation plan as a LEAN DESIGN DOCUMENT.
     
-    Sections:
-    1. Summary
-    2. Assumptions & Defaults
-    3. Success Criteria
-    4. Minimal Vertical Slice (MVS)
-    5. Tech Stack
-    6. Project Structure (Folder Map)
-    7. Conventions & Style
-    8. Shared Types
-    9. Tasks
-    10. API Contracts
-    11. Dependencies
-    12. Validation Checklist
-    13. Risk Log
-    14. Change Management
-    15. CI / Preflight Hooks
-    16. Rollback Strategy
-    17. Rollout & Demo
-    18. Audit & Trace
-    19. Post-implementation Notes
+    This should NOT duplicate content from JSON artifacts:
+    - task_list.json → Tasks
+    - folder_map.json → File structure
+    - dependency_plan.json → Dependencies
+    - api_contracts.json → API endpoints
+    
+    Instead, it provides:
+    - High-level summary and design decisions
+    - Architecture overview
+    - References to detailed JSON artifacts
     """
     try:
-        # Extract sub-models (handle both dict and Pydantic objects)
         manifest = _to_dict(artifacts.get("plan_manifest", {}))
         task_list = _to_dict(artifacts.get("task_list", {}))
         folder_map = _to_dict(artifacts.get("folder_map", {}))
-        api_data = _to_dict(artifacts.get("api_contracts", {}))
         dep_data = _to_dict(artifacts.get("dependency_plan", {}))
-        validation = _to_dict(artifacts.get("validation_checklist", {}))
-        risk_data = _to_dict(artifacts.get("risk_report", {}))
         assumptions = _to_dict(manifest.get("assumptions", {}))
         
         md = []
@@ -51,249 +37,102 @@ def format_implementation_plan(artifacts: Dict[str, Any], project_name: str = "P
         # === Header ===
         summary = manifest.get("summary", project_name)
         version = manifest.get("version", "1.0.0")
-        intent_id = manifest.get("intent_spec_id", "N/A")
         timestamp = datetime.utcnow().isoformat() + "Z"
         
-        md.append(f"# Implementation Plan — {summary}")
-        md.append(f"**PLAN VERSION**: {version}")
-        md.append(f"**ORIGIN INTENT_SPEC**: `{intent_id}`")
-        md.append(f"**LAST EDITED**: {timestamp}")
-        md.append(f"**PLANNER_VERSION**: 1.0.0")
+        md.append(f"# {summary}")
+        md.append(f"**Version**: {version} | **Updated**: {timestamp}")
         md.append("")
         
-        # === Section 1: Summary ===
-        md.append("## 1 — Summary")
-        md.append(manifest.get("detailed_description", summary))
+        # === Summary ===
+        description = manifest.get("detailed_description", "")
+        if description:
+            md.append(description)
+            md.append("")
+        
+        # === Tech Stack (concise) ===
+        md.append("## Tech Stack")
+        stack_items = []
+        if assumptions.get("framework"):
+            stack_items.append(f"**Framework**: {assumptions['framework']}")
+        if assumptions.get("styling"):
+            stack_items.append(f"**Styling**: {assumptions['styling']}")
+        if assumptions.get("state_management"):
+            stack_items.append(f"**State**: {assumptions['state_management']}")
+        
+        # Also check runtime deps for key libraries
+        runtime_deps = dep_data.get("runtime_dependencies", [])
+        key_libs = [d.get("name") for d in runtime_deps if d.get("name") in 
+                   ["framer-motion", "zustand", "react-query", "axios", "lucide-react"]]
+        if key_libs:
+            stack_items.append(f"**Key Libraries**: {', '.join(key_libs)}")
+        
+        if stack_items:
+            md.append(" | ".join(stack_items))
+        else:
+            md.append("React + TypeScript + TailwindCSS")
         md.append("")
         
-        # === Section 2: Assumptions & Defaults ===
-        md.append("## 2 — Assumptions & Defaults")
-        md.append(f"- **Framework**: {assumptions.get('framework', 'Vite + React + TypeScript')}")
-        md.append(f"- **Language**: {assumptions.get('language', 'TypeScript')}")
-        md.append(f"- **Node Version**: {assumptions.get('node_version', '18.x')}")
-        md.append(f"- **Package Manager**: {assumptions.get('package_manager', 'npm')}")
-        md.append(f"- **Styling**: {assumptions.get('styling', 'TailwindCSS')}")
-        md.append(f"- **State Management**: {assumptions.get('state_management', 'Zustand')}")
-        md.append(f"- **Default Auth**: {assumptions.get('default_auth', 'none')}")
-        md.append(f"- **Auto-Apply Threshold**: {assumptions.get('auto_apply_threshold', 0.85)}")
-        md.append("")
+        # === Architecture (only if there are interesting decisions) ===
+        decision_notes = manifest.get("decision_notes", [])
+        if decision_notes:
+            md.append("## Architecture Decisions")
+            for note in decision_notes[:5]:  # Max 5 decisions
+                md.append(f"- {note}")
+            md.append("")
         
-        # === Section 3: Success Criteria ===
-        md.append("## 3 — Success Criteria")
-        tasks = task_list.get("tasks", [])
-        criteria_count = 0
-        for task in tasks[:5]:  # Top 5 tasks' criteria
-            for criterion in task.get("acceptance_criteria", []):
-                criteria_count += 1
-                # Format as Gherkin if available
-                given = criterion.get("given")
-                when = criterion.get("when")
-                then = criterion.get("then")
-                if given and when and then:
-                    md.append(f"- **Criterion {criteria_count}**: Given {given}, When {when}, Then {then}")
-                else:
-                    md.append(f"- **Criterion {criteria_count}**: {criterion.get('description', '')}")
-        if criteria_count == 0:
-            md.append("- Criterion 1: Given the app loads, When I open '/', Then no errors occur")
-        md.append("")
-        
-        # === Section 4: Minimal Vertical Slice (MVS) ===
-        md.append("## 4 — Minimal Vertical Slice (MVS)")
-        mvs_steps = manifest.get("mvs_steps", ["npm install", "npm run dev"])
-        md.append("**Path to run:**")
-        for i, step in enumerate(mvs_steps, 1):
-            md.append(f"{i}. `{step}`")
-        md.append("")
-        mvs_files = manifest.get("mvs_expected_files", [])
-        if mvs_files:
-            md.append("**Files expected:**")
-            for f in mvs_files:
-                md.append(f"- `{f}`")
-        mvs_verify = manifest.get("mvs_verification")
-        if mvs_verify:
-            md.append(f"\n**Verification:** {mvs_verify}")
-        md.append("")
-        
-        # === Section 5: Tech Stack ===
-        md.append("## 5 — Tech Stack")
-        md.append(f"- **Framework**: {assumptions.get('framework', 'Vite + React + TypeScript')}")
-        md.append(f"- **Styling**: {assumptions.get('styling', 'TailwindCSS')}")
-        md.append(f"- **State**: {assumptions.get('state_management', 'Zustand')}")
-        md.append(f"- **Test Runner**: {assumptions.get('test_runner', 'vitest')}")
-        md.append(f"- **E2E**: {assumptions.get('e2e_runner', 'playwright')}")
-        md.append(f"- **Linting**: ESLint + Prettier")
-        md.append("")
-        
-        # === Section 6: Project Structure (Folder Map) ===
-        md.append("## 6 — Project Structure")
+        # === Project Structure Summary (reference to folder_map.json) ===
         entries = folder_map.get("entries", [])
         if entries:
-            md.append("```")
-            # Group by directory
-            sorted_entries = sorted(entries, key=lambda x: x.get("path", ""))
-            for entry in sorted_entries:
-                path = entry.get("path", "")
-                desc = entry.get("description", "")
-                is_dir = entry.get("is_directory", False)
-                is_immutable = entry.get("is_immutable", False)
-                icon = "📁" if is_dir else "📄"
-                immutable_flag = " [IMMUTABLE]" if is_immutable else ""
-                owner = entry.get("owner_task_id", "")
-                owner_str = f" (owner: {owner})" if owner else ""
-                md.append(f"{path}{immutable_flag}{owner_str}")
-            md.append("```")
+            md.append("## Project Structure")
+            # Show top-level directories only
+            dirs = sorted(set(
+                e.get("path", "").split("/")[0] 
+                for e in entries 
+                if "/" in e.get("path", "") and not e.get("path", "").startswith(".")
+            ))
+            if dirs:
+                md.append("```")
+                for d in dirs[:8]:  # Max 8 top-level dirs
+                    md.append(f"├── {d}/")
+                md.append("```")
+            md.append(f"*Full structure: See `folder_map.json` ({len(entries)} files)*")
             md.append("")
-            md.append("> Each entry includes: path, description, owner_task, immutable_flag")
-        else:
-            md.append("*Folder structure to be defined*")
-        md.append("")
         
-        # === Section 7: Conventions & Style ===
-        md.append("## 7 — Conventions & Style")
-        md.append("- **Naming**: camelCase vars, PascalCase components, kebab-case files")
-        md.append("- **Exports**: Prefer named exports")
-        md.append("- **Async**: async/await, try/catch at service boundaries")
-        md.append("- **Type Policy**: strict(true) — avoid `any`; explain exceptions")
-        md.append("")
-        
-        # === Section 8: Shared Types ===
-        md.append("## 8 — Shared Types")
-        md.append("```typescript")
-        md.append("// Define shared interfaces here")
-        md.append("interface IAppConfig {")
-        md.append("  // App configuration")
-        md.append("}")
-        md.append("```")
-        md.append("")
-        
-        # === Section 9: Tasks ===
-        md.append("## 9 — Tasks (Ordered by Priority)")
+        # === Tasks Summary (reference to task_list.json) ===
+        tasks = task_list.get("tasks", [])
         if tasks:
-            for i, task in enumerate(tasks, 1):
-                task_id = task.get("id", f"TASK-{i:03d}")
-                title = task.get("title", "Untitled")
-                status = task.get("status", "pending")
-                complexity = task.get("complexity", "small")
-                
-                # Checkbox based on status
-                checkbox = "[ ]"
-                if status == "completed": checkbox = "[x]"
-                elif status == "in_progress": checkbox = "[/]"
-                elif status == "blocked": checkbox = "[-]"
-                
-                md.append(f"- {checkbox} **{task_id}**: {title}")
-                md.append(f"  - Estimated: {complexity}")
-                
-                # Acceptance criteria
-                for criterion in task.get("acceptance_criteria", []):
-                    given = criterion.get("given")
-                    when = criterion.get("when")
-                    then = criterion.get("then")
-                    if given and when and then:
-                        md.append(f"  - AC: Given {given}, When {when}, Then {then}")
-                    elif criterion.get("description"):
-                        md.append(f"  - AC: {criterion.get('description')}")
-        else:
-            md.append("*Tasks to be defined*")
-        md.append("")
+            md.append("## Implementation Tasks")
+            completed = sum(1 for t in tasks if t.get("status") == "completed")
+            in_progress = sum(1 for t in tasks if t.get("status") == "in_progress")
+            pending = sum(1 for t in tasks if t.get("status") == "pending")
+            
+            md.append(f"**Progress**: {completed}/{len(tasks)} complete")
+            if in_progress > 0:
+                md.append(f" | {in_progress} in progress")
+            md.append("")
+            
+            # Show first 3 tasks as preview
+            for task in tasks[:3]:
+                status_icon = {"completed": "✅", "in_progress": "🔄", "pending": "⬜"}.get(
+                    task.get("status", "pending"), "⬜"
+                )
+                md.append(f"- {status_icon} {task.get('title', 'Untitled')}")
+            
+            if len(tasks) > 3:
+                md.append(f"- ... and {len(tasks) - 3} more tasks")
+            md.append("")
+            md.append("*Full task list: See `task_list.json`*")
+            md.append("")
         
-        # === Section 10: API Contracts ===
-        md.append("## 10 — API Contracts")
-        endpoints = api_data.get("endpoints", [])
-        if endpoints:
-            for ep in endpoints:
-                method = ep.get("method", "GET")
-                path = ep.get("path", "/")
-                desc = ep.get("description", "")
-                md.append(f"- **{method}** `{path}` → {desc}")
-        else:
-            md.append("*No API endpoints defined*")
-        md.append("")
-        
-        # === Section 11: Dependencies ===
-        md.append("## 11 — Dependencies")
+        # === Dependencies Summary ===
         runtime = dep_data.get("runtime_dependencies", [])
         dev = dep_data.get("dev_dependencies", [])
-        if runtime:
-            md.append("**Runtime:**")
-            for dep in runtime:
-                name = dep.get("name", "")
-                ver = dep.get("version", "latest")
-                md.append(f"- `{name}@{ver}`")
-        if dev:
-            md.append("\n**Dev:**")
-            for dep in dev:
-                name = dep.get("name", "")
-                ver = dep.get("version", "latest")
-                md.append(f"- `{name}@{ver}`")
-        if not runtime and not dev:
-            md.append("*Dependencies to be defined*")
-        md.append("")
-        
-        # === Section 12: Validation Checklist ===
-        md.append("## 12 — Validation Checklist")
-        md.append("- [ ] **Structural**: No files outside Folder Map")
-        md.append("- [ ] **Completeness**: No TODO placeholders")
-        md.append("- [ ] **Dependency**: All imports resolvable")
-        md.append("- [ ] **Contract**: API endpoints match contract")
-        md.append("- [ ] **Runtime**: App boots without errors")
-        md.append("")
-        
-        # === Section 13: Risk Log ===
-        md.append("## 13 — Risk Log")
-        risks = risk_data.get("risks", [])
-        if risks:
-            for i, risk in enumerate(risks, 1):
-                title = risk.get("title", "Untitled risk")
-                level = risk.get("risk_level", "low")
-                mitigation = risk.get("mitigation", "TBD")
-                md.append(f"- **R{i}**: {title} — {level} risk — mitigation: {mitigation}")
-        else:
-            md.append("*No risks identified*")
-        md.append("")
-        
-        # === Section 14: Change Management ===
-        md.append("## 14 — Change Management")
-        md.append("- Plan edits must increment `PLAN VERSION`")
-        md.append("- To change the plan:")
-        md.append("  1. Create a `replan_request` artifact (reason + diff)")
-        md.append("  2. Planner runs, produces new Plan Version")
-        md.append("  3. Orchestrator requires Validator to re-run")
-        md.append("- Small UX changes allowed at Coder level if they don't violate Folder Map")
-        md.append("")
-        
-        # === Section 15: CI / Preflight Hooks ===
-        md.append("## 15 — CI / Preflight Hooks")
-        md.append("- **On PR**: Run linter, unit tests, build step")
-        md.append(f"- **Coverage Gate**: ≥ {int(assumptions.get('coverage_threshold', 0.5) * 100)}% for critical modules")
-        md.append("- **Flaky Test Handling**: Tag flaky tests; do not block")
-        md.append("")
-        
-        # === Section 16: Rollback Strategy ===
-        md.append("## 16 — Rollback Strategy")
-        md.append("- Every FileChangeSet maps to TASK-ID")
-        md.append("- To revert: `git revert <commit>` or use Fixer")
-        md.append("- Hotfix: Create emergency TASK with high priority")
-        md.append("")
-        
-        # === Section 17: Rollout & Demo ===
-        md.append("## 17 — Rollout & Demo")
-        md.append("- Demo script: Sequence of tasks to show vertical slice")
-        md.append("- Live preview available at dev server URL")
-        md.append("")
-        
-        # === Section 18: Audit & Trace ===
-        md.append("## 18 — Audit & Trace")
-        md.append(f"- **Intent Spec ID**: `{intent_id}`")
-        md.append(f"- **Plan ID**: `{manifest.get('id', 'N/A')}`")
-        md.append("- All artifacts carry traceability metadata")
-        md.append("")
-        
-        # === Section 19: Post-implementation Notes ===
-        md.append("## 19 — Post-implementation Notes")
-        md.append("- **Request replan**: Use Orchestrator with `replan` flag")
-        md.append("- **Known issues**: *None*")
-        md.append("")
+        if runtime or dev:
+            md.append("## Dependencies")
+            md.append(f"**Runtime**: {len(runtime)} packages | **Dev**: {len(dev)} packages")
+            md.append("")
+            md.append("*Full list: See `dependency_plan.json`*")
+            md.append("")
         
         return "\n".join(md)
         

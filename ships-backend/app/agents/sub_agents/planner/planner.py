@@ -725,71 +725,16 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
                     logger.warning(f"[PLANNER] Failed to write {artifact_name}: {write_err}")
             
             # ================================================================
-            # CRITICAL: Write implementation_plan.md BEFORE scaffolding
-            # Uses LLM-generated plan data directly, NOT a rigid formatter
+            # Write implementation_plan.md using lean formatter
+            # References JSON artifacts instead of duplicating content
             # ================================================================
             try:
-                user_request_summary = intent.get("description", "Project")
+                from app.agents.sub_agents.planner.formatter import format_implementation_plan
                 
-                # Build dynamic markdown from LLM plan output
-                plan_lines = []
-                plan_lines.append(f"# Implementation Plan")
-                plan_lines.append(f"")
-                plan_lines.append(f"## Summary")
-                plan_lines.append(f"{plan_result.get('plan_manifest', {}).get('summary', user_request_summary) if hasattr(plan_result.get('plan_manifest', {}), 'get') else getattr(plan_result.get('plan_manifest', {}), 'summary', user_request_summary)}")
-                plan_lines.append(f"")
-                
-                # Files section from folder_map
-                folder_map = plan_result.get("folder_map")
-                if folder_map:
-                    entries = folder_map.entries if hasattr(folder_map, 'entries') else folder_map.get('entries', [])
-                    if entries:
-                        plan_lines.append("## Files")
-                        for entry in entries:
-                            path = entry.path if hasattr(entry, 'path') else entry.get('path', '')
-                            desc = entry.description if hasattr(entry, 'description') else entry.get('description', '')
-                            plan_lines.append(f"- `{path}`: {desc}")
-                        plan_lines.append("")
-                
-                # Tasks section
-                task_list = plan_result.get("task_list")
-                if task_list:
-                    tasks = task_list.tasks if hasattr(task_list, 'tasks') else task_list.get('tasks', [])
-                    if tasks:
-                        plan_lines.append("## Tasks")
-                        for i, task in enumerate(tasks, 1):
-                            title = task.title if hasattr(task, 'title') else task.get('title', f'Task {i}')
-                            desc = task.description if hasattr(task, 'description') else task.get('description', '')
-                            plan_lines.append(f"### {i}. {title}")
-                            plan_lines.append(f"{desc}")
-                            plan_lines.append("")
-                
-                # Dependencies section
-                dep_plan = plan_result.get("dependency_plan")
-                if dep_plan:
-                    # Handle both Pydantic objects and dicts
-                    if hasattr(dep_plan, 'packages'):
-                        packages = dep_plan.packages
-                    elif isinstance(dep_plan, dict):
-                        packages = dep_plan.get('packages', [])
-                    else:
-                        packages = []
-                    
-                    if packages:
-                        plan_lines.append("## Dependencies")
-                        for pkg in packages:
-                            if hasattr(pkg, 'name'):
-                                name = pkg.name
-                                version = getattr(pkg, 'version', '')
-                            elif isinstance(pkg, dict):
-                                name = pkg.get('name', '')
-                                version = pkg.get('version', '')
-                            else:
-                                continue
-                            plan_lines.append(f"- {name}: {version}")
-                        plan_lines.append("")
-                
-                plan_md_content = "\n".join(plan_lines)
+                plan_md_content = format_implementation_plan(
+                    artifacts=plan_artifacts,
+                    project_name=intent.get("description", "Project")[:50]
+                )
                 
                 plan_md_path = dot_ships / "implementation_plan.md"
                 with open(plan_md_path, "w", encoding="utf-8") as f:

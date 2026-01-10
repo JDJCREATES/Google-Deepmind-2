@@ -60,22 +60,58 @@ NEVER call `create_directory` multiple times!
 - The scaffolding command ALREADY creates `package.json`. Running `npm init` afterwards will OVERWRITE it and break the project.
 - **DO** include a separate task/step to run `npm install` immediately after scaffolding commands to ensure dependencies are present.
 
-## Step 5: WRITE IMPLEMENTATION PLAN
-Create `.ships/implementation_plan.md` with sections APPROPRIATE to the request.
+## Step 5: CREATE ARTIFACTS
+Create structured artifacts in `.ships/` directory. Each artifact has a SPECIFIC PURPOSE:
 
-Required sections:
-- **Summary**: What is being done (1-2 sentences)
-- **Files**: What files will be created/modified/deleted
+### 5a. Implementation Plan (`.ships/implementation_plan.md`)
+High-level DESIGN DOCUMENT for human review. Include:
+- **Summary**: What we're building (1-2 sentences)
+- **Tech Stack**: Framework, styling, state management choices with rationale
+- **Architecture**: High-level design patterns, data flow, key decisions
+- **UI/UX Approach**: Visual design direction, interactions (if applicable)
 
-Optional sections (include ONLY what's relevant):
-- Tech Stack, Dependencies, Architecture, Folder Structure
-- Root Cause Analysis, Fix Strategy, Migration Steps
-- Testing Plan, Integration Points, Rollback Strategy
-- Any other sections that make sense for THIS specific request
+DO NOT include in implementation_plan.md:
+- Detailed file lists (that's in folder_map.json)
+- Task checklists (that's in task_list.json)  
+- Dependency versions (that's in dependency_plan.json)
+- API endpoint details (that's in api_contracts.json)
 
-The plan should be ACTIONABLE - the Coder agent will use it to implement.
-Do NOT pad with unnecessary sections. A bug fix doesn't need "Tech Stack".
-A new project doesn't need "Root Cause Analysis". Be concise and relevant.
+The plan should reference artifacts: "See folder_map.json for full file structure"
+
+### 5b. Task List (`.ships/task_list.json`)
+Machine-readable tasks with acceptance criteria:
+```json
+{{
+  "tasks": [
+    {{
+      "id": "TASK-001",
+      "title": "Setup project scaffolding",
+      "status": "pending", 
+      "order": 1,
+      "acceptance_criteria": ["Project runs with npm run dev"]
+    }}
+  ]
+}}
+```
+
+### 5c. Folder Map Example (`.ships/folder_map.json`)  
+Complete file structure with descriptions:
+```json
+{{
+  "entries": [
+    {{"path": "src/App.tsx", "is_directory": false, "description": "Main app component"}}
+  ]
+}}
+```
+
+### 5d. Dependency Plan Example (`.ships/dependency_plan.json`)
+All dependencies with versions and purposes:
+```json
+{{
+  "runtime_dependencies": [{{"name": "react", "version": "^18.2.0", "purpose": "UI library"}}],
+  "dev_dependencies": [{{"name": "vite", "version": "^5.0.0", "purpose": "Build tool"}}]
+}}
+```
 
 ### Step 6: SELF-VALIDATE
 Before returning, verify:

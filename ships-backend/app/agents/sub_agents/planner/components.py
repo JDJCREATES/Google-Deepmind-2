@@ -197,7 +197,8 @@ class FolderArchitect:
     """
     Project structure component.
     
-    Produces a FolderMap based on framework and scope.
+    Uses file_tree (tree-sitter scanned) as GROUND TRUTH for existing files,
+    then adds only NEW planned files from LLM suggestions.
     """
     
     def __init__(self, config: Optional[PlannerComponentConfig] = None):
@@ -207,9 +208,15 @@ class FolderArchitect:
         """
         Process context and produce FolderMap.
         
+        1. Read existing files from file_tree (ground truth)
+        2. Add only NEW files from LLM plan (planned but not yet created)
+        
         Returns:
             Dict with 'folder_map' key containing FolderMap
         """
+        import logging
+        logger = logging.getLogger("ships.planner")
+        
         intent = context.get("intent", {})
         llm_plan = context.get("llm_plan", {})
         
@@ -221,16 +228,39 @@ class FolderArchitect:
         )
         
         entries = []
-        
-        # 1. Use LLM suggested folders
-        llm_folders = llm_plan.get("folders", [])
         existing_paths = set()
         
-        # Populate existing paths from file tree to prevent duplicates
+        # =====================================================================
+        # STEP 1: Populate from file_tree (GROUND TRUTH from tree-sitter)
+        # =====================================================================
         file_tree = context.get("file_tree", {})
         if file_tree.get("success"):
             for entry in file_tree.get("entries", []):
-                existing_paths.add(entry["path"])
+                path = entry.get("path", "")
+                existing_paths.add(path)
+                
+                # Determine role from path
+                role = FileRole.SOURCE
+                if "component" in path.lower(): role = FileRole.COMPONENT
+                elif "hook" in path.lower(): role = FileRole.UTILITY
+                elif "test" in path.lower() or ".spec." in path or ".test." in path: role = FileRole.TEST
+                elif "type" in path.lower(): role = FileRole.TYPE_DEF
+                
+                entries.append(FolderEntry(
+                    path=path,
+                    is_directory=entry.get("is_directory", False),
+                    description=f"Existing: {', '.join(entry.get('definitions', [])[:3])}" if entry.get("definitions") else "Existing file",
+                    role=role,
+                    is_immutable=False  # Existing files can be modified
+                ))
+            
+            logger.info(f"[FOLDER_ARCHITECT] 📂 Loaded {len(entries)} existing files from file_tree")
+        
+        # =====================================================================
+        # STEP 2: Add only NEW files from LLM plan (planned but not yet created)
+        # =====================================================================
+        llm_folders = llm_plan.get("folders", [])
+        new_count = 0
         
         for f_data in llm_folders:
             # Handle Pydantic objects or non-dicts defensively
@@ -249,19 +279,17 @@ class FolderArchitect:
                 entries.append(FolderEntry(
                     path=path,
                     is_directory=f_data.get("is_directory", True),
-                    description=f_data.get("description", ""),
-                    role=role
+                    description=f_data.get("description", "Planned by LLM"),
+                    role=role,
+                    is_immutable=False
                 ))
                 existing_paths.add(path)
+                new_count += 1
         
-        # NO FALLBACKS during testing - log warning so we can diagnose LLM output
-        if not entries:
-            import logging
-            logger = logging.getLogger("ships.planner")
-            logger.warning(
-                f"[FOLDER_ARCHITECT] ⚠️ LLM returned no folders! "
-                f"llm_folders was: {llm_folders}"
-            )
+        if new_count > 0:
+            logger.info(f"[FOLDER_ARCHITECT] ➕ Added {new_count} new planned files from LLM")
+        elif not llm_folders:
+            logger.warning("[FOLDER_ARCHITECT] ⚠️ LLM returned no folder suggestions")
         
         folder_map.entries = entries
         return {"folder_map": folder_map}
@@ -317,7 +345,8 @@ class DependencyPlanner:
     """
     Dependency planning component.
     
-    Produces DependencyPlan with required packages.
+    READS actual dependencies from package.json/requirements.txt first (ground truth),
+    then merges LLM-suggested packages for new dependencies.
     """
     
     def __init__(self, config: Optional[PlannerComponentConfig] = None):
@@ -327,12 +356,20 @@ class DependencyPlanner:
         """
         Process context and produce DependencyPlan.
         
+        1. Read actual dependencies from package.json (ground truth)
+        2. Merge LLM-suggested NEW dependencies
+        3. Never duplicate existing packages
+        
         Returns:
             Dict with 'dependency_plan' key containing DependencyPlan
         """
+        import logging
+        logger = logging.getLogger("ships.planner")
+        
         framework = context.get("framework", "react")
         intent = context.get("intent", {})
         llm_plan = context.get("llm_plan", {})
+        project_path = context.get("environment", {}).get("project_path", "")
         
         dependency_plan = DependencyPlan(
             metadata=ArtifactMetadata(
@@ -341,24 +378,66 @@ class DependencyPlanner:
             package_manager="npm"
         )
         
-        # 1. Start with framework defaults
-        if framework in ["react", "vite"]:
+        # =====================================================================
+        # STEP 1: Read ACTUAL dependencies from project (GROUND TRUTH)
+        # =====================================================================
+        existing_runtime = set()
+        existing_dev = set()
+        
+        if project_path:
+            from app.agents.tools.common.package_reader import read_project_dependencies
+            actual_deps = read_project_dependencies(project_path)
+            
+            if actual_deps.get("success"):
+                logger.info(f"[DEPENDENCY_PLANNER] 📦 Read actual deps: "
+                           f"{len(actual_deps.get('runtime_dependencies', []))} runtime, "
+                           f"{len(actual_deps.get('dev_dependencies', []))} dev")
+                
+                dependency_plan.package_manager = actual_deps.get("package_manager", "npm")
+                
+                # Store actual deps
+                for dep in actual_deps.get("runtime_dependencies", []):
+                    dependency_plan.runtime_dependencies.append(PackageDependency(
+                        name=dep["name"],
+                        version=dep.get("version", "latest"),
+                        purpose="Existing dependency"
+                    ))
+                    existing_runtime.add(dep["name"])
+                
+                for dep in actual_deps.get("dev_dependencies", []):
+                    dependency_plan.dev_dependencies.append(PackageDependency(
+                        name=dep["name"],
+                        version=dep.get("version", "latest"),
+                        purpose="Existing dev dependency"
+                    ))
+                    existing_dev.add(dep["name"])
+        
+        # =====================================================================
+        # STEP 2: Add framework defaults ONLY if no existing deps (new project)
+        # =====================================================================
+        if not existing_runtime and framework in ["react", "vite"]:
+            logger.info("[DEPENDENCY_PLANNER] New project - adding framework defaults")
             dependency_plan.runtime_dependencies = [
                 PackageDependency(name="react", version="^18.2.0", purpose="UI library"),
                 PackageDependency(name="react-dom", version="^18.2.0", purpose="React DOM renderer"),
             ]
+            existing_runtime = {"react", "react-dom"}
+            
             dependency_plan.dev_dependencies = [
                 PackageDependency(name="typescript", version="^5.0.0", purpose="Type checking"),
                 PackageDependency(name="@types/react", version="^18.2.0", purpose="React types"),
                 PackageDependency(name="vite", version="^5.0.0", purpose="Build tool"),
             ]
-            
+            existing_dev = {"typescript", "@types/react", "vite"}
+        
         dependency_plan.commands = [
             RunCommand(name="dev", command="npm run dev", description="Start dev server"),
             RunCommand(name="build", command="npm run build", description="Build for production"),
         ]
         
-        # 2. Add LLM suggested dependencies
+        # =====================================================================
+        # STEP 3: Merge LLM-suggested NEW dependencies (no duplicates)
+        # =====================================================================
         llm_deps = llm_plan.get("dependencies", {})
         
         # Handle list structure (legacy/bad LLM output)
@@ -368,10 +447,8 @@ class DependencyPlanner:
         elif hasattr(llm_deps, 'model_dump'):
             llm_deps = llm_deps.model_dump()
         
-        # Runtime
-        existing_runtime = {d.name for d in dependency_plan.runtime_dependencies}
+        # Runtime - only add if NOT already present
         for dep in llm_deps.get("runtime", []) or []:
-            # Handle Pydantic objects or non-dicts defensively
             if hasattr(dep, 'model_dump'):
                 dep = dep.model_dump()
             elif not isinstance(dep, dict):
@@ -379,16 +456,16 @@ class DependencyPlanner:
 
             name = dep.get("name", "")
             if name and name not in existing_runtime:
+                logger.info(f"[DEPENDENCY_PLANNER] ➕ Adding new dep from LLM: {name}")
                 dependency_plan.runtime_dependencies.append(PackageDependency(
                     name=name,
                     version=dep.get("version", "latest"),
                     purpose="Added by planner"
                 ))
+                existing_runtime.add(name)
         
-        # Dev
-        existing_dev = {d.name for d in dependency_plan.dev_dependencies}
+        # Dev - only add if NOT already present
         for dep in llm_deps.get("dev", []) or []:
-            # Handle Pydantic objects or non-dicts defensively
             if hasattr(dep, 'model_dump'):
                 dep = dep.model_dump()
             elif not isinstance(dep, dict):
@@ -396,11 +473,13 @@ class DependencyPlanner:
 
             name = dep.get("name", "")
             if name and name not in existing_dev:
+                logger.info(f"[DEPENDENCY_PLANNER] ➕ Adding new dev dep from LLM: {name}")
                 dependency_plan.dev_dependencies.append(PackageDependency(
                     name=name,
                     version=dep.get("version", "latest"),
                     purpose="Added by planner"
                 ))
+                existing_dev.add(name)
         
         return {"dependency_plan": dependency_plan}
 
