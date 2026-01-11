@@ -1,7 +1,7 @@
 """
 Authentication Routes
 
-Google OAuth 2.0 authentication endpoints with comprehensive error handling.
+Google and GitHub OAuth 2.0 authentication endpoints.
 Implements secure session management and user profile handling.
 """
 
@@ -13,9 +13,13 @@ from authlib.integrations.base_client import OAuthError
 from typing import Optional, Dict, Any
 import secrets
 import logging
+import os
+import urllib.parse
+from datetime import datetime
 
 from app.oauth_config import get_oauth_config, SESSION_COOKIE_NAME
 from app.database import get_session
+from app.models import User
 
 logger = logging.getLogger("ships.auth")
 
@@ -31,36 +35,24 @@ class AuthError(Exception):
         super().__init__(description)
 
 
-@router.get("/google")
-async def google_login(request: Request):
-    """
-    Initiate Google OAuth flow.
-    
-    Redirects user to Google consent screen.
-    Generates and stores state for CSRF protection.
-    
-    Returns:
-        RedirectResponse to Google OAuth
-        
-    Raises:
-        HTTPException: If OAuth is not configured
-    """
+async def _initiate_oauth(request: Request, provider: str):
+    """Helper to initiate OAuth flow for any provider."""
     try:
         oauth = get_oauth_config()
         
-        if not oauth.is_configured():
+        if not oauth.is_configured(provider):
             raise AuthError(
                 error="not_configured",
-                description="Google OAuth is not configured. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
+                description=f"{provider.title()} OAuth is not configured. Please check server logs.",
                 status_code=500
             )
         
         # Build callback URL
-        callback_url = str(request.url_for('google_callback'))
+        callback_url = str(request.url_for(f'{provider}_callback'))
         
-        # Use authlib's async authorize_redirect method
-        # This automatically generates state and sets it in the session
-        return await oauth.oauth.google.authorize_redirect(request, callback_url)
+        # Authorize
+        client = getattr(oauth.oauth, provider)
+        return await client.authorize_redirect(request, callback_url)
         
     except AuthError as e:
         logger.error(f"OAuth error: {e.description}")
@@ -69,28 +61,15 @@ async def google_login(request: Request):
             "description": e.description
         })
     except Exception as e:
-        logger.error(f"Unexpected error during OAuth initiation: {e}")
+        logger.error(f"Unexpected error during {provider} OAuth initiation: {e}")
         raise HTTPException(status_code=500, detail={
             "error": "server_error",
             "description": "Failed to initiate authentication"
         })
 
 
-@router.get("/google/callback")
-async def google_callback(request: Request, db: AsyncSession = Depends(get_session)):
-    """
-    Handle Google OAuth callback.
-    
-    Exchanges authorization code for access token,
-    fetches user profile, creates/updates user in database,
-    and creates session.
-    
-    Returns:
-        RedirectResponse to frontend with session cookie
-        
-    Raises:
-        HTTPException: On OAuth errors
-    """
+async def _handle_oauth_callback(request: Request, db: AsyncSession, provider: str):
+    """Helper to handle OAuth callback for any provider."""
     try:
         oauth = get_oauth_config()
         
@@ -98,19 +77,15 @@ async def google_callback(request: Request, db: AsyncSession = Depends(get_sessi
         error = request.query_params.get('error')
         if error:
             error_description = request.query_params.get('error_description', 'Unknown error')
-            raise AuthError(
-                error=error,
-                description=error_description,
-                status_code=400
-            )
+            raise AuthError(error=error, description=error_description, status_code=400)
         
         # Exchange code for token
         try:
             logger.info(f"Callback Request URL: {request.url}")
-            token = await oauth.oauth.google.authorize_access_token(request)
+            client = getattr(oauth.oauth, provider)
+            token = await client.authorize_access_token(request)
         except OAuthError as e:
             logger.error(f"Token exchange failed: {e}")
-            # Include the specific error in the description for debugging
             raise AuthError(
                 error="token_exchange_failed",
                 description=f"Failed to obtain access token: {str(e)}",
@@ -118,49 +93,80 @@ async def google_callback(request: Request, db: AsyncSession = Depends(get_sessi
             )
         
         # Fetch user profile
-        user_info = await oauth.fetch_user_info(token)
+        user_info = await oauth.fetch_user_info(provider, token)
         
         if not user_info:
             raise AuthError(
                 error="profile_fetch_failed",
-                description="Failed to retrieve user profile from Google",
+                description=f"Failed to retrieve user profile from {provider.title()}",
                 status_code=500
             )
         
         # Verify email
-        if not user_info.get('email_verified'):
-            raise AuthError(
+        if not user_info.get('email_verified') and provider == 'google':
+             raise AuthError(
                 error="email_not_verified",
-                description="Please verify your email address with Google first",
+                description="Please verify your email address first",
                 status_code=403
+            )
+            
+        if not user_info.get('email'):
+             raise AuthError(
+                error="email_required",
+                description="No email address provided by identity provider",
+                status_code=400
             )
         
         # Find or create user in database
-        from sqlalchemy import select
-        from app.models import User
-        from datetime import datetime
+        from sqlalchemy import select, or_
         
-        result = await db.execute(
-            select(User).where(User.google_id == user_info['id'])
+        # Try to find by provider ID first, then by email
+        stmt = select(User).where(
+            or_(
+                User.email == user_info['email'],
+                getattr(User, f"{provider}_id") == user_info['id']
+            )
         )
+        result = await db.execute(stmt)
         user = result.scalar_one_or_none()
         
         if user:
             # Update existing user
-            user.name = user_info['name']
-            user.avatar_url = user_info.get('picture')
+            # Only update avatar if default or from same provider
+            # This prevents overwriting a custom avatar or other provider's avatar unnecessarily
+            is_default_avatar = not user.avatar_url
+            is_google_avatar = user.avatar_url and 'googleusercontent.com' in user.avatar_url
+            is_github_avatar = user.avatar_url and 'githubusercontent.com' in user.avatar_url
+            
+            should_update_avatar = is_default_avatar or \
+                                   (provider == 'google' and is_google_avatar) or \
+                                   (provider == 'github' and is_github_avatar)
+            
+            if should_update_avatar and user_info.get('picture'):
+                 user.avatar_url = user_info.get('picture')
+            
+            # Link provider ID if missing
+            if provider == 'google' and not user.google_id:
+                user.google_id = user_info['id']
+            elif provider == 'github' and not user.github_id:
+                user.github_id = user_info['id']
+                
             user.last_login_at = datetime.utcnow()
         else:
-            # Create new user with free tier
+            # Create new user
             user = User(
                 email=user_info['email'],
                 name=user_info['name'],
-                google_id=user_info['id'],
                 avatar_url=user_info.get('picture'),
                 tier='free',
                 subscription_status='inactive',
                 last_login_at=datetime.utcnow()
             )
+            if provider == 'google':
+                user.google_id = user_info['id']
+            elif provider == 'github':
+                user.github_id = user_info['id']
+                
             db.add(user)
         
         await db.commit()
@@ -173,40 +179,61 @@ async def google_callback(request: Request, db: AsyncSession = Depends(get_sessi
             'name': user.name,
             'picture': user.avatar_url,
             'tier': user.tier,
-            'auth_method': 'google',
+            'auth_method': provider,
         }
         
-        logger.info(f"✓ User authenticated: {user.email} (tier: {user.tier})")
+        logger.info(f"✓ User authenticated via {provider}: {user.email}")
         
         # Redirect to frontend
-        frontend_url = request.url_for('root')
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
         return RedirectResponse(url=str(frontend_url))
         
     except AuthError as e:
         logger.error(f"OAuth callback error: {e.description}")
-        # Redirect to frontend with error
-        error_url = f"/?auth_error={e.error}&auth_error_description={e.description}"
+        safe_error = urllib.parse.quote(e.description)
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+        error_url = f"{frontend_url}/?auth_error={e.error}&auth_error_description={safe_error}"
         return RedirectResponse(url=error_url)
     except Exception as e:
         logger.error(f"Unexpected error during OAuth callback: {e}", exc_info=True)
-        # return specific error for debugging
-        import urllib.parse
         safe_error = urllib.parse.quote(str(e))
-        
-        # Redirect to FRONTEND, not backend root
-        import os
         frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
         error_url = f"{frontend_url}/?auth_error=server_error&auth_error_description={safe_error}"
         return RedirectResponse(url=error_url)
 
 
+# --- Google Routes ---
+
+@router.get("/google")
+async def google_login(request: Request):
+    """Initiate Google OAuth flow."""
+    return await _initiate_oauth(request, 'google')
+
+@router.get("/google/callback")
+async def google_callback(request: Request, db: AsyncSession = Depends(get_session)):
+    """Handle Google OAuth callback."""
+    return await _handle_oauth_callback(request, db, 'google')
+
+
+# --- GitHub Routes ---
+
+@router.get("/github")
+async def github_login(request: Request):
+    """Initiate GitHub OAuth flow."""
+    return await _initiate_oauth(request, 'github')
+
+@router.get("/github/callback")
+async def github_callback(request: Request, db: AsyncSession = Depends(get_session)):
+    """Handle GitHub OAuth callback."""
+    return await _handle_oauth_callback(request, db, 'github')
+
+
+# --- User Routes ---
+
 @router.get("/user")
 async def get_current_user(request: Request, db: AsyncSession = Depends(get_session)):
     """
     Get currently authenticated user with subscription info.
-    
-    Returns:
-        JSONResponse with user data including tier and limits
     """
     session_user = request.session.get('user')
     
@@ -240,6 +267,8 @@ async def get_current_user(request: Request, db: AsyncSession = Depends(get_sess
                 "tier": user.tier,
                 "subscription_status": user.subscription_status,
                 "auth_method": session_user.get('auth_method', 'google'),
+                "github_connected": bool(user.github_id),
+                "google_connected": bool(user.google_id),
             },
             "limits": {
                 "prompts_per_day": limits['prompts_per_day'],
@@ -256,20 +285,22 @@ async def get_current_user(request: Request, db: AsyncSession = Depends(get_sess
         
     except Exception as e:
         logger.error(f"Error fetching user: {e}")
+        # Return partial data with defaults to prevent frontend crash
+        from app.models.user import TIER_LIMITS
         return JSONResponse(content={
             "user": session_user,
+            "limits": TIER_LIMITS['free'],
+            "usage": {
+                "prompts_used_today": 0,
+                "tokens_used_month": 0
+            },
             "authenticated": True
         })
 
 
 @router.post("/logout")
 async def logout(request: Request):
-    """
-    Clear user session.
-    
-    Returns:
-        JSONResponse confirming logout
-    """
+    """Clear user session."""
     request.session.clear()
     logger.info("User logged out")
     

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useAuthStore } from '../../store/authStore';
 import { RiShip2Fill } from 'react-icons/ri';
 import { AiOutlineLoading3Quarters } from 'react-icons/ai';
+import { GoogleSignInButton } from '../auth/GoogleSignInButton';
+import { GitHubSignInButton } from '../auth/GitHubSignInButton';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -37,6 +39,15 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
            <p className="modal-subtitle">
              {isLogin ? 'Sign in to continue building' : 'Join ShipS* to start shipping'}
            </p>
+        </div>
+
+        <div className="auth-divider">
+          <span>Or continue with</span>
+        </div>
+
+        <div className="oauth-buttons" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
+          <GoogleSignInButton text={isLogin ? "Sign in with Google" : "Sign up with Google"} className="w-100" />
+          <GitHubSignInButton text={isLogin ? "Sign in with GitHub" : "Sign up with GitHub"} className="w-100" />
         </div>
 
         <form onSubmit={handleSubmit} className="auth-form">

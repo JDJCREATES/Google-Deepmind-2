@@ -36,7 +36,8 @@ export default function SubscriptionStatus({ onUpgradeClick }: SubscriptionStatu
 
   const fetchUserData = async () => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/user`, {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+      const response = await fetch(`${API_URL}/auth/user`, {
         credentials: 'include'
       });
       const result = await response.json();
@@ -52,7 +53,8 @@ export default function SubscriptionStatus({ onUpgradeClick }: SubscriptionStatu
 
   const handleManageBilling = async () => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/billing/portal`, {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+      const response = await fetch(`${API_URL}/billing/portal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

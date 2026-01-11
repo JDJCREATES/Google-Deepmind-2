@@ -112,7 +112,8 @@ export default function SubscriptionModal({
     setError(null);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/billing/create-checkout`, {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+      const response = await fetch(`${API_URL}/billing/create-checkout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

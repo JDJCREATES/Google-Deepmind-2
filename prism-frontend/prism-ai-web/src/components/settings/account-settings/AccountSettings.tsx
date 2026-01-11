@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuthStore } from '../../../store/authStore';
 import { SettingsCarousel, CarouselSlide } from '../../ui/SettingsCarousel';
 import { GoogleSignInButton } from '../../auth/GoogleSignInButton';
+import { GitHubSignInButton } from '../../auth/GitHubSignInButton';
 import SubscriptionStatus from '../../billing/SubscriptionStatus';
 import SubscriptionModal from '../../billing/SubscriptionModal';
 import '../Settings.css';
@@ -21,6 +22,9 @@ const AccountSettings: React.FC = () => {
                 Sign in to sync your projects and settings across devices
               </p>
               <GoogleSignInButton />
+              <div style={{ marginTop: '12px' }}>
+                <GitHubSignInButton />
+              </div>
             </div>
           </div>
         </CarouselSlide>

@@ -17,6 +17,7 @@ interface AuthState {
   error: string | null;
   login: (email: string, password: string) => Promise<void>;
   loginWithGoogle: () => void;
+  loginWithGitHub: () => void;
   register: (email: string, password: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
   checkSession: () => Promise<void>;
@@ -85,6 +86,17 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
     // Don't set loading - we're redirecting immediately
     window.location.href = `${API_URL}/auth/google`;
+  },
+
+  /**
+   * Login with GitHub OAuth
+   */
+  loginWithGitHub: () => {
+    if (import.meta.env.DEV) {
+      console.log('[Auth] Initiating GitHub login...');
+      console.log(`[Auth] Redirecting to: ${API_URL}/auth/github`);
+    }
+    window.location.href = `${API_URL}/auth/github`;
   },
 
   /**
