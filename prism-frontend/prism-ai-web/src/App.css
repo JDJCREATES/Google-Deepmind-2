@@ -287,9 +287,10 @@ body {
   height: 100vh;
 }
 
-/* ===== LEFT AREA (60%) ===== */
+/* ===== LEFT AREA (flex to fill) ===== */
 .main-editor-area {
-  width: 60%;
+  flex: 1;
+  min-width: 0; /* Prevent flex overflow */
   display: flex;
   height: 100%;
   border-right: 1px solid var(--border-color);
@@ -553,9 +554,11 @@ body {
   color: var(--text-secondary);
 }
 
-/* ===== RIGHT AREA (40%) ===== */
+/* ===== RIGHT AREA (35%) ===== */
 .chat-panel {
-  width: 40%;
+  width: 35%;
+  max-width: 480px;
+  min-width: 320px;
   display: flex;
   flex-direction: column;
   background-color: var(--bg-sidebar);

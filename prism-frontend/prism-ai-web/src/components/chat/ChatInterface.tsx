@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { PiShippingContainerFill } from "react-icons/pi";
 import { RiShip2Fill } from 'react-icons/ri';
 import { VscLayoutSidebarRightOff } from 'react-icons/vsc';
+import { Button, ProgressCircular } from 'react-onsenui';
 
 import ChatMessage, { type Message } from './ChatMessage';
 import { agentService, type AgentChunk } from '../../services/agentService';
@@ -12,7 +13,7 @@ import { ThinkingSection } from '../streaming/ThinkingSection';
 import { useStreamingStore } from '../../store/streamingStore';
 import { useFileSystem } from '../../store/fileSystem';
 
-import '../../App.css'; // Keep existing styles for now
+import './ChatInterface.css';
 
 // Thinking section state
 interface ThinkingSectionData {
@@ -393,10 +394,10 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
   };
 
   return (
-    <div className="chat-panel">
-      <div className="chat-header">
+    <aside className="chat-panel" role="complementary" aria-label="AI Chat Assistant">
+      <header className="chat-header">
         <div className="chat-header-left">
-           <RiShip2Fill size={20} style={{ marginRight: 8, color: 'var(--primary-color, #ff5e57)' }} />
+           <RiShip2Fill size={20} style={{ marginRight: 8, color: 'var(--primary-color, #ff5e57)' }} aria-hidden="true" />
            <span className="chat-title">ShipS*</span>
         </div>
         <div className="chat-header-center" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -514,11 +515,11 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
           </button>
         </div>
         <div className="chat-header-right">
-          <VscLayoutSidebarRightOff size={16} />
+          <VscLayoutSidebarRightOff size={16} aria-hidden="true" />
         </div>
-      </div>
+      </header>
 
-      <div className="chat-messages">
+      <main className="chat-messages" role="log" aria-live="polite" aria-label="Chat messages">
         {isAgentRunning && agentPhase !== 'idle' && (
           <PhaseIndicator phase={agentPhase} />
         )}
@@ -560,7 +561,7 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
         )}
         
         <div ref={messagesEndRef} />
-      </div>
+      </main>
 
       {toolEvents.length > 0 && (
         <ToolProgress 
@@ -578,24 +579,34 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
         />
       )}
 
-      <div className="chat-input-container">
-        <textarea
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onKeyPress={handleKeyPress}
-          placeholder="Time to ShipS*?"
-          className="chat-input"
-          rows={1}
-          style={{ minHeight: '40px' }}
-        />
-          <button
+      <footer className="chat-input-container">
+        <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="chat-form" role="form" aria-label="Send message">
+          <label htmlFor="chat-input" className="sr-only">Message input</label>
+          <textarea
+            id="chat-input"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder="Time to ShipS*?"
+            className="chat-input"
+            rows={1}
+            aria-label="Type your message"
+          />
+          <Button 
+            modifier="material--flat"
             className="send-button"
-            onClick={handleSendMessage}
+            type="submit"
             disabled={!inputValue.trim() || isAgentRunning}
+            aria-label={isAgentRunning ? 'Agent is working' : 'Send message'}
           >
-            <PiShippingContainerFill size={24} />
-          </button>
-      </div>
-    </div>
+            {isAgentRunning ? (
+              <ProgressCircular indeterminate />
+            ) : (
+              <PiShippingContainerFill size={24} aria-hidden="true" />
+            )}
+          </Button>
+        </form>
+      </footer>
+    </aside>
   );
 }

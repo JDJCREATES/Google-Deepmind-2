@@ -160,5 +160,44 @@
   51%, 100% { opacity: 0; }
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE: MOBILE (default)
+   ═══════════════════════════════════════════════════════════════ */
+
+.agent-activity-header {
+  min-height: 48px; /* Touch target */
+}
+
+.agent-activity-step {
+  padding: 10px 14px;
+  font-size: 13px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE: DESKTOP (1024px+)
+   ═══════════════════════════════════════════════════════════════ */
+
+@media (min-width: 1024px) {
+  .agent-activity-header {
+    min-height: 40px;
+    padding: 10px 14px;
+  }
+
+  .agent-activity-step {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+
+  .agent-activity-icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  .agent-activity-title {
+    font-size: 12px;
+  }
+}
+
+
 
 
