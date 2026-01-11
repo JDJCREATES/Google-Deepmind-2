@@ -27,6 +27,48 @@ from langgraph.graph import StateGraph, END, START
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 
+# PostgreSQL checkpointer for persistent state
+# Falls back to MemorySaver if DB unavailable
+def get_checkpointer(user_id: str = None, run_id: str = None):
+    """
+    Get appropriate checkpointer for the pipeline.
+    
+    Uses PostgresSaver for production (persistent state across restarts),
+    or MemorySaver as fallback for development/testing.
+    
+    Args:
+        user_id: Optional user ID for scoped thread_id
+        run_id: Optional run ID for scoped thread_id
+        
+    Returns:
+        Configured checkpointer instance
+    """
+    try:
+        from langgraph.checkpoint.postgres import PostgresSaver
+        import os
+        
+        # Get database URL (convert asyncpg to psycopg format)
+        db_url = os.getenv(
+            "DATABASE_URL",
+            "postgresql+asyncpg://ships:ships@localhost/ships"
+        )
+        # PostgresSaver needs psycopg format, not asyncpg
+        sync_db_url = db_url.replace("+asyncpg", "")
+        
+        # Create PostgresSaver
+        checkpointer = PostgresSaver.from_conn_string(sync_db_url)
+        
+        # Setup tables if needed (idempotent)
+        checkpointer.setup()
+        
+        return checkpointer
+        
+    except Exception as e:
+        import logging
+        logger = logging.getLogger("ships.agent")
+        logger.warning(f"[CHECKPOINTER] PostgresSaver unavailable, using MemorySaver: {e}")
+        return MemorySaver()
+
 # Import the REAL agents from sub_agents (the original mature system)
 from app.agents.sub_agents import (
     Planner, Coder, Validator, Fixer,
@@ -1139,6 +1181,22 @@ Analyze state and decide next step. Respond with JSON.""")
         
     logger.info(f"[ORCHESTRATOR] 🧠 Final Routing: {decision}")
     
+    # ====================================================================
+    # STEP TRACKING: Record orchestrator decision
+    # ====================================================================
+    try:
+        from app.services.step_tracking import record_step
+        import asyncio
+        asyncio.create_task(record_step(
+            agent="orchestrator",
+            phase=state.get("phase", "unknown"),
+            action=f"route_to_{decision}",
+            content={"decision": decision, "loop_detected": loop_detection.get("loop_detected", False)},
+        ))
+    except Exception:
+        pass  # Non-fatal
+    # ====================================================================
+    
     return {
         "phase": decision,  # This drives the routing
         "loop_detection": loop_detection,
@@ -1360,7 +1418,7 @@ async def run_full_pipeline(
     Returns:
         Final state with artifacts and result
     """
-    checkpointer = MemorySaver()
+    checkpointer = get_checkpointer()
     graph = create_agent_graph(checkpointer)
     
     initial_state = {
@@ -1394,7 +1452,8 @@ async def stream_pipeline(
     thread_id: str = "default",
     project_path: Optional[str] = None,
     settings: Optional[dict] = None,  # User settings
-    artifact_context: Optional[dict] = None  # File tree & dependency data from Electron
+    artifact_context: Optional[dict] = None,  # File tree & dependency data from Electron
+    user_id: Optional[str] = None  # User ID for step tracking
 ):
     """
     Stream the full agent pipeline with token-by-token streaming.
@@ -1407,11 +1466,13 @@ async def stream_pipeline(
         project_path: Optional path to user's project directory
         settings: Optional client-side settings dict
         artifact_context: Optional artifact data (file tree, deps) from Electron
+        user_id: Optional user ID for step tracking (enables DB persistence)
         
     Yields:
         Message chunks as the LLM generates tokens
     """
     import logging
+    from uuid import UUID
     logger = logging.getLogger("ships.agent")
     
     logger.info("=" * 60)
@@ -1422,7 +1483,26 @@ async def stream_pipeline(
         logger.info(f"[PIPELINE] Artifact context: {len(artifact_context.get('fileTree', {}).get('files', {}))} files provided")
     logger.info("=" * 60)
     
-    checkpointer = MemorySaver()
+    # ====================================================================
+    # STEP TRACKING: Start a new run if user_id provided
+    # ====================================================================
+    run_id = None
+    if user_id and project_path:
+        try:
+            from app.services.step_tracking import start_run
+            run_id = await start_run(
+                user_id=UUID(user_id) if isinstance(user_id, str) else user_id,
+                project_path=project_path,
+                user_request=user_request[:500]  # Truncate for DB
+            )
+            if run_id:
+                logger.info(f"[PIPELINE] 📊 Step tracking started: run_id={run_id}")
+        except Exception as e:
+            logger.debug(f"[PIPELINE] Step tracking unavailable: {e}")
+    # ====================================================================
+    
+    # Use PostgresSaver for production persistence, MemorySaver as fallback
+    checkpointer = get_checkpointer()
     graph = create_agent_graph(checkpointer)
     
     # Create the initial message
@@ -1437,6 +1517,8 @@ async def stream_pipeline(
             "project_path": project_path,  # None if not set - agents will check and refuse
             "settings": settings or {},    # Inject settings into artifacts
             "artifact_context": artifact_context,  # File tree & deps from Electron
+            "run_id": str(run_id) if run_id else None,  # For step tracking in nodes
+            "user_id": user_id,  # Pass user_id to nodes
         },
         "current_task_index": 0,
         "validation_passed": False,
@@ -1463,12 +1545,26 @@ async def stream_pipeline(
         "metadata": {
             "project_path": project_path,
             "request_length": len(user_request),
+            "run_id": str(run_id) if run_id else None,
         },
         "recursion_limit": 100,  # Agent needs iterations for multi-step tasks
     }
     
     # Use stream_mode="messages" for token-by-token streaming
     # This yields (message_chunk, metadata) tuples as the LLM generates
-    async for event in graph.astream(initial_state, config=config, stream_mode="messages", subgraphs=True):
-        yield event
+    try:
+        async for event in graph.astream(initial_state, config=config, stream_mode="messages", subgraphs=True):
+            yield event
+    finally:
+        # ====================================================================
+        # STEP TRACKING: Complete the run when pipeline finishes
+        # ====================================================================
+        if run_id:
+            try:
+                from app.services.step_tracking import complete_run
+                await complete_run(status="complete")
+                logger.info(f"[PIPELINE] 📊 Step tracking completed: run_id={run_id}")
+            except Exception as e:
+                logger.debug(f"[PIPELINE] Step tracking completion failed: {e}")
+        # ====================================================================
 
