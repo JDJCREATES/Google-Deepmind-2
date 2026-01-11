@@ -98,6 +98,13 @@ class AgentGraphState(TypedDict):
     active_file: Optional[str]    # File currently being edited
     project_structure: List[str]  # Cached file tree summary
     error_log: List[str]          # Recent errors to avoid repeating
+    
+    # ============================================================================
+    # LOOP DETECTION & CHECKPOINTING (2026 Architecture)
+    # ============================================================================
+    # Track consecutive calls to detect loops and inform orchestrator
+    loop_detection: Dict[str, Any]  # {last_node, consecutive_calls, loop_detected, loop_message}
+    current_step: int               # Step counter for git checkpointing
 
 
 # ============================================================================
@@ -764,6 +771,42 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
     """
     logger.info("[ORCHESTRATOR] 🧠 Starting orchestrator node...")
     
+    # ================================================================
+    # LOOP DETECTION: Track consecutive calls and inform orchestrator
+    # ================================================================
+    loop_detection = state.get("loop_detection", {
+        "last_node": None,
+        "consecutive_calls": 0,
+        "loop_detected": False,
+        "loop_message": ""
+    })
+    
+    # Check if we're looping (same phase called 3+ times consecutively)
+    current_phase = state.get("phase", "planning")
+    loop_warning = ""
+    
+    if loop_detection.get("last_node") == current_phase:
+        loop_detection["consecutive_calls"] = loop_detection.get("consecutive_calls", 0) + 1
+        
+        if loop_detection["consecutive_calls"] >= 3:
+            loop_detection["loop_detected"] = True
+            loop_detection["loop_message"] = (
+                f"⚠️ LOOP DETECTED: {current_phase} called {loop_detection['consecutive_calls']} times consecutively. "
+                f"Previous attempts are not making progress. Consider: "
+                f"1) Ask user for clarification, 2) Try a completely different approach, "
+                f"3) Skip this task and move on, 4) Mark as blocked and explain why."
+            )
+            loop_warning = loop_detection["loop_message"]
+            logger.warning(f"[ORCHESTRATOR] {loop_warning}")
+    else:
+        # Different node - reset counter
+        loop_detection = {
+            "last_node": current_phase,
+            "consecutive_calls": 1,
+            "loop_detected": False,
+            "loop_message": ""
+        }
+    
     # 1. Build Dynamic Context
     phase = state.get("phase", "planning")
     completed_files = state.get("completed_files", [])
@@ -987,6 +1030,7 @@ Please clarify before I proceed."""
     USER CONFIRMATION: {is_confirmation}
     USER QUESTION: {is_question}
     INTENT TYPE: {current_intent.task_type if current_intent else 'None'}
+    LOOP WARNING: {loop_warning if loop_warning else 'None'}
     </state>
     
     <rules>
@@ -1096,7 +1140,9 @@ Analyze state and decide next step. Respond with JSON.""")
     logger.info(f"[ORCHESTRATOR] 🧠 Final Routing: {decision}")
     
     return {
-        "phase": decision  # This drives the routing
+        "phase": decision,  # This drives the routing
+        "loop_detection": loop_detection,
+        "current_step": state.get("current_step", 0) + 1
     }
 
 
