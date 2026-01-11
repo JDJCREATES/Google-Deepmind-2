@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { FiCheck, FiLoader, FiArrowRight, FiZap, FiFileText, FiSettings } from 'react-icons/fi';
 import './ThinkingSection.css';
 
 interface ThinkingSectionProps {
@@ -9,8 +10,21 @@ interface ThinkingSectionProps {
   defaultExpanded?: boolean;
 }
 
+// Get icon based on node type
+const getNodeIcon = (node: string) => {
+  switch (node.toLowerCase()) {
+    case 'orchestrator': return <FiSettings size={14} />;
+    case 'planner': return <FiFileText size={14} />;
+    case 'coder': return <FiZap size={14} />;
+    case 'validator': return <FiCheck size={14} />;
+    case 'fixer': return <FiSettings size={14} />;
+    default: return <FiArrowRight size={14} />;
+  }
+};
+
 /**
- * Collapsible thinking section that shows agent thought process
+ * Agent Activity Section - Shows agent reasoning in structured blocks
+ * Inspired by GitHub Copilot and Antigravity agent displays
  */
 export const ThinkingSection: React.FC<ThinkingSectionProps> = ({
   title,
@@ -20,44 +34,74 @@ export const ThinkingSection: React.FC<ThinkingSectionProps> = ({
   defaultExpanded = true
 }) => {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
-
-  // Get node color
-  const getNodeColor = (nodeName: string): string => {
-    const colors: Record<string, string> = {
-      orchestrator: '#8b5cf6', // Purple
-      planner: '#3b82f6',      // Blue
-      coder: '#10b981',        // Green
-      validator: '#f59e0b',    // Yellow
-      fixer: '#ef4444',        // Red
-      chat: '#6366f1',         // Indigo
-    };
-    return colors[nodeName.toLowerCase()] || '#6b7280';
+  
+  // Parse content into structured steps
+  const parseSteps = (text: string) => {
+    const lines = text.split('\n').filter(line => line.trim());
+    return lines.map(line => {
+      // Detect step type for styling
+      const isDecision = /decision:|decided|routing to/i.test(line);
+      const isAction = line.includes('→') || line.includes('->') || /calling|running|executing/i.test(line);
+      const isResult = /✓|✔|success|complete|created|wrote/i.test(line);
+      const isError = /✗|error|failed|exception/i.test(line);
+      const isNote = line.startsWith('-') || line.startsWith('•') || line.startsWith('*');
+      
+      return { line, isDecision, isAction, isResult, isError, isNote };
+    });
   };
 
-  const nodeColor = getNodeColor(node);
+  const steps = parseSteps(content);
 
   return (
-    <div 
-      className={`thinking-section ${isLive ? 'live' : ''}`}
-      style={{ '--node-color': nodeColor } as React.CSSProperties}
-    >
+    <div className={`agent-activity-section ${isLive ? 'live' : ''} ${node.toLowerCase()}`}>
+      {/* Header - collapsible */}
       <div 
-        className="thinking-header"
+        className="agent-activity-header"
         onClick={() => setIsExpanded(!isExpanded)}
       >
-        <span className="thinking-toggle">
-          {isExpanded ? '▼' : '▶'}
+        <span className="agent-activity-icon">
+          {isLive ? <FiLoader className="spinning" size={14} /> : getNodeIcon(node)}
         </span>
-        <span className="thinking-title">{title}</span>
-        {isLive && <span className="thinking-live-badge">●</span>}
+        <span className="agent-activity-title">{title}</span>
+        <span className="agent-activity-toggle">
+          {isExpanded ? '−' : '+'}
+        </span>
       </div>
       
-      {isExpanded && (
-        <div className="thinking-content">
-          {content.split('\n').map((line, i) => (
-            <p key={i}>{line}</p>
-          ))}
-          {isLive && <span className="thinking-cursor">█</span>}
+      {/* Content - each step as a separate line */}
+      {isExpanded && steps.length > 0 && (
+        <div className="agent-activity-steps">
+          {steps.map((step, i) => {
+            let className = 'agent-activity-step';
+            let icon = <FiArrowRight size={12} />;
+            
+            if (step.isResult) {
+              className += ' success';
+              icon = <FiCheck size={12} />;
+            } else if (step.isError) {
+              className += ' error';
+            } else if (step.isDecision) {
+              className += ' decision';
+              icon = <FiZap size={12} />;
+            } else if (step.isAction) {
+              className += ' action';
+            } else if (step.isNote) {
+              className += ' note';
+            }
+            
+            return (
+              <div key={i} className={className}>
+                <span className="step-icon">{icon}</span>
+                <span className="step-text">{step.line}</span>
+              </div>
+            );
+          })}
+          {isLive && (
+            <div className="agent-activity-step live">
+              <span className="step-icon"><FiLoader className="spinning" size={12} /></span>
+              <span className="step-text typing-cursor">_</span>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -65,3 +109,5 @@ export const ThinkingSection: React.FC<ThinkingSectionProps> = ({
 };
 
 export default ThinkingSection;
+
+

@@ -288,12 +288,13 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
           }
         }
         
-        // AI Message
+        // AI Message - user-facing responses
         else if (chunk.type === 'message' && chunk.content) {
           const content = chunk.content;
+          
+          // Only skip internal system markers
           const skipPatterns = [
             'ACTION REQUIRED', 'MANDATORY FIRST STEP', 'SCAFFOLDING CHECK',
-            'list_directory', '{"type": "tool_result"',
           ];
           
           if (skipPatterns.some(p => content.includes(p))) {
@@ -311,34 +312,8 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
           }));
         }
         
-        // Agent Reasoning (from planner, coder, orchestrator, etc.)
-        else if (chunk.type === 'reasoning' && chunk.content) {
-          const content = chunk.content;
-          const node = chunk.node || 'agent';
-          
-          // Skip the same internal patterns
-          const skipPatterns = [
-            'ACTION REQUIRED', 'MANDATORY FIRST STEP', 'SCAFFOLDING CHECK',
-            'list_directory', '{"type": "tool_result"',
-          ];
-          
-          if (skipPatterns.some(p => content.includes(p))) {
-            return; 
-          }
-          
-          // Append reasoning with node indicator
-          setMessages(prev => prev.map(msg => {
-            if (msg.id === aiMessageId) {
-              const nodeLabel = node.charAt(0).toUpperCase() + node.slice(1);
-              const formattedContent = `\n**[${nodeLabel}]** ${content}`;
-              return { 
-                ...msg, 
-                content: msg.content + formattedContent
-              };
-            }
-            return msg;
-          }));
-        }
+        // Note: 'reasoning' type is now handled by 'thinking' sections via backend refactoring
+        // Agent reasoning is streamed to ThinkingSection components, not to chat messages
         
         // Complete
         else if (chunk.type === 'complete') {

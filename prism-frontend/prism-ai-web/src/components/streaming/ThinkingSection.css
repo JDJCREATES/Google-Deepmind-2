@@ -1,79 +1,164 @@
-.thinking-section {
+/* Agent Activity Section - Copilot/Antigravity inspired */
+
+.agent-activity-section {
   margin: 8px 0;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-editor);
+  border: 1px solid var(--border-color);
   overflow: hidden;
-  transition: all 0.2s ease;
 }
 
-.thinking-section.live {
-  border-color: var(--node-color, #6366f1);
-  box-shadow: 0 0 12px rgba(99, 102, 241, 0.15);
+.agent-activity-section.live {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 12px rgba(255, 94, 87, 0.1);
 }
 
-.thinking-header {
+/* Header */
+.agent-activity-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--bg-activity-bar);
   cursor: pointer;
-  background: rgba(255, 255, 255, 0.02);
-  transition: background 0.15s ease;
   user-select: none;
+  transition: background 0.15s;
 }
 
-.thinking-header:hover {
-  background: rgba(255, 255, 255, 0.05);
+.agent-activity-header:hover {
+  background: var(--hover-bg);
 }
 
-.thinking-toggle {
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.5);
-  width: 14px;
+.agent-activity-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: var(--primary-color);
+  color: white;
+  border-radius: 6px;
+  flex-shrink: 0;
 }
 
-.thinking-title {
+.agent-activity-section.live .agent-activity-icon {
+  background: var(--primary-color);
+  animation: pulse-bg 1.5s infinite;
+}
+
+@keyframes pulse-bg {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.agent-activity-title {
   flex: 1;
   font-size: 13px;
-  font-weight: 500;
-  color: var(--node-color, #a1a1aa);
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
-.thinking-live-badge {
-  color: var(--node-color, #6366f1);
-  animation: pulse 1s infinite;
-  font-size: 10px;
+.agent-activity-toggle {
+  color: var(--text-secondary);
+  font-size: 16px;
+  font-weight: 300;
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+/* Steps container */
+.agent-activity-steps {
+  padding: 8px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.thinking-content {
-  padding: 12px 14px;
-  padding-top: 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: rgba(255, 255, 255, 0.75);
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+/* Individual step */
+.agent-activity-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-sidebar);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  border-left: 3px solid transparent;
+  transition: all 0.15s;
 }
 
-.thinking-content p {
-  margin: 4px 0;
+.agent-activity-step .step-icon {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  margin-top: 2px;
 }
 
-.thinking-content p:first-child {
-  margin-top: 12px;
+.agent-activity-step .step-text {
+  flex: 1;
+  word-break: break-word;
 }
 
-.thinking-cursor {
-  animation: blink 1s infinite;
-  color: var(--node-color, #6366f1);
+/* Step variants */
+.agent-activity-step.decision {
+  border-left-color: var(--primary-color);
+  background: rgba(255, 94, 87, 0.06);
+}
+.agent-activity-step.decision .step-icon {
+  color: var(--primary-color);
+}
+
+.agent-activity-step.action {
+  border-left-color: #4ec9b0;
+}
+.agent-activity-step.action .step-icon {
+  color: #4ec9b0;
+}
+
+.agent-activity-step.success {
+  border-left-color: #4ec9b0;
+  background: rgba(78, 201, 176, 0.06);
+}
+.agent-activity-step.success .step-icon {
+  color: #4ec9b0;
+}
+
+.agent-activity-step.error {
+  border-left-color: #f44747;
+  background: rgba(244, 71, 71, 0.06);
+}
+.agent-activity-step.error .step-icon {
+  color: #f44747;
+}
+
+.agent-activity-step.note {
+  color: var(--text-secondary);
+  padding-left: 24px;
+  font-size: 11px;
+}
+
+.agent-activity-step.live {
+  opacity: 0.7;
+}
+
+/* Spinning loader */
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Typing cursor */
+.typing-cursor {
+  animation: blink 1s step-end infinite;
 }
 
 @keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
 }
+
+
+

@@ -104,6 +104,7 @@ class LLMFactory:
             temperature=temperature,
             safety_settings=safety_settings,
             convert_system_message_to_human=True,
+            streaming=True,  # Enable token-by-token streaming for LangGraph stream_mode="messages"
             # thinking_level passed via bind() to avoid Pydantic errors in older libs
             cached_content=cached_content, 
             max_retries=30,
