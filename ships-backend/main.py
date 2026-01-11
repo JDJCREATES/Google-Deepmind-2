@@ -54,7 +54,12 @@ async def shutdown_event():
 # Session middleware (required for OAuth)
 # Must be added BEFORE other middleware
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
-app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+app.add_middleware(
+    SessionMiddleware, 
+    secret_key=SECRET_KEY, 
+    same_site="lax", 
+    https_only=False
+)
 
 # Rate limiting middleware
 from app.middleware import RateLimitMiddleware
@@ -102,7 +107,7 @@ async def get_status():
     is_actually_running = process_exists and process_poll is None
     
     # Debug logging
-    logger.debug(f"[PREVIEW_STATUS] process={process_exists}, poll={process_poll}, is_running={is_actually_running}, url={preview_manager.current_url}")
+    # logger.debug(f"[PREVIEW_STATUS] process={process_exists}, poll={process_poll}, is_running={is_actually_running}, url={preview_manager.current_url}")
     
     return {
         "is_running": is_actually_running,

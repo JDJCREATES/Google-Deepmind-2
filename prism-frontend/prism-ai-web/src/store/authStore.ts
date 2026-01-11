@@ -79,6 +79,10 @@ export const useAuthStore = create<AuthState>((set) => ({
    * Redirects to Google consent screen
    */
   loginWithGoogle: () => {
+    if (import.meta.env.DEV) {
+      console.log('[Auth] Initiating Google login...');
+      console.log(`[Auth] Redirecting to: ${API_URL}/auth/google`);
+    }
     // Don't set loading - we're redirecting immediately
     window.location.href = `${API_URL}/auth/google`;
   },

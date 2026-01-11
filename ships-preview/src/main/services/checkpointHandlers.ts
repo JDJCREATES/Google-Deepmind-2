@@ -9,13 +9,12 @@ import { ipcMain } from 'electron';
 import { GitCheckpointService, getCheckpointService } from './gitCheckpoint';
 
 let checkpointService: GitCheckpointService | null = null;
-let currentProjectPath: string | null = null;
+
 
 /**
  * Register checkpoint IPC handlers
  */
 export function registerCheckpointHandlers(projectPath: string): void {
-  currentProjectPath = projectPath;
 
   // Initialize checkpoint service
   ipcMain.handle('checkpoint:initialize', async () => {
@@ -148,8 +147,8 @@ export function registerCheckpointHandlers(projectPath: string): void {
 /**
  * Update project path for checkpoint service
  */
-export function updateCheckpointProjectPath(projectPath: string): void {
-  currentProjectPath = projectPath;
+export function updateCheckpointProjectPath(_projectPath: string): void {
+  // Path stored for potential future use
   checkpointService = null; // Will be re-initialized on next call
 }
 
@@ -167,5 +166,4 @@ export function removeCheckpointHandlers(): void {
   ipcMain.removeHandler('checkpoint:getCurrentStep');
   
   checkpointService = null;
-  currentProjectPath = null;
 }

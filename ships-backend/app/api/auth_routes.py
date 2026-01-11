@@ -106,12 +106,14 @@ async def google_callback(request: Request, db: AsyncSession = Depends(get_sessi
         
         # Exchange code for token
         try:
+            logger.info(f"Callback Request URL: {request.url}")
             token = await oauth.oauth.google.authorize_access_token(request)
         except OAuthError as e:
             logger.error(f"Token exchange failed: {e}")
+            # Include the specific error in the description for debugging
             raise AuthError(
                 error="token_exchange_failed",
-                description="Failed to obtain access token from Google",
+                description=f"Failed to obtain access token: {str(e)}",
                 status_code=400
             )
         
@@ -187,7 +189,14 @@ async def google_callback(request: Request, db: AsyncSession = Depends(get_sessi
         return RedirectResponse(url=error_url)
     except Exception as e:
         logger.error(f"Unexpected error during OAuth callback: {e}", exc_info=True)
-        error_url = "/?auth_error=server_error&auth_error_description=Authentication failed"
+        # return specific error for debugging
+        import urllib.parse
+        safe_error = urllib.parse.quote(str(e))
+        
+        # Redirect to FRONTEND, not backend root
+        import os
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+        error_url = f"{frontend_url}/?auth_error=server_error&auth_error_description={safe_error}"
         return RedirectResponse(url=error_url)
 
 
