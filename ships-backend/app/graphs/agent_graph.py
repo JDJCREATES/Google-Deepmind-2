@@ -890,7 +890,10 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
 
     # 5. Check for AMBIGUOUS intent (needs clarification) - CRITICAL FIX
     # The Intent Classifier can detect ambiguity but we weren't checking it!
-    if current_intent and current_intent.is_ambiguous:
+    # ALSO: Track if we already asked, to prevent infinite loop
+    already_asked = artifacts.get("asked_for_clarification", False)
+    
+    if current_intent and current_intent.is_ambiguous and not already_asked:
         clarification_msg = "\n".join(current_intent.clarification_questions) if current_intent.clarification_questions else "I need more information to proceed. Could you clarify what you'd like me to do?"
         logger.info(f"[ORCHESTRATOR] ❓ AMBIGUOUS request detected - asking for clarification")
         logger.info(f"[ORCHESTRATOR] Questions: {current_intent.clarification_questions}")
@@ -898,8 +901,15 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
         return {
             "phase": "chat",  # Route to chat to show message
             "messages": [AIMessage(content=f"🤔 **I need clarification:**\n\n{clarification_msg}")],
-            "artifacts": {**artifacts, "pending_intent": current_intent.model_dump() if hasattr(current_intent, 'model_dump') else {}}
+            "artifacts": {
+                **artifacts, 
+                "pending_intent": current_intent.model_dump() if hasattr(current_intent, 'model_dump') else {},
+                "asked_for_clarification": True  # Prevent re-asking loop
+            }
         }
+    elif current_intent and current_intent.is_ambiguous and already_asked:
+        # Already asked - just proceed with best guess
+        logger.info("[ORCHESTRATOR] ⏭️ Already asked for clarification, proceeding with best guess")
 
     # 6. Check for NEW INTENT in EXISTING PROJECT (potential conflict)
     # If user asks for something new but we have existing code, ASK before proceeding

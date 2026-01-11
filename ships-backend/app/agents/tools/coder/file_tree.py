@@ -72,18 +72,33 @@ def _get_symbols_from_file(file_path: Path) -> List[str]:
         content = file_path.read_bytes()
         tree = parser.parse(content)
         
-        # Run query
+        # Run query - handle API changes in tree-sitter 0.25+
         query_str = QUERIES.get(lang_name)
         if not query_str:
             return []
-            
-        query = language.query(query_str)
-        captures = query.captures(tree.root_node)
+        
+        try:
+            # tree-sitter 0.25+ API
+            query = language.query(query_str)
+            captures = query.captures(tree.root_node)
+        except TypeError:
+            # Older API or incompatible version - skip query
+            logger.debug(f"[CODER] tree-sitter query API mismatch, skipping symbols for {file_path.name}")
+            return []
         
         symbols = []
-        for node, capture_name in captures:
-            if capture_name == "name":
+        # Handle both old and new capture formats
+        if isinstance(captures, dict):
+            # New format: dict of {capture_name: [nodes]}
+            for node in captures.get("name", []):
                 symbols.append(content[node.start_byte:node.end_byte].decode("utf-8"))
+        else:
+            # Old format: list of (node, capture_name)
+            for item in captures:
+                if isinstance(item, tuple) and len(item) == 2:
+                    node, capture_name = item
+                    if capture_name == "name":
+                        symbols.append(content[node.start_byte:node.end_byte].decode("utf-8"))
                 
         return list(set(symbols)) # Dedupe
         
@@ -234,9 +249,13 @@ def get_file_tree(force_rescan: bool = False) -> Dict[str, Any]:
             except Exception as e:
                 logger.warning(f"[CODER] ⚠️ Failed to read artifact: {e}")
         
-        # Fall back to scanning
+        # Fall back to scanning - call the tool properly using invoke()
         logger.info(f"[CODER] 🔍 No artifact found, scanning...")
-        return scan_project_tree(subpath=".", extract_symbols=True, save_artifact=True)
+        return scan_project_tree.invoke({
+            "subpath": ".",
+            "extract_symbols": True,
+            "save_artifact": True
+        })
         
     except Exception as e:
         logger.error(f"[CODER] ❌ get_file_tree failed: {e}")
@@ -246,12 +265,17 @@ def get_file_tree(force_rescan: bool = False) -> Dict[str, Any]:
 @tool
 def get_artifact(name: str) -> Dict[str, Any]:
     """
-    Read any artifact from .ships/ directory.
+    Read any JSON artifact from .ships/ directory.
     
     Available artifacts:
     - file_tree.json: File structure with symbols
     - dependency_graph.json: Module dependencies, circular deps
     - security_report.json: Vulnerabilities and secrets
+    - task_list.json: Current task list
+    - dependency_plan.json: Dependency plan
+    - folder_map.json: Folder structure
+    
+    Note: Only reads .json files. Non-JSON files (like .md) are ignored.
     
     Args:
         name: Artifact filename (e.g. "dependency_graph.json")
@@ -270,6 +294,14 @@ def get_artifact(name: str) -> Dict[str, Any]:
                 "hint": "Run 'generateArtifacts()' in Electron to create artifacts"
             }
         
+        # Only parse JSON files
+        if not name.endswith('.json'):
+            return {
+                "success": False,
+                "error": f"Only JSON artifacts are supported, got: {name}",
+                "hint": "Use .json artifact files"
+            }
+        
         import json
         with open(artifact_path, "r", encoding="utf-8") as f:
             content = json.load(f)
@@ -280,3 +312,4 @@ def get_artifact(name: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"[CODER] ❌ Failed to read artifact {name}: {e}")
         return {"success": False, "error": str(e)}
+

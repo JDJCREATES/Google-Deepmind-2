@@ -111,7 +111,6 @@ const IGNORE_FILES = new Set([
 export class CodeAnalyzer {
   private projectPath: string;
   private parserInitialized = false;
-  private Parser: any;
   private parsers: Map<string, any> = new Map();
 
   constructor(projectPath: string) {
@@ -127,7 +126,6 @@ export class CodeAnalyzer {
     try {
       const TreeSitter = require('web-tree-sitter');
       await TreeSitter.init();
-      this.Parser = TreeSitter;
 
       // Load language parsers from node_modules
       const wasmPath = path.join(__dirname, '../../node_modules/web-tree-sitter');
@@ -325,7 +323,7 @@ export class CodeAnalyzer {
   /**
    * Extract function from AST node
    */
-  private extractFunction(node: any, content: string, language: string): FunctionSymbol {
+  private extractFunction(node: any, content: string, _language: string): FunctionSymbol {
     const nameNode = node.childForFieldName('name');
     const name = nameNode ? content.slice(nameNode.startIndex, nameNode.endIndex) : 'anonymous';
     
@@ -350,7 +348,7 @@ export class CodeAnalyzer {
     };
   }
 
-  private extractClass(node: any, content: string, language: string): ClassSymbol {
+  private extractClass(node: any, content: string, _language: string): ClassSymbol {
     const nameNode = node.childForFieldName('name');
     const name = nameNode ? content.slice(nameNode.startIndex, nameNode.endIndex) : 'Anonymous';
 

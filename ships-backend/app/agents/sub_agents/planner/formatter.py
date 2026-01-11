@@ -12,18 +12,16 @@ from datetime import datetime
 
 def format_implementation_plan(artifacts: Dict[str, Any], project_name: str = "Project") -> str:
     """
-    Format implementation plan as a LEAN DESIGN DOCUMENT.
+    Format implementation plan as an EXECUTION OVERVIEW.
     
-    This should NOT duplicate content from JSON artifacts:
-    - task_list.json → Tasks
-    - folder_map.json → File structure
-    - dependency_plan.json → Dependencies
-    - api_contracts.json → API endpoints
+    Antigravity-style: This is a human-readable document that explains
+    WHAT the agents are about to do, WHY, and provides predictable checkpoints.
     
-    Instead, it provides:
-    - High-level summary and design decisions
-    - Architecture overview
-    - References to detailed JSON artifacts
+    The user should be able to read this and understand:
+    - What will be created/modified
+    - Key architectural decisions
+    - Agent workflow (Planner → Coder → Validator)
+    - How to verify success
     """
     try:
         manifest = _to_dict(artifacts.get("plan_manifest", {}))
@@ -36,103 +34,112 @@ def format_implementation_plan(artifacts: Dict[str, Any], project_name: str = "P
         
         # === Header ===
         summary = manifest.get("summary", project_name)
-        version = manifest.get("version", "1.0.0")
-        timestamp = datetime.utcnow().isoformat() + "Z"
+        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
         
-        md.append(f"# {summary}")
-        md.append(f"**Version**: {version} | **Updated**: {timestamp}")
+        md.append(f"# 🚀 Execution Plan: {summary}")
+        md.append(f"*Generated: {timestamp}*")
         md.append("")
         
-        # === Summary ===
+        # === What We're Building ===
         description = manifest.get("detailed_description", "")
         if description:
+            md.append("## 📋 What We're Building")
             md.append(description)
             md.append("")
         
-        # === Tech Stack (concise) ===
-        md.append("## Tech Stack")
-        stack_items = []
-        if assumptions.get("framework"):
-            stack_items.append(f"**Framework**: {assumptions['framework']}")
-        if assumptions.get("styling"):
-            stack_items.append(f"**Styling**: {assumptions['styling']}")
-        if assumptions.get("state_management"):
-            stack_items.append(f"**State**: {assumptions['state_management']}")
-        
-        # Also check runtime deps for key libraries
-        runtime_deps = dep_data.get("runtime_dependencies", [])
-        key_libs = [d.get("name") for d in runtime_deps if d.get("name") in 
-                   ["framer-motion", "zustand", "react-query", "axios", "lucide-react"]]
-        if key_libs:
-            stack_items.append(f"**Key Libraries**: {', '.join(key_libs)}")
-        
-        if stack_items:
-            md.append(" | ".join(stack_items))
-        else:
-            md.append("React + TypeScript + TailwindCSS")
+        # === Agent Workflow ===
+        tasks = task_list.get("tasks", [])
+        md.append("## 🤖 Execution Workflow")
+        md.append("")
+        md.append("This plan will be executed in phases:")
+        md.append("")
+        md.append("### Phase 1: Setup (Planner)")
+        md.append("- ✅ Analyzed your request")
+        md.append("- ✅ Created project structure plan")
+        md.append("- ✅ Identified required dependencies")
+        if tasks:
+            md.append(f"- ✅ Defined {len(tasks)} implementation tasks")
         md.append("")
         
-        # === Architecture (only if there are interesting decisions) ===
-        decision_notes = manifest.get("decision_notes", [])
-        if decision_notes:
-            md.append("## Architecture Decisions")
-            for note in decision_notes[:5]:  # Max 5 decisions
-                md.append(f"- {note}")
-            md.append("")
-        
-        # === Project Structure Summary (reference to folder_map.json) ===
+        md.append("### Phase 2: Implementation (Coder)")
+        # List actual files to be created
         entries = folder_map.get("entries", [])
-        if entries:
-            md.append("## Project Structure")
-            # Show top-level directories only
-            dirs = sorted(set(
-                e.get("path", "").split("/")[0] 
-                for e in entries 
-                if "/" in e.get("path", "") and not e.get("path", "").startswith(".")
-            ))
-            if dirs:
-                md.append("```")
-                for d in dirs[:8]:  # Max 8 top-level dirs
-                    md.append(f"├── {d}/")
-                md.append("```")
-            md.append(f"*Full structure: See `folder_map.json` ({len(entries)} files)*")
-            md.append("")
+        files = [e for e in entries if not e.get("is_directory", False)]
+        dirs = [e for e in entries if e.get("is_directory", False)]
         
-        # === Tasks Summary (reference to task_list.json) ===
-        tasks = task_list.get("tasks", [])
-        if tasks:
-            md.append("## Implementation Tasks")
-            completed = sum(1 for t in tasks if t.get("status") == "completed")
-            in_progress = sum(1 for t in tasks if t.get("status") == "in_progress")
-            pending = sum(1 for t in tasks if t.get("status") == "pending")
-            
-            md.append(f"**Progress**: {completed}/{len(tasks)} complete")
-            if in_progress > 0:
-                md.append(f" | {in_progress} in progress")
-            md.append("")
-            
-            # Show first 3 tasks as preview
-            for task in tasks[:3]:
-                status_icon = {"completed": "✅", "in_progress": "🔄", "pending": "⬜"}.get(
-                    task.get("status", "pending"), "⬜"
-                )
-                md.append(f"- {status_icon} {task.get('title', 'Untitled')}")
-            
-            if len(tasks) > 3:
-                md.append(f"- ... and {len(tasks) - 3} more tasks")
-            md.append("")
-            md.append("*Full task list: See `task_list.json`*")
-            md.append("")
+        if dirs:
+            dir_names = sorted(set(e.get("path", "").split("/")[0] for e in entries if "/" in e.get("path", "")))[:5]
+            if dir_names:
+                md.append(f"- Create folders: `{', '.join(dir_names)}`")
         
-        # === Dependencies Summary ===
+        if files:
+            md.append(f"- Generate {len(files)} source files")
+            # Show key files
+            key_files = [f.get("path") for f in files if any(kw in f.get("path", "") for kw in ["App", "index", "main", "store", "config"])][:5]
+            if key_files:
+                for kf in key_files:
+                    md.append(f"  - `{kf}`")
+        
         runtime = dep_data.get("runtime_dependencies", [])
         dev = dep_data.get("dev_dependencies", [])
         if runtime or dev:
-            md.append("## Dependencies")
-            md.append(f"**Runtime**: {len(runtime)} packages | **Dev**: {len(dev)} packages")
+            md.append(f"- Install {len(runtime)} runtime + {len(dev)} dev dependencies")
+        md.append("")
+        
+        md.append("### Phase 3: Validation (Validator)")
+        md.append("- Run `npm install` to fetch dependencies")
+        md.append("- Run `npm run build` to verify compilation")
+        md.append("- Check for TypeScript/ESLint errors")
+        md.append("- Debug and fix any issues automatically")
+        md.append("")
+        
+        # === Design Decisions ===
+        decision_notes = manifest.get("decision_notes", [])
+        if decision_notes or assumptions:
+            md.append("## 🎯 Design Decisions")
             md.append("")
-            md.append("*Full list: See `dependency_plan.json`*")
+            
+            if assumptions.get("framework"):
+                md.append(f"- **Framework**: {assumptions['framework']}")
+            if assumptions.get("styling"):
+                md.append(f"- **Styling**: {assumptions['styling']}")
+            if assumptions.get("state_management"):
+                md.append(f"- **State Management**: {assumptions['state_management']}")
+            
+            for note in decision_notes[:5]:
+                md.append(f"- {note}")
             md.append("")
+        
+        # === Success Criteria ===
+        md.append("## ✅ Success Criteria")
+        md.append("")
+        md.append("The implementation is complete when:")
+        md.append("1. All files are created in the project folder")
+        md.append("2. `npm run build` completes without errors")
+        md.append("3. The application runs with `npm run dev`")
+        
+        # Add task-specific criteria
+        if tasks:
+            for task in tasks[:3]:
+                criteria = task.get("acceptance_criteria", [])
+                if criteria:
+                    c = _to_dict(criteria[0])
+                    if c.get("then"):
+                        md.append(f"4. {c.get('then')}")
+                        break
+        md.append("")
+        
+        # === What's Next ===
+        md.append("## 📂 Detailed Artifacts")
+        md.append("")
+        md.append("For granular details, see:")
+        md.append("- `task_list.json` - Step-by-step tasks")
+        md.append("- `folder_map.json` - Complete file structure")
+        md.append("- `dependency_plan.json` - All npm packages")
+        md.append("")
+        
+        md.append("---")
+        md.append("*This plan was generated by ShipS* Planner. Execution begins automatically.*")
         
         return "\n".join(md)
         

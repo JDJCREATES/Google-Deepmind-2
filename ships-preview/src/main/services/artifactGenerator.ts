@@ -8,7 +8,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { CodeAnalyzer, FileTree } from './codeAnalyzer';
-import { DependencyAnalyzer, DependencyGraph } from './dependencyAnalyzer';
+import { DependencyAnalyzer } from './dependencyAnalyzer';
 import { SecurityScanner, SecurityReport } from './securityScanner';
 
 export interface ArtifactStatus {
