@@ -111,6 +111,7 @@ class User(Base):
     # Relationships
     projects = relationship("Project", back_populates="user", cascade="all, delete-orphan")
     usage_logs = relationship("UsageLog", back_populates="user", cascade="all, delete-orphan")
+    agent_runs = relationship("AgentRun", back_populates="user", cascade="all, delete-orphan")
     
     def get_tier_limits(self) -> dict:
         """

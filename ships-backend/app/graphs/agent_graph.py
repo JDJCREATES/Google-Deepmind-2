@@ -1253,12 +1253,26 @@ async def complete_node(state: AgentGraphState) -> Dict[str, Any]:
         logger.debug(f"[COMPLETE] Pattern capture skipped: {e}")
     # ================================================================
     
+    # ===== RUN COMPLETION EVENT: For Electron git checkpointing =====
+    # This gets streamed to the frontend via the WebSocket and can be
+    # forwarded to Electron for git commit on run completion
+    run_complete_event = {
+        "type": "run:complete",
+        "project_path": project_path,
+        "step_count": state.get("current_step", 0),
+        "files_completed": len(state.get("completed_files", [])),
+        "status": "complete"
+    }
+    logger.info(f"[COMPLETE] 📤 Run complete event: {run_complete_event}")
+    # ================================================================
+    
     return {
         "phase": "complete",
         "result": {
             "success": True,
             "preview_url": preview_url,
-            "project_path": project_path
+            "project_path": project_path,
+            "run_complete_event": run_complete_event  # For Electron git checkpoint
         }
     }
 
