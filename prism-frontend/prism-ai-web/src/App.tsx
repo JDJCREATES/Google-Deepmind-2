@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { MdLightMode, MdDarkMode } from 'react-icons/md';
+// Theme toggle removed from activity bar - now in Settings only
 import { 
   VscFiles, 
   VscSearch, 
@@ -31,7 +31,7 @@ import './App.css';
 type SidebarView = 'files' | 'artifacts' | 'search';
 
 function App() {
-  const { theme, toggleTheme } = useTheme();
+  const { theme } = useTheme();
   const [showExplorer, setShowExplorer] = useState(true);
   const [activeSidebarView, setActiveSidebarView] = useState<SidebarView>('files');
   const [showSettings, setShowSettings] = useState(false);
@@ -126,9 +126,6 @@ function App() {
                title="Terminal"
              >
                <VscTerminal size={24} />
-             </div>
-             <div className="activity-icon" onClick={toggleTheme} title="Toggle Theme">
-               {theme === 'vs-dark' ? <MdLightMode size={24} /> : <MdDarkMode size={24} />}
              </div>
              <div className="activity-icon" onClick={() => setShowSettings(true)} title="Settings">
                <VscSettingsGear size={24} />
