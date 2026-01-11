@@ -295,3 +295,21 @@
   gap: 12px;
   width: 100%;
 }
+
+/* Centered welcome message */
+.message-centered {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex: 1;
+  min-height: 200px;
+}
+
+.welcome-content {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary, #ccc);
+  text-align: center;
+  opacity: 0.8;
+}
+

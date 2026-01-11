@@ -578,13 +578,13 @@ class RunCommand(BaseModel):
 
 
 class DependencyPlan(BaseModel):
-    """Complete dependency and environment plan."""
+    """Complete dependency and environment plan with code health analysis."""
     metadata: ArtifactMetadata = Field(default_factory=ArtifactMetadata)
     
     # Package manager
     package_manager: Literal["npm", "pnpm", "yarn", "pip", "poetry"] = "npm"
     
-    # Dependencies
+    # Dependencies (only NEW ones to add, not existing)
     runtime_dependencies: List[PackageDependency] = Field(default_factory=list)
     dev_dependencies: List[PackageDependency] = Field(default_factory=list)
     
@@ -603,6 +603,24 @@ class DependencyPlan(BaseModel):
     # Runtime requirements
     node_version: Optional[str] = None
     python_version: Optional[str] = None
+    
+    # ========== CODE HEALTH ANALYSIS (from dependency_graph.json) ==========
+    circular_dependencies: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Circular import chains detected in codebase"
+    )
+    orphaned_files: List[str] = Field(
+        default_factory=list,
+        description="Files not imported by any other module"
+    )
+    total_modules: int = Field(
+        default=0,
+        description="Total modules analyzed"
+    )
+    external_packages_used: List[str] = Field(
+        default_factory=list,
+        description="NPM/pip packages actually imported in code"
+    )
 
 
 # ============================================================================

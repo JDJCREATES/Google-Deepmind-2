@@ -824,10 +824,34 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
         except Exception as e:
             logger.warning(f"[ORCHESTRATOR] Intent classification failed: {e}")
     
-    # Check if this is a NEW feature/modify request vs continuing previous work
+    # ====================================================================
+    # NEW INTENT DETECTION: Use LLM action type, not keyword matching
+    # ====================================================================
+    # If action is 'modify', 'add', 'update', 'fix', 'remove', etc. on an
+    # existing project with a plan, we need to create a FRESH plan for this
+    # specific modification - not continue the old project build plan.
+    # ====================================================================
+    
+    modification_actions = {'modify', 'add', 'update', 'fix', 'remove', 'change', 'improve', 'refactor', 'enhance'}
+    
     if project_path and plan_exists and current_intent:
-        # New feature/modify requests should trigger re-planning
-        if current_intent.task_type in ['feature', 'modify', 'refactor']:
+        # Check if this is a modification action (not a new build)
+        if current_intent.action in modification_actions:
+            # Check if the project seems "complete" (has source files, node_modules, etc.)
+            project_root = Path(project_path)
+            has_src = (project_root / "src").exists()
+            has_package = (project_root / "package.json").exists()
+            project_looks_complete = has_src or has_package
+            
+            if project_looks_complete:
+                is_new_intent = True
+                logger.info(f"[ORCHESTRATOR] 🔄 MODIFICATION on existing project detected")
+                logger.info(f"[ORCHESTRATOR]    Action: {current_intent.action}")
+                logger.info(f"[ORCHESTRATOR]    Request: {current_intent.description[:60]}...")
+                logger.info(f"[ORCHESTRATOR]    Will create fresh plan for this modification")
+        
+        # Also check for keyword-based new intent (fallback for edge cases)
+        elif current_intent.task_type in ['feature', 'modify', 'refactor'] and not is_new_intent:
             plan_manifest_path = Path(project_path) / ".ships" / "plan_manifest.json"
             if plan_manifest_path.exists():
                 try:
@@ -847,12 +871,10 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
                     overlap = len(current_keywords & planned_keywords)
                     coverage = overlap / len(current_keywords) if current_keywords else 1.0
                     
-                    # Less than 50% keyword coverage = likely new intent
-                    if coverage < 0.5:
+                    # Less than 30% keyword coverage = definitely new intent (lowered from 50%)
+                    if coverage < 0.3:
                         is_new_intent = True
                         logger.info(f"[ORCHESTRATOR] 🆕 NEW INTENT detected (keyword coverage: {coverage:.1%})")
-                        logger.info(f"[ORCHESTRATOR]    Type: {current_intent.task_type}, Action: {current_intent.action}")
-                        logger.info(f"[ORCHESTRATOR]    Description: {current_intent.description[:60]}...")
                         
                 except Exception as e:
                     logger.warning(f"[ORCHESTRATOR] Could not compare intents: {e}")

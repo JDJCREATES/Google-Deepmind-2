@@ -36,6 +36,7 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
       content: 'Ready to Ship?',
       sender: 'ai',
       timestamp: new Date(),
+      centered: true,
     },
   ]);
   const [inputValue, setInputValue] = useState('');
@@ -587,7 +588,7 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Time to ShipS*?"
+            placeholder="What should we build?"
             className="chat-input"
             rows={1}
             aria-label="Type your message"

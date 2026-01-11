@@ -345,8 +345,12 @@ class DependencyPlanner:
     """
     Dependency planning component.
     
-    READS actual dependencies from package.json/requirements.txt first (ground truth),
-    then merges LLM-suggested packages for new dependencies.
+    READS dependency_graph.json for code health analysis:
+    - Circular dependencies
+    - Orphaned files
+    - Actually-used external packages
+    
+    Only suggests NEW dependencies if LLM recommends them.
     """
     
     def __init__(self, config: Optional[PlannerComponentConfig] = None):
@@ -354,19 +358,19 @@ class DependencyPlanner:
     
     def process(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Process context and produce DependencyPlan.
+        Process context and produce DependencyPlan with code health analysis.
         
-        1. Read actual dependencies from package.json (ground truth)
-        2. Merge LLM-suggested NEW dependencies
-        3. Never duplicate existing packages
+        1. Read dependency_graph.json for circular deps and orphaned files
+        2. Only add NEW dependencies suggested by LLM (not existing ones)
         
         Returns:
             Dict with 'dependency_plan' key containing DependencyPlan
         """
         import logging
+        import json
+        from pathlib import Path
         logger = logging.getLogger("ships.planner")
         
-        framework = context.get("framework", "react")
         intent = context.get("intent", {})
         llm_plan = context.get("llm_plan", {})
         project_path = context.get("environment", {}).get("project_path", "")
@@ -379,107 +383,90 @@ class DependencyPlanner:
         )
         
         # =====================================================================
-        # STEP 1: Read ACTUAL dependencies from project (GROUND TRUTH)
+        # STEP 1: Read dependency_graph.json for CODE HEALTH ANALYSIS
         # =====================================================================
-        existing_runtime = set()
-        existing_dev = set()
+        if project_path:
+            graph_path = Path(project_path) / ".ships" / "dependency_graph.json"
+            
+            if graph_path.exists():
+                try:
+                    graph_data = json.loads(graph_path.read_text(encoding='utf-8'))
+                    
+                    # Extract useful analysis
+                    dependency_plan.total_modules = graph_data.get("totalModules", 0)
+                    dependency_plan.circular_dependencies = graph_data.get("circularDependencies", [])
+                    dependency_plan.orphaned_files = graph_data.get("orphanedFiles", [])[:10]  # Limit to 10
+                    dependency_plan.external_packages_used = graph_data.get("externalPackages", [])
+                    
+                    logger.info(f"[DEPENDENCY_PLANNER] 📊 Code analysis loaded:")
+                    logger.info(f"   Modules: {dependency_plan.total_modules}")
+                    logger.info(f"   Circular deps: {len(dependency_plan.circular_dependencies)}")
+                    logger.info(f"   Orphaned files: {len(dependency_plan.orphaned_files)}")
+                    logger.info(f"   External packages: {len(dependency_plan.external_packages_used)}")
+                    
+                except Exception as e:
+                    logger.warning(f"[DEPENDENCY_PLANNER] Could not read dependency_graph.json: {e}")
+            else:
+                logger.info("[DEPENDENCY_PLANNER] No dependency_graph.json found - run Electron to generate")
         
+        # =====================================================================
+        # STEP 2: Add ONLY NEW dependencies from LLM (not duplicates)
+        # =====================================================================
+        # Read existing deps to avoid duplicates
+        existing_deps = set()
         if project_path:
             from app.agents.tools.common.package_reader import read_project_dependencies
-            actual_deps = read_project_dependencies(project_path)
-            
-            if actual_deps.get("success"):
-                logger.info(f"[DEPENDENCY_PLANNER] 📦 Read actual deps: "
-                           f"{len(actual_deps.get('runtime_dependencies', []))} runtime, "
-                           f"{len(actual_deps.get('dev_dependencies', []))} dev")
-                
-                dependency_plan.package_manager = actual_deps.get("package_manager", "npm")
-                
-                # Store actual deps
-                for dep in actual_deps.get("runtime_dependencies", []):
-                    dependency_plan.runtime_dependencies.append(PackageDependency(
-                        name=dep["name"],
-                        version=dep.get("version", "latest"),
-                        purpose="Existing dependency"
-                    ))
-                    existing_runtime.add(dep["name"])
-                
-                for dep in actual_deps.get("dev_dependencies", []):
-                    dependency_plan.dev_dependencies.append(PackageDependency(
-                        name=dep["name"],
-                        version=dep.get("version", "latest"),
-                        purpose="Existing dev dependency"
-                    ))
-                    existing_dev.add(dep["name"])
+            actual = read_project_dependencies(project_path)
+            if actual.get("success"):
+                for dep in actual.get("runtime_dependencies", []):
+                    existing_deps.add(dep["name"])
+                for dep in actual.get("dev_dependencies", []):
+                    existing_deps.add(dep["name"])
+                dependency_plan.package_manager = actual.get("package_manager", "npm")
         
-        # =====================================================================
-        # STEP 2: Add framework defaults ONLY if no existing deps (new project)
-        # =====================================================================
-        if not existing_runtime and framework in ["react", "vite"]:
-            logger.info("[DEPENDENCY_PLANNER] New project - adding framework defaults")
-            dependency_plan.runtime_dependencies = [
-                PackageDependency(name="react", version="^18.2.0", purpose="UI library"),
-                PackageDependency(name="react-dom", version="^18.2.0", purpose="React DOM renderer"),
-            ]
-            existing_runtime = {"react", "react-dom"}
-            
-            dependency_plan.dev_dependencies = [
-                PackageDependency(name="typescript", version="^5.0.0", purpose="Type checking"),
-                PackageDependency(name="@types/react", version="^18.2.0", purpose="React types"),
-                PackageDependency(name="vite", version="^5.0.0", purpose="Build tool"),
-            ]
-            existing_dev = {"typescript", "@types/react", "vite"}
-        
-        dependency_plan.commands = [
-            RunCommand(name="dev", command="npm run dev", description="Start dev server"),
-            RunCommand(name="build", command="npm run build", description="Build for production"),
-        ]
-        
-        # =====================================================================
-        # STEP 3: Merge LLM-suggested NEW dependencies (no duplicates)
-        # =====================================================================
+        # Merge LLM-suggested NEW dependencies only
         llm_deps = llm_plan.get("dependencies", {})
-        
-        # Handle list structure (legacy/bad LLM output)
         if isinstance(llm_deps, list):
-             llm_deps = {"runtime": llm_deps, "dev": []}
-        # Handle Pydantic model
+            llm_deps = {"runtime": llm_deps, "dev": []}
         elif hasattr(llm_deps, 'model_dump'):
             llm_deps = llm_deps.model_dump()
         
-        # Runtime - only add if NOT already present
         for dep in llm_deps.get("runtime", []) or []:
             if hasattr(dep, 'model_dump'):
                 dep = dep.model_dump()
             elif not isinstance(dep, dict):
                 continue
-
             name = dep.get("name", "")
-            if name and name not in existing_runtime:
-                logger.info(f"[DEPENDENCY_PLANNER] ➕ Adding new dep from LLM: {name}")
+            if name and name not in existing_deps:
+                logger.info(f"[DEPENDENCY_PLANNER] ➕ New runtime dep: {name}")
                 dependency_plan.runtime_dependencies.append(PackageDependency(
                     name=name,
                     version=dep.get("version", "latest"),
-                    purpose="Added by planner"
+                    purpose="Needed for this feature"
                 ))
-                existing_runtime.add(name)
+                existing_deps.add(name)
         
-        # Dev - only add if NOT already present
         for dep in llm_deps.get("dev", []) or []:
             if hasattr(dep, 'model_dump'):
                 dep = dep.model_dump()
             elif not isinstance(dep, dict):
                 continue
-
             name = dep.get("name", "")
-            if name and name not in existing_dev:
-                logger.info(f"[DEPENDENCY_PLANNER] ➕ Adding new dev dep from LLM: {name}")
+            if name and name not in existing_deps:
+                logger.info(f"[DEPENDENCY_PLANNER] ➕ New dev dep: {name}")
                 dependency_plan.dev_dependencies.append(PackageDependency(
                     name=name,
                     version=dep.get("version", "latest"),
-                    purpose="Added by planner"
+                    purpose="Dev tool for this feature",
+                    is_dev=True
                 ))
-                existing_dev.add(name)
+                existing_deps.add(name)
+        
+        # Default commands
+        dependency_plan.commands = [
+            RunCommand(name="dev", command="npm run dev", description="Start dev server"),
+            RunCommand(name="build", command="npm run build", description="Build for production"),
+        ]
         
         return {"dependency_plan": dependency_plan}
 
