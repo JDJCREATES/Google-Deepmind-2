@@ -15,6 +15,7 @@ export interface ArtifactStatus {
   fileTree: { generated: boolean; lastUpdated?: string; totalFiles?: number };
   dependencyGraph: { generated: boolean; lastUpdated?: string; totalModules?: number };
   securityReport: { generated: boolean; lastUpdated?: string; criticalCount?: number };
+  callGraph: { generated: boolean; lastUpdated?: string; totalNodes?: number };
 }
 
 export interface GenerationResult {
@@ -89,6 +90,17 @@ export class ArtifactGenerator {
       errors.push(`security_report: ${error.message}`);
     }
 
+    // Generate call_graph.json (function-level relationships)
+    try {
+      console.log('[ArtifactGenerator] Generating call_graph.json...');
+      await this.codeAnalyzer.generateCallGraph();
+      artifacts.push('call_graph.json');
+      console.log('[ArtifactGenerator] ✓ call_graph.json generated');
+    } catch (error: any) {
+      console.error('[ArtifactGenerator] ✗ call_graph.json failed:', error);
+      errors.push(`call_graph: ${error.message}`);
+    }
+
     const duration = Date.now() - startTime;
     console.log(`[ArtifactGenerator] Generation complete in ${duration}ms`);
 
@@ -130,6 +142,7 @@ export class ArtifactGenerator {
       fileTree: getArtifactInfo('file_tree.json'),
       dependencyGraph: getArtifactInfo('dependency_graph.json'),
       securityReport: getArtifactInfo('security_report.json'),
+      callGraph: getArtifactInfo('call_graph.json'),
     };
   }
 

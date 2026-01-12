@@ -59,6 +59,47 @@ export interface ExportSymbol {
   line: number;
 }
 
+// Call Graph Types - Function-to-Function relationships
+export interface FunctionCall {
+  callee: string;           // Name of the function being called
+  line: number;             // Line where the call occurs
+  column?: number;          // Column position
+  isMethodCall: boolean;    // obj.method() vs function()
+  receiver?: string;        // The object if method call (e.g., "this", "utils")
+}
+
+export interface CallGraphNode {
+  file: string;             // File path
+  name: string;             // Function/method name
+  fullName: string;         // Fully qualified: "ClassName.methodName" or "functionName"
+  line: number;
+  calls: FunctionCall[];    // Functions this node calls
+}
+
+export interface CallGraph {
+  version: string;
+  generatedAt: string;
+  projectPath: string;
+  nodes: CallGraphNode[];
+}
+
+// Dependency Graph Types - File-to-File relationships
+export interface DependencyEdge {
+  from: string;             // Importing file (relative path)
+  to: string;               // Imported module/file
+  imports: string[];        // Specific items imported
+  isExternal: boolean;      // true if node_modules/external
+  line: number;
+}
+
+export interface DependencyGraph {
+  version: string;
+  generatedAt: string;
+  projectPath: string;
+  edges: DependencyEdge[];
+  circular: string[][];     // Groups of files in circular dependencies
+}
+
 export interface FileAnalysis {
   path: string;
   relativePath: string;
@@ -551,5 +592,295 @@ export class CodeAnalyzer {
     }
 
     return { functions, classes, imports, exports };
+  }
+
+  /**
+   * Generate dependency_graph.json from import relationships
+   */
+  async generateDependencyGraph(): Promise<DependencyGraph> {
+    await this.initParsers();
+    
+    const fileTree = await this.generateFileTree();
+    const edges: DependencyEdge[] = [];
+    const fileSet = new Set(Object.keys(fileTree.files));
+    
+    for (const [filePath, analysis] of Object.entries(fileTree.files)) {
+      for (const imp of analysis.symbols.imports) {
+        // Determine if external (starts with @ or doesn't start with . or /)
+        const isExternal = !imp.module.startsWith('.') && !imp.module.startsWith('/');
+        
+        // Resolve relative imports to actual file paths
+        let resolvedPath = imp.module;
+        if (!isExternal) {
+          const baseDir = path.dirname(filePath);
+          resolvedPath = path.posix.normalize(path.posix.join(baseDir, imp.module));
+          
+          // Try to resolve with extensions
+          for (const ext of ['.ts', '.tsx', '.js', '.jsx', '/index.ts', '/index.tsx', '/index.js']) {
+            if (fileSet.has(resolvedPath + ext)) {
+              resolvedPath = resolvedPath + ext;
+              break;
+            }
+          }
+        }
+        
+        edges.push({
+          from: filePath,
+          to: resolvedPath,
+          imports: imp.items,
+          isExternal,
+          line: imp.line,
+        });
+      }
+    }
+    
+    // Detect circular dependencies using DFS
+    const circular = this.detectCircularDependencies(edges);
+    
+    const depGraph: DependencyGraph = {
+      version: '1.0.0',
+      generatedAt: new Date().toISOString(),
+      projectPath: this.projectPath,
+      edges,
+      circular,
+    };
+    
+    // Write to .ships/
+    const shipsDir = path.join(this.projectPath, '.ships');
+    if (!fs.existsSync(shipsDir)) {
+      fs.mkdirSync(shipsDir, { recursive: true });
+    }
+    fs.writeFileSync(
+      path.join(shipsDir, 'dependency_graph.json'),
+      JSON.stringify(depGraph, null, 2)
+    );
+    
+    return depGraph;
+  }
+  
+  /**
+   * Detect circular dependencies
+   */
+  private detectCircularDependencies(edges: DependencyEdge[]): string[][] {
+    const graph = new Map<string, string[]>();
+    
+    for (const edge of edges) {
+      if (!edge.isExternal) {
+        const deps = graph.get(edge.from) || [];
+        deps.push(edge.to);
+        graph.set(edge.from, deps);
+      }
+    }
+    
+    const visited = new Set<string>();
+    const recursionStack = new Set<string>();
+    const cycles: string[][] = [];
+    
+    const dfs = (node: string, path: string[]): void => {
+      if (recursionStack.has(node)) {
+        // Found cycle - extract it
+        const cycleStart = path.indexOf(node);
+        if (cycleStart !== -1) {
+          cycles.push(path.slice(cycleStart));
+        }
+        return;
+      }
+      
+      if (visited.has(node)) return;
+      
+      visited.add(node);
+      recursionStack.add(node);
+      
+      for (const dep of graph.get(node) || []) {
+        dfs(dep, [...path, node]);
+      }
+      
+      recursionStack.delete(node);
+    };
+    
+    for (const node of graph.keys()) {
+      if (!visited.has(node)) {
+        dfs(node, []);
+      }
+    }
+    
+    return cycles;
+  }
+
+  /**
+   * Generate call_graph.json from function call analysis
+   */
+  async generateCallGraph(): Promise<CallGraph> {
+    await this.initParsers();
+    
+    const fileTree = await this.generateFileTree();
+    const nodes: CallGraphNode[] = [];
+    
+    for (const [filePath, analysis] of Object.entries(fileTree.files)) {
+      // Read file content for call extraction
+      const fullPath = path.join(this.projectPath, filePath);
+      let content: string;
+      try {
+        content = fs.readFileSync(fullPath, 'utf-8');
+      } catch {
+        continue;
+      }
+      
+      const parser = this.parsers.get(analysis.language);
+      
+      // Extract calls for each function
+      for (const func of analysis.symbols.functions) {
+        const calls = parser
+          ? this.extractCallsWithTreeSitter(content, parser, func.line, func.endLine)
+          : this.extractCallsWithRegex(content, func.line, func.endLine);
+        
+        nodes.push({
+          file: filePath,
+          name: func.name,
+          fullName: func.name,
+          line: func.line,
+          calls,
+        });
+      }
+      
+      // Extract calls for class methods
+      for (const cls of analysis.symbols.classes) {
+        for (const method of cls.methods) {
+          const calls = parser
+            ? this.extractCallsWithTreeSitter(content, parser, method.line, method.endLine)
+            : this.extractCallsWithRegex(content, method.line, method.endLine);
+          
+          nodes.push({
+            file: filePath,
+            name: method.name,
+            fullName: `${cls.name}.${method.name}`,
+            line: method.line,
+            calls,
+          });
+        }
+      }
+    }
+    
+    const callGraph: CallGraph = {
+      version: '1.0.0',
+      generatedAt: new Date().toISOString(),
+      projectPath: this.projectPath,
+      nodes,
+    };
+    
+    // Write to .ships/
+    const shipsDir = path.join(this.projectPath, '.ships');
+    if (!fs.existsSync(shipsDir)) {
+      fs.mkdirSync(shipsDir, { recursive: true });
+    }
+    fs.writeFileSync(
+      path.join(shipsDir, 'call_graph.json'),
+      JSON.stringify(callGraph, null, 2)
+    );
+    
+    return callGraph;
+  }
+  
+  /**
+   * Extract function calls using tree-sitter AST
+   */
+  private extractCallsWithTreeSitter(
+    content: string,
+    parser: any,
+    startLine: number,
+    endLine: number
+  ): FunctionCall[] {
+    const calls: FunctionCall[] = [];
+    const tree = parser.parse(content);
+    
+    const walk = (node: any): void => {
+      const nodeLine = node.startPosition.row + 1;
+      
+      // Skip nodes outside our function range
+      if (nodeLine < startLine || nodeLine > endLine) {
+        for (const child of node.children || []) {
+          walk(child);
+        }
+        return;
+      }
+      
+      if (node.type === 'call_expression') {
+        const funcNode = node.childForFieldName('function') || node.children?.[0];
+        
+        if (funcNode) {
+          let callee = '';
+          let receiver: string | undefined;
+          let isMethodCall = false;
+          
+          if (funcNode.type === 'member_expression') {
+            // obj.method() or this.method()
+            isMethodCall = true;
+            const objNode = funcNode.childForFieldName('object');
+            const propNode = funcNode.childForFieldName('property');
+            
+            receiver = objNode ? content.substring(objNode.startIndex, objNode.endIndex) : undefined;
+            callee = propNode ? content.substring(propNode.startIndex, propNode.endIndex) : '';
+          } else {
+            // Direct function call
+            callee = content.substring(funcNode.startIndex, funcNode.endIndex);
+          }
+          
+          calls.push({
+            callee,
+            line: nodeLine,
+            column: node.startPosition.column,
+            isMethodCall,
+            receiver,
+          });
+        }
+      }
+      
+      for (const child of node.children || []) {
+        walk(child);
+      }
+    };
+    
+    walk(tree.rootNode);
+    return calls;
+  }
+  
+  /**
+   * Extract function calls using regex (fallback)
+   */
+  private extractCallsWithRegex(
+    content: string,
+    startLine: number,
+    endLine: number
+  ): FunctionCall[] {
+    const calls: FunctionCall[] = [];
+    const lines = content.split('\n');
+    
+    // Simple regex for function calls: identifier( or obj.method(
+    const callPattern = /(?:(\w+)\.)?(\w+)\s*\(/g;
+    
+    for (let i = startLine - 1; i < Math.min(endLine, lines.length); i++) {
+      const line = lines[i];
+      let match;
+      
+      while ((match = callPattern.exec(line)) !== null) {
+        const receiver = match[1];
+        const callee = match[2];
+        
+        // Skip keywords
+        if (['if', 'while', 'for', 'switch', 'catch', 'function', 'class'].includes(callee)) {
+          continue;
+        }
+        
+        calls.push({
+          callee,
+          line: i + 1,
+          column: match.index,
+          isMethodCall: !!receiver,
+          receiver,
+        });
+      }
+    }
+    
+    return calls;
   }
 }

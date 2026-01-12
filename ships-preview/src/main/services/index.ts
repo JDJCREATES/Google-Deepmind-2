@@ -22,7 +22,17 @@ export {
   removeCheckpointHandlers
 } from './checkpointHandlers';
 
-export type { FileTree, FileAnalysis, FunctionSymbol, ClassSymbol } from './codeAnalyzer';
+export type { 
+  FileTree, 
+  FileAnalysis, 
+  FunctionSymbol, 
+  ClassSymbol,
+  CallGraph,
+  CallGraphNode,
+  FunctionCall,
+  DependencyGraph as CodeDependencyGraph,
+  DependencyEdge
+} from './codeAnalyzer';
 export type { DependencyGraph, DependencyNode, CircularDependency } from './dependencyAnalyzer';
 export type { SecurityReport, Vulnerability, HardcodedSecret } from './securityScanner';
 export type { ArtifactStatus, GenerationResult } from './artifactGenerator';
