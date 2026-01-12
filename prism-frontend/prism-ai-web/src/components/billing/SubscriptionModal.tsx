@@ -6,6 +6,7 @@
  */
 
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import './SubscriptionModal.css';
 
 interface SubscriptionModalProps {
@@ -32,8 +33,7 @@ const TIERS: Record<string, TierInfo> = {
     yearlyPrice: 0,
     features: [
       '1 prompt per day',
-      '1 project',
-      '25k tokens/month',
+      '<span class="highlight">25k tokens/month</span>',
       'Community support'
     ],
     priceIds: { monthly: '', yearly: '' }
@@ -44,8 +44,7 @@ const TIERS: Record<string, TierInfo> = {
     yearlyPrice: 90,
     features: [
       '100 prompts per day',
-      '3 projects',
-      '5.5M tokens/month (Flash equiv)',
+      '<span class="highlight">5.5M tokens/month</span> (Flash equiv)',
       'Email support'
     ],
     priceIds: {
@@ -59,10 +58,9 @@ const TIERS: Record<string, TierInfo> = {
     yearlyPrice: 290,
     features: [
       '500 prompts per day',
-      '10 projects',
-      '25M tokens/month (Flash equiv)',
+      '<span class="highlight">25M tokens/month</span> (Flash equiv)',
       'Priority support',
-      'Priority queue'
+      '<span class="highlight">Priority queue</span>'
     ],
     priceIds: {
       monthly: import.meta.env.VITE_STRIPE_PRICE_PRO_MONTHLY || '',
@@ -75,8 +73,7 @@ const TIERS: Record<string, TierInfo> = {
     yearlyPrice: 990,
     features: [
       'Unlimited prompts',
-      'Unlimited projects',
-      '150M tokens/month (Flash equiv)',
+      '<span class="highlight">150M tokens/month</span> (Flash equiv)',
       'Priority support + Discord',
       'Advanced analytics',
       'Early access features'
@@ -137,7 +134,7 @@ export default function SubscriptionModal({
     }
   };
 
-  return (
+  return createPortal(
     <div className="subscription-modal-overlay" onClick={onClose}>
       <div className="subscription-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
@@ -180,7 +177,7 @@ export default function SubscriptionModal({
 
                 <ul className="features">
                   {tier.features.map((feature, i) => (
-                    <li key={i}>{feature}</li>
+                    <li key={i} dangerouslySetInnerHTML={{ __html: feature }} />
                   ))}
                 </ul>
 
@@ -202,6 +199,7 @@ export default function SubscriptionModal({
           })}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
