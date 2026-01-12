@@ -891,8 +891,24 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
             break
     
     # Classify current intent
+    # Classify current intent (Optimized: Check cache first)
     current_intent = None
-    if user_request:
+    cached_intent_data = artifacts.get("structured_intent")
+    
+    if cached_intent_data:
+        # Re-hydrate from cache to save tokens
+        try:
+            current_intent = IntentClassifier()._create_default_intent(user_request) # Dummy shell
+            # Manually hydrate fields
+            for key, val in cached_intent_data.items():
+                if hasattr(current_intent, key):
+                    setattr(current_intent, key, val)
+            logger.info(f"[ORCHESTRATOR] ⏩ Using CACHED intent: {current_intent.task_type}/{current_intent.action}")
+        except Exception as e:
+            logger.warning(f"[ORCHESTRATOR] Failed to hydrate cached intent: {e}")
+            cached_intent_data = None # Force re-classify
+
+    if user_request and not cached_intent_data:
         try:
             classifier = IntentClassifier()
             # Load folder_map for context if available
@@ -905,6 +921,9 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
             
             current_intent = await classifier.classify(user_request, folder_map=folder_map_data)
             logger.info(f"[ORCHESTRATOR] 🎯 Intent classified: {current_intent.task_type}/{current_intent.action} (conf: {current_intent.confidence:.2f})")
+            
+            # Cache it!
+            artifacts["structured_intent"] = current_intent.model_dump()
             
         except Exception as e:
             logger.warning(f"[ORCHESTRATOR] Intent classification failed: {e}")
