@@ -588,15 +588,14 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="What should we build?"
+            placeholder=""
             className="chat-input"
             rows={1}
             aria-label="Type your message"
           />
-          <Button 
-            modifier="material--flat"
-            className="send-button"
+          <button 
             type="submit"
+            className="send-button"
             disabled={!inputValue.trim() || isAgentRunning}
             aria-label={isAgentRunning ? 'Agent is working' : 'Send message'}
           >
@@ -605,7 +604,7 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
             ) : (
               <PiShippingContainerFill size={24} aria-hidden="true" />
             )}
-          </Button>
+          </button>
         </form>
       </footer>
     </aside>
