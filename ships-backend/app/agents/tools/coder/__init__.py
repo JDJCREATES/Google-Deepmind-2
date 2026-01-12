@@ -55,6 +55,13 @@ from .edit_operations import (
 
 from .file_tree import scan_project_tree, get_file_tree, get_artifact
 
+from .search_tools import (
+    search_codebase,
+    query_call_graph,
+    get_file_dependencies,
+    SEARCH_TOOLS,
+)
+
 # Combined export of all tools for the Coder agent
 # Edit tools listed FIRST as they are preferred for modifications
 # NOTE: Terminal commands removed - Validator handles build/test
@@ -69,6 +76,10 @@ CODER_TOOLS = [
     list_directory,
     get_file_tree,      # Prefers .ships/ artifact, falls back to scan
     get_artifact,        # Read any artifact from .ships/
+    # Search & Navigation (new!)
+    search_codebase,
+    query_call_graph,
+    get_file_dependencies,
     # Code analysis (minimal - most is done in prompt)
     generate_file_diff,
     detect_language,
@@ -93,6 +104,10 @@ __all__ = [
     "scan_project_tree",
     "get_file_tree",
     "get_artifact",
+    # Search & Navigation
+    "search_codebase",
+    "query_call_graph",
+    "get_file_dependencies",
     # Terminal operations
     "run_terminal_command",
     "get_allowed_terminal_commands",
@@ -109,5 +124,6 @@ __all__ = [
     "CODE_ANALYSIS_TOOLS",
     "TERMINAL_TOOLS",
     "EDIT_TOOLS",
+    "SEARCH_TOOLS",
     "CODER_TOOLS",
 ]
