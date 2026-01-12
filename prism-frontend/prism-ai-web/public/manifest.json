@@ -1,7 +1,7 @@
 {
-  "name": "ShipS* IDE",
+  "name": "ShipS*",
   "short_name": "ShipS*",
-  "description": "AI-Powered Multi-Agent Development Platform",
+  "description": "AI-Powered Multi-Agent Development Platform, vibe code like never before.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",

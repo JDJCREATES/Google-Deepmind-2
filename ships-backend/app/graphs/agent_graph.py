@@ -87,7 +87,9 @@ from app.agents.sub_agents.planner.formatter import (
 from app.core.cache import cache_manager # Explicit Caching
 
 # Collective Intelligence - capture successful patterns and fixes
+# Collective Intelligence - capture successful patterns and fixes
 from app.services.knowledge.hooks import capture_coder_pattern, capture_fixer_success
+from app.services.lock_manager import lock_manager # File locking service
 
 
 
@@ -434,7 +436,63 @@ async def coder_node(state: AgentGraphState) -> Dict[str, Any]:
             except Exception as e:
                 plan_content = f"Error reading plan: {e}"
 
+    # 3.5 SYSTEM-LEVEL DISPATCH: Pick & Lock File
+    # Instead of letting LLM pick (and race), WE pick an unlocked file here.
+    active_file = None
+    expected_files = []
+    
+    if plan_content and project_path:
+        import re
+        # Extract files from plan
+        file_patterns = re.findall(r'(?:src|public|app)/[\w/.-]+\.\w+', plan_content)
+        expected_files = sorted(list(set(file_patterns)))
+        
+        # Determine what's left
+        normalized_completed = {str(f).replace("\\", "/").lower() for f in unique_completed}
+        pending_files = []
+        for f in expected_files:
+            if str(f).replace("\\", "/").lower() not in normalized_completed:
+                pending_files.append(f)
+        
+        # Try to acquire lock on first available file (with retry)
+        import time
+        import asyncio
+        
+        start_wait = time.time()
+        wait_timeout = 60 # wait up to 60s before yielding
+        
+        while (time.time() - start_wait) < wait_timeout:
+            for f in pending_files:
+                # Check if locked
+                if not lock_manager.is_locked(project_path, f):
+                    # Acquire!
+                    if lock_manager.acquire(project_path, f, "coder_node"):
+                        active_file = f
+                        logger.info(f"[CODER] 🔒 Acquired lock for: {active_file}")
+                        break
+            
+            if active_file:
+                break
+                
+            # Wait and retry
+            if pending_files:
+                logger.debug(f"[CODER] ⏳ All files locked. Waiting... ({int(time.time() - start_wait)}s)")
+                await asyncio.sleep(2)
+            else:
+                break
+        
+        if not active_file and pending_files:
+             logger.warning(f"[CODER] ⚠️ All {len(pending_files)} pending files are LOCKED after {wait_timeout}s. Yielding.")
+             return {
+                 "phase": "waiting", # Wait for locks to free
+                 "messages": [AIMessage(content="Waiting for file locks to release.")]
+             }
+
     # 4. Build Dynamic System Prompt
+    task_focus = "3. Pick the NEXT file..."
+    if active_file:
+        task_focus = f"3. ➤ IMPLEMENT: {active_file}\n   (You have exclusive lock on this file. Do NOT touch others.)"
+
     system_prompt = f"""<role>You are the Coder. You write complete, working code files.</role>
 
 <context>
@@ -453,13 +511,14 @@ ACTUAL FILE STRUCTURE (Disk State):
 
 <task>
 1. Analyze the <implementation_plan> and <context>.
-2. CRITICAL: Check "ACTUAL FILE STRUCTURE" to see if file already exists (maybe in a different folder?).
-   - If `src/components/Board.tsx` is needed, looking at `src/components/Board/Board.tsx` -> IT EXISTS. Skip it.
-   - Do NOT create duplicate files in different locations.
-3. Pick the NEXT file to implement that is NOT in "FILES ALREADY CREATED" or on disk.
+2. CRITICAL: Check "ACTUAL FILE STRUCTURE".
+   - If looking for `src/components/Board.tsx` and `src/components/Board/Board.tsx` exists -> SKIP (Exists).
+   - Do NOT create duplicate files.
+{task_focus}
 4. Write it using write_file_to_disk.
-5. Continue until ALL files in plan are implemented.
-6. When ALL files are done, output "Implementation complete."
+5. IF DONE with this file, output "File created: [filename]".
+6. If the plan lists more files, you can try to continue, BUT:
+   - If you were assigned a specific file (Step 3), only implement THAT one then stop.
 </task>
 
 <constraints>
@@ -588,6 +647,11 @@ ACTUAL FILE STRUCTURE (Disk State):
         except Exception as ft_e:
              logger.warning(f"[CODER_NODE] ⚠️ Failed to refresh file tree: {ft_e}")
         
+        # Release lock
+        if active_file:
+            lock_manager.release(project_path, active_file, "coder_node")
+            logger.info(f"[CODER] 🔓 Released lock for {active_file}")
+
         return {
             "messages": [AIMessage(content=f"Coder completed: {result.get('status', 'unknown')}")],
             "phase": next_phase,
@@ -597,6 +661,11 @@ ACTUAL FILE STRUCTURE (Disk State):
         
     except Exception as e:
         logger.error(f"[CODER] ❌ Coder invoke failed: {e}")
+        
+        # Release lock
+        if active_file:
+            lock_manager.release(project_path, active_file, "coder_node")
+            
         return {
             "phase": "error",
             "error_log": state.get("error_log", []) + [f"Coder error: {str(e)}"],
@@ -747,63 +816,133 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
             "messages": [AIMessage(content="Fix attempts exceeded. Escalating to planner.")]
         }
     
-    # Invoke the Fixer (now uses create_react_agent internally)
+    # Invoke the Fixer
     fixer = Fixer()
     
+    # 3.5 SYSTEM-LEVEL DISPATCH: Pick & Lock File from Errors
+    # Filter the validation report to focus ONLY on one unlocked file.
+    active_fix_file = None
+    original_report = artifacts.get("validation_report", {})
+    filtered_report = original_report # Default to full report if no fit
+    
+    violations = original_report.get("violations", [])
+    if violations:
+        # Extract unique files needing fix
+        error_files = []
+        seen = set()
+        for v in violations:
+            f_path = v.get("file_path") or v.get("file")
+            if f_path and f_path not in seen:
+                error_files.append(f_path)
+                seen.add(f_path)
+        
+        # Try to acquire lock with retry
+        import time
+        import asyncio
+        
+        start_wait = time.time()
+        wait_timeout = 60
+        
+        while (time.time() - start_wait) < wait_timeout:
+            for f in error_files:
+                if not lock_manager.is_locked(project_path, f):
+                    if lock_manager.acquire(project_path, f, "fixer_node"):
+                        active_fix_file = f
+                        logger.info(f"[FIXER] 🔒 Acquired lock for: {active_fix_file}")
+                        break
+            
+            if active_fix_file:
+                break
+                
+            logger.debug(f"[FIXER] ⏳ All error files locked. Waiting... ({int(time.time() - start_wait)}s)")
+            await asyncio.sleep(2)
+        
+        # If we locked a file, filter the report
+        if active_fix_file:
+            filtered_violations = [
+                v for v in violations 
+                if (v.get("file_path") == active_fix_file or v.get("file") == active_fix_file)
+            ]
+            filtered_report = {**original_report, "violations": filtered_violations}
+            # Add directive
+            filtered_report["fixer_instructions"] = (
+                f"FOCUS: Only fix errors in {active_fix_file}. "
+                "You have an exclusive lock on this file."
+            )
+        elif error_files:
+             # All files locked
+             logger.warning(f"[FIXER] ⚠️ All error files locked after {wait_timeout}s. Yielding.")
+             return {
+                 "phase": "waiting",
+                 "messages": [AIMessage(content="Waiting for files to unlock.")]
+             }
+
     fixer_state = {
         **state,
-        "artifacts": {**artifacts, "project_path": project_path},
-        "parameters": {"attempt_number": fix_attempts},
+        "artifacts": {
+            **artifacts, 
+            "project_path": project_path,
+            "validation_report": filtered_report # Pass constrained report
+        },
+        "parameters": {
+            "attempt_number": fix_attempts,
+            "active_file": active_fix_file
+        },
     }
     
     try:
-        result = await fixer.invoke(fixer_state)
-        
-        logger.info(f"[FIXER] ✅ Fixer completed")
-        
-        # Check for escalation
-        if result.get("requires_replan") or result.get("needs_replan"):
-            reason = result.get("artifacts", {}).get("replan_request", {}).get("reason", "Fixer requested escalation")
-            logger.info(f"[FIXER] ⚠️ Escalation requested: {reason}")
-            return {
-                "phase": "planner",
-                "fix_attempts": fix_attempts,
-                "error_log": state.get("error_log", []) + [f"Escalated: {reason}"],
-                "messages": [AIMessage(content=f"Escalating to planner: {reason}")]
+        try:
+            result = await fixer.invoke(fixer_state)
+            
+            logger.info(f"[FIXER] ✅ Fixer completed")
+            
+            # Check for escalation
+            if result.get("requires_replan") or result.get("needs_replan"):
+                reason = result.get("artifacts", {}).get("replan_request", {}).get("reason", "Fixer requested escalation")
+                logger.info(f"[FIXER] ⚠️ Escalation requested: {reason}")
+                return {
+                    "phase": "planner",
+                    "fix_attempts": fix_attempts,
+                    "error_log": state.get("error_log", []) + [f"Escalated: {reason}"],
+                    "messages": [AIMessage(content=f"Escalating to planner: {reason}")]
+                }
+            
+            # ===== COLLECTIVE INTELLIGENCE: Store fix context for capture =====
+            # Extract error and fix info for capture after validation passes
+            fix_artifacts = result.get("artifacts", {})
+            fix_patch = fix_artifacts.get("fix_patch", {})
+            validation_report = artifacts.get("validation_report", {})
+            
+            pending_fix_context = {
+                "error_message": validation_report.get("fixer_instructions", "")[:500] or 
+                                str(state.get("error_log", [])[-1] if state.get("error_log") else ""),
+                "solution_code": fix_patch.get("summary", ""),
+                "description": result.get("summary", f"Fix attempt {fix_attempts}"),
+                "diff": fix_patch.get("unified_diff", ""),
+                "before_errors": [str(v.get("message", "")) for v in validation_report.get("violations", [])][:10],
             }
-        
-        # ===== COLLECTIVE INTELLIGENCE: Store fix context for capture =====
-        # Extract error and fix info for capture after validation passes
-        fix_artifacts = result.get("artifacts", {})
-        fix_patch = fix_artifacts.get("fix_patch", {})
-        validation_report = artifacts.get("validation_report", {})
-        
-        pending_fix_context = {
-            "error_message": validation_report.get("fixer_instructions", "")[:500] or 
-                            str(state.get("error_log", [])[-1] if state.get("error_log") else ""),
-            "solution_code": fix_patch.get("summary", ""),
-            "description": result.get("summary", f"Fix attempt {fix_attempts}"),
-            "diff": fix_patch.get("unified_diff", ""),
-            "before_errors": [str(v.get("message", "")) for v in validation_report.get("violations", [])][:10],
-        }
-        # ==================================================================
-        
-        return {
-            "fix_attempts": fix_attempts,
-            "phase": "validating",  # Go back to validation after fix
-            "pending_fix_context": pending_fix_context,
-            "agent_status": {"status": "fixed", "attempt": fix_attempts},
-            "messages": [AIMessage(content=f"Fix applied (attempt {fix_attempts})")]
-        }
-        
-    except Exception as e:
-        logger.error(f"[FIXER] ❌ Fixer failed: {e}")
-        return {
-            "fix_attempts": fix_attempts,
-            "phase": "error",
-            "error_log": state.get("error_log", []) + [f"Fixer error: {str(e)}"],
-            "messages": [AIMessage(content=f"Fix error: {e}")]
-        }
+            # ==================================================================
+            
+            return {
+                "fix_attempts": fix_attempts,
+                "phase": "validating",  # Go back to validation after fix
+                "pending_fix_context": pending_fix_context,
+                "agent_status": {"status": "fixed", "attempt": fix_attempts},
+                "messages": [AIMessage(content=f"Fix applied (attempt {fix_attempts})")]
+            }
+            
+        except Exception as e:
+            logger.error(f"[FIXER] ❌ Fixer failed: {e}")
+            return {
+                "fix_attempts": fix_attempts,
+                "phase": "error",
+                "error_log": state.get("error_log", []) + [f"Fixer error: {str(e)}"],
+                "messages": [AIMessage(content=f"Fix error: {e}")]
+            }
+    finally:
+        if active_fix_file:
+             lock_manager.release(project_path, active_fix_file, "fixer_node")
+             logger.info(f"[FIXER] 🔓 Released lock for {active_fix_file}")
 
 
 async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
