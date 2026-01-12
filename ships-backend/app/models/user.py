@@ -19,7 +19,7 @@ from app.database.base import Base
 # Tier limits configuration
 TIER_LIMITS = {
     'free': {
-        'prompts_per_day': 5,
+        'prompts_per_day': 1,
         'max_projects': 1,
         'tokens_per_month': 25_000,
         'priority_queue': False,
@@ -27,19 +27,19 @@ TIER_LIMITS = {
     'starter': {
         'prompts_per_day': 100,
         'max_projects': 3,
-        'tokens_per_month': 500_000,
+        'tokens_per_month': 5_500_000,  # 10% Bonus
         'priority_queue': False,
     },
     'pro': {
         'prompts_per_day': 500,
         'max_projects': 10,
-        'tokens_per_month': 2_000_000,
+        'tokens_per_month': 25_000_000,  # 25% Bonus
         'priority_queue': True,
     },
     'enterprise': {
         'prompts_per_day': -1,  # Unlimited
         'max_projects': -1,
-        'tokens_per_month': 10_000_000,
+        'tokens_per_month': 150_000_000,  # 50% Bonus for top tier
         'priority_queue': True,
     }
 }

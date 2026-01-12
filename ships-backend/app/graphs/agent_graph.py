@@ -1552,19 +1552,51 @@ async def stream_pipeline(
     
     # Use stream_mode="messages" for token-by-token streaming
     # This yields (message_chunk, metadata) tuples as the LLM generates
+    accumulated_usage = {"input": 0, "output": 0}
     try:
         async for event in graph.astream(initial_state, config=config, stream_mode="messages", subgraphs=True):
+            # Track token usage from message chunks
+            if isinstance(event, tuple) and len(event) == 2:
+                chunk, metadata = event
+                if hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
+                    # Accumulate usage
+                    usage = chunk.usage_metadata
+                    accumulated_usage["input"] += usage.get("input_tokens", 0)
+                    accumulated_usage["output"] += usage.get("output_tokens", 0)
             yield event
     finally:
         # ====================================================================
         # STEP TRACKING: Complete the run when pipeline finishes
         # ====================================================================
-        if run_id:
-            try:
+        try:
+            # 1. Update Token Usage in DB
+            from app.database import get_session_factory
+            from sqlalchemy import select
+            from app.models import User
+            
+            # Helper to access DB inside generator finally block
+            async with get_session_factory()() as session:
+                if user_id:
+                     user = await session.execute(select(User).where(User.id == user_id))
+                     user = user.scalar_one_or_none()
+                     if user:
+                         # Weighted Tracking: Flash=1x, Pro=20x
+                         # Currently defaulting to Flash (1x) as it's the main driver
+                         # TODO: Detect model from metadata for 20x multiplier
+                         multiplier = 1.0 
+                         
+                         total_cost = int((accumulated_usage["input"] + accumulated_usage["output"]) * multiplier)
+                         if total_cost > 0:
+                             user.tokens_used_month += total_cost
+                             await session.commit()
+                             logger.info(f"[PIPELINE] 💰 Tracked {total_cost} tokens for user {user.email}")
+
+            # 2. Complete Step Tracking
+            if run_id:
                 from app.services.step_tracking import complete_run
                 await complete_run(status="complete")
                 logger.info(f"[PIPELINE] 📊 Step tracking completed: run_id={run_id}")
-            except Exception as e:
-                logger.debug(f"[PIPELINE] Step tracking completion failed: {e}")
+        except Exception as e:
+            logger.error(f"[PIPELINE] Finalization failed: {e}")
         # ====================================================================
 

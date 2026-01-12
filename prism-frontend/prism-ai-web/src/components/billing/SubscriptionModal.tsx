@@ -31,7 +31,7 @@ const TIERS: Record<string, TierInfo> = {
     monthlyPrice: 0,
     yearlyPrice: 0,
     features: [
-      '5 prompts per day',
+      '1 prompt per day',
       '1 project',
       '25k tokens/month',
       'Community support'
@@ -45,7 +45,7 @@ const TIERS: Record<string, TierInfo> = {
     features: [
       '100 prompts per day',
       '3 projects',
-      '500k tokens/month',
+      '5.5M tokens/month (Flash equiv)',
       'Email support'
     ],
     priceIds: {
@@ -60,7 +60,7 @@ const TIERS: Record<string, TierInfo> = {
     features: [
       '500 prompts per day',
       '10 projects',
-      '2M tokens/month',
+      '25M tokens/month (Flash equiv)',
       'Priority support',
       'Priority queue'
     ],
@@ -76,7 +76,7 @@ const TIERS: Record<string, TierInfo> = {
     features: [
       'Unlimited prompts',
       'Unlimited projects',
-      '10M tokens/month',
+      '150M tokens/month (Flash equiv)',
       'Priority support + Discord',
       'Advanced analytics',
       'Early access features'
