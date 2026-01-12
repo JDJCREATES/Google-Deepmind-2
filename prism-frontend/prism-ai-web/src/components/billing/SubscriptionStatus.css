@@ -113,13 +113,13 @@
 }
 
 .btn-upgrade {
-  background: var(--primary-color);
-  color: white;
+  background: var(--accent-color); /* Yellow */
+  color: #000000; /* Black text */
 }
 
 .btn-upgrade:hover {
   transform: scale(1.02);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); /* Black Shadow */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
 
 .btn-manage {

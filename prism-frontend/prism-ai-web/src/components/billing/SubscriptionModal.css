@@ -214,11 +214,12 @@
 }
 
 .tier-btn.upgrade {
-  background: var(--primary-color);
-  color: white;
+  background: var(--accent-color); /* Yellow */
+  color: #000000; /* Black text */
+  font-weight: 700;
 }
 
 .tier-btn.upgrade:hover {
-  background: var(--primary-hover);
-  box-shadow: 0 0 15px rgba(255, 77, 79, 0.4);
+  background: #e6c810; /* Darker Yellow */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); /* Black Shadow */
 }

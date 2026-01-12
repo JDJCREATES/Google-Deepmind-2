@@ -230,11 +230,12 @@ CLASSIFICATION GUIDE:
 - "looks good" / "proceed" / "yes" / "go ahead" / "approved" → task_type: confirmation, action: proceed
 
 AMBIGUITY TRIGGERS (set is_ambiguous=true):
-- Request mentions multiple unrelated features
-- No clear target (e.g., "make it better")
-- Contradictory requirements
-- References unknown components
-- Very short requests without context (< 5 words) BUT EXCLUDE confirmations ("yes", "ok")
+- Request is gibberish or truly nonsensical
+- Contradictory requirements (e.g., "create a file but delete it")
+- Very short requests without context (< 2 words) e.g. "do it"
+- DO NOT mark general "build X" or "create X" tasks as ambiguous. Even if details (framework, stack) are missing, the downstream PLANNER will make those decisions.
+- DO NOT mark requests as ambiguous just because they are open-ended.
+- DO NOT ask "what framework?" or "which library?". Assume standard defaults or let the Planner decide.
 
 OUTPUT FORMAT:
 You MUST output a valid JSON object matching this schema:

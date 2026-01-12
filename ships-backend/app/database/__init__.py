@@ -3,6 +3,7 @@
 from app.database.connection import (
     get_session,
     get_engine,
+    get_session_factory,
     health_check,
     close_database,
     DatabaseConnection,
@@ -11,6 +12,7 @@ from app.database.connection import (
 __all__ = [
     "get_session",
     "get_engine",
+    "get_session_factory",
     "health_check",
     "close_database",
     "DatabaseConnection",
