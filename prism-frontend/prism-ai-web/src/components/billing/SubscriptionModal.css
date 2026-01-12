@@ -4,11 +4,18 @@
   --border-color: #333333;
   --text-color: #ffffff;
   --text-secondary: rgba(255, 255, 255, 0.7);
-  --primary-color: #ff4d4f; /* Red Brand Color */
+  --primary-color: #FF5E57; /* Brand Red */
   --primary-hover: #ff7875;
-  --accent-color: #fadb14; /* Yellow Brand Color */
-  --error-color: #ff4d4f;
-  --success-color: #fadb14; /* Use Yellow for 'Success/Upgrade' actions */
+  --accent-color: #fadb14; /* Strong Yellow (Reverted) */
+  --error-color: #FF5E57;
+  --success-color: #fadb14;
+}
+
+/* ... lines 12-205 ... */
+
+.tier-btn.upgrade:hover {
+  background: var(--primary-hover);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); /* Black shadow */
 }
 
 .subscription-modal-overlay {

@@ -1,3 +1,10 @@
+:root {
+  --primary-color: #FF5E57; /* Brand Red */
+  --primary-hover: #ff7875;
+  --accent-color: #fadb14; /* Strong Yellow */
+  --success-color: #fadb14;
+}
+
 .subscription-status {
   background: var(--input-background);
   border-radius: 8px;
@@ -106,13 +113,13 @@
 }
 
 .btn-upgrade {
-  background: var(--success-color);
+  background: var(--primary-color);
   color: white;
 }
 
 .btn-upgrade:hover {
   transform: scale(1.02);
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); /* Black Shadow */
 }
 
 .btn-manage {
