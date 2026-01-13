@@ -135,6 +135,14 @@ export class PreviewWindowManager {
     if (this.windows.has(sanitizedId)) {
       const existing = this.windows.get(sanitizedId)!;
       if (existing.status !== 'closed' && existing.status !== 'error') {
+        // Focus the existing window
+        if (!existing.window.isDestroyed()) {
+          if (existing.window.isMinimized()) {
+            existing.window.restore();
+          }
+          existing.window.show();
+          existing.window.focus();
+        }
         return existing;
       }
       // Clean up old entry
