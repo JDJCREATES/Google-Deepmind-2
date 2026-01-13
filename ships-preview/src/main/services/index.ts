@@ -38,3 +38,5 @@ export type { SecurityReport, Vulnerability, HardcodedSecret } from './securityS
 export type { ArtifactStatus, GenerationResult } from './artifactGenerator';
 export type { Checkpoint, AgentRun } from './gitCheckpoint';
 
+// Runs Management (Agent Dashboard)
+export * from './runs';
