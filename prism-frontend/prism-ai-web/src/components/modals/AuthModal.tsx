@@ -46,8 +46,8 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
         </div>
 
         <div className="oauth-buttons" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
-          <GoogleSignInButton text={isLogin ? "Sign in with Google" : "Sign up with Google"} className="w-100" />
-          <GitHubSignInButton text={isLogin ? "Sign in with GitHub" : "Sign up with GitHub"} className="w-100" />
+          <GoogleSignInButton text={isLogin ? "Sign in with Google" : "Sign up with Google"} />
+          <GitHubSignInButton text={isLogin ? "Sign in with GitHub" : "Sign up with GitHub"} />
         </div>
 
         <form onSubmit={handleSubmit} className="auth-form">

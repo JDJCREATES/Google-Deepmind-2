@@ -17,21 +17,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
 
 // Electron PTY API (exposed via preload)
 // Electron PTY API (exposed via preload)
-declare global {
-  interface Window {
-    electron?: {
-      ptySpawn: (projectPath: string, options?: { cols?: number; rows?: number }) => Promise<{ sessionId: string } | { error: string }>;
-      ptyWrite: (sessionId: string, data: string) => Promise<boolean>;
-      ptyResize: (sessionId: string, cols: number, rows: number) => Promise<boolean>;
-      ptyKill: (sessionId: string) => Promise<boolean>;
-      onPTYData: (callback: (event: { sessionId: string; data: string }) => void) => () => void;
-      onPTYExit: (callback: (event: { sessionId: string; exitCode: number }) => void) => () => void;
-      getLastProject: () => Promise<{ path: string | null; exists: boolean }>;
-      selectProjectFolder: () => Promise<{ success: boolean; path: string | null; error?: string }>;
-      openPreview: (url: string) => Promise<{ success: boolean; error?: string }>;
-    };
-  }
-}
+// Defined in src/types/electron.d.ts
 
 interface XTerminalProps {
   projectPath: string | null;
@@ -188,13 +174,13 @@ export function XTerminal({
   useEffect(() => {
     if (!window.electron || !sessionId) return;
 
-    const cleanupData = window.electron.onPTYData((event) => {
+    const cleanupData = window.electron.onPTYData((event: { sessionId: string; data: string }) => {
       if (event.sessionId === sessionId && xtermRef.current) {
         xtermRef.current.write(event.data);
       }
     });
 
-    const cleanupExit = window.electron.onPTYExit((event) => {
+    const cleanupExit = window.electron.onPTYExit((event: { sessionId: string; exitCode: number }) => {
       if (event.sessionId === sessionId) {
         xtermRef.current?.writeln(`\r\n[Process exited with code ${event.exitCode}]`);
         setIsConnected(false);
@@ -253,7 +239,7 @@ export function XTerminal({
         <div className="xterminal-actions">
           {!isConnected && !isCollapsed && !window.electron && (
             <button 
-              onClick={async (e) => { 
+              onClick={async (e: React.MouseEvent) => { 
                 e.stopPropagation(); 
                 try {
                   await fetch(`${API_URL}/preview/open-terminal`, {
@@ -271,13 +257,13 @@ export function XTerminal({
             </button>
           )}
           {!isConnected && !isCollapsed && window.electron && (
-            <button onClick={(e) => { e.stopPropagation(); spawnTerminal(); }} title="New Terminal">
+            <button onClick={(e: React.MouseEvent) => { e.stopPropagation(); spawnTerminal(); }} title="New Terminal">
               <FiPlus size={14} />
             </button>
           )}
           {onKillBackendProcess && (
             <button 
-              onClick={(e) => { e.stopPropagation(); onKillBackendProcess(); }} 
+              onClick={(e: React.MouseEvent) => { e.stopPropagation(); onKillBackendProcess(); }} 
               title="Kill Backend Process (Unlock Files)"
               className="action-danger" // You might need to add this class to CSS or inline style
               style={{ color: '#ff5e57' }}
@@ -286,11 +272,11 @@ export function XTerminal({
             </button>
           )}
           {onToggleCollapse && (
-            <button onClick={(e) => { e.stopPropagation(); onToggleCollapse(); }}>
+            <button onClick={(e: React.MouseEvent) => { e.stopPropagation(); onToggleCollapse(); }}>
               {isCollapsed ? <FiMaximize2 size={14} /> : <FiMinimize2 size={14} />}
             </button>
           )}
-          <button onClick={(e) => { e.stopPropagation(); onClose(); }}>
+          <button onClick={(e: React.MouseEvent) => { e.stopPropagation(); onClose(); }}>
             <FiX size={14} />
           </button>
         </div>

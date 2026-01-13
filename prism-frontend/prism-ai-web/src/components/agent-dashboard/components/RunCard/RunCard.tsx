@@ -15,9 +15,11 @@ import './RunCard.css';
 interface RunCardProps {
   run: AgentRun;
   isPrimary?: boolean;
+  isSelected?: boolean;
+  onSelect?: () => void;
 }
 
-export const RunCard: React.FC<RunCardProps> = ({ run, isPrimary = false }) => {
+export const RunCard: React.FC<RunCardProps> = ({ run, isPrimary = false, isSelected = false, onSelect }) => {
   const { pauseRun, resumeRun, deleteRun, rollbackToScreenshot } = useAgentRuns();
   const [expanded, setExpanded] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -81,7 +83,15 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isPrimary = false }) => {
   const isActive = run.status === 'running' || run.status === 'planning';
 
   return (
-    <div className={`run-card ${isPrimary ? 'run-card--primary' : ''} ${!expanded ? 'run-card--collapsed' : ''}`}>
+    <div 
+      className={`run-card ${isPrimary ? 'run-card--primary' : ''} ${isSelected ? 'run-card--selected' : ''} ${!expanded ? 'run-card--collapsed' : ''}`}
+      onClick={(e) => { 
+        // Only select if not clicking buttons or content area
+        if (!(e.target as HTMLElement).closest('button') && !(e.target as HTMLElement).closest('.run-card__content')) {
+           onSelect?.();
+        }
+      }}
+    >
       {/* Header */}
       <header className="run-card__header" onClick={() => setExpanded(!expanded)}>
         <div className="run-card__status-indicator" style={{ background: getStatusColor() }} />

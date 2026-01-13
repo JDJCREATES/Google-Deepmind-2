@@ -24,6 +24,24 @@ export interface Screenshot {
   description: string;
 }
 
+// Chat Message
+export interface ChatMessage {
+  id: string;
+  content: string;
+  sender: 'user' | 'ai' | 'system';
+  timestamp: Date;
+  centered?: boolean;
+}
+
+// Thinking Section Data
+export interface ThinkingSectionData {
+  id: string;
+  title: string;
+  node: string;
+  content: string;
+  isLive: boolean;
+}
+
 /**
  * A single agent run representing a feature/branch
  */
@@ -38,6 +56,9 @@ export interface AgentRun {
   agentMessage: string;
   screenshots: Screenshot[];
   filesChanged: string[];
+  // Chat History
+  messages: ChatMessage[];
+  thinkingSections: ThinkingSectionData[];
   commitCount: number;
   createdAt: string;
   updatedAt: string;

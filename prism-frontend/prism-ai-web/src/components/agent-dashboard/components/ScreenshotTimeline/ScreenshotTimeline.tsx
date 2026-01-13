@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useRef } from 'react';
-import { Screenshot } from '../../types';
+import type { Screenshot } from '../../types';
 import './ScreenshotTimeline.css';
 
 interface ScreenshotTimelineProps {

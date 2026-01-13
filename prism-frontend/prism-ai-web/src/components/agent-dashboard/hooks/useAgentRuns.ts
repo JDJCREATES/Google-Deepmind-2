@@ -7,7 +7,7 @@
  */
 
 import { create } from 'zustand';
-import type { AgentRun, Screenshot, RunStatus, AgentType, CreateRunRequest } from '../types';
+import type { AgentRun, Screenshot, RunStatus, AgentType, CreateRunRequest, ChatMessage, ThinkingSectionData } from '../types';
 
 // ============================================================================
 // Types
@@ -38,6 +38,14 @@ interface AgentRunsState {
     agentMessage: string,
     filesChanged?: string[]
   ) => void;
+
+  // Chat actions
+  addRunMessage: (runId: string, message: ChatMessage) => void;
+  updateRunMessage: (runId: string, messageId: string, updates: Partial<ChatMessage>) => void;
+  appendRunMessageContent: (runId: string, messageId: string, contentDelta: string) => void;
+  updateRunThinking: (runId: string, sectionId: string, content: string) => void;
+  addRunThinkingSection: (runId: string, section: ThinkingSectionData) => void;
+  setRunThinkingSectionLive: (runId: string, sectionId: string, isLive: boolean) => void;
   
   // API actions
   createRun: (request: CreateRunRequest) => Promise<AgentRun | null>;
@@ -188,6 +196,81 @@ export const useAgentRuns = create<AgentRunsState>((set, get) => ({
           : run
       ),
     })),
+
+  addRunMessage: (runId, message) =>
+    set((state) => ({
+      runs: state.runs.map((run) =>
+        run.id === runId
+          ? { ...run, messages: [...(run.messages || []), message] }
+          : run
+      ),
+    })),
+
+  updateRunMessage: (runId, messageId, updates) =>
+    set((state) => ({
+      runs: state.runs.map((run) =>
+        run.id === runId
+          ? {
+              ...run,
+              messages: (run.messages || []).map((msg) =>
+                msg.id === messageId ? { ...msg, ...updates } : msg
+              ),
+            }
+          : run
+      ),
+    })),
+
+  appendRunMessageContent: (runId, messageId, contentDelta) =>
+    set((state) => ({
+      runs: state.runs.map((run) =>
+        run.id === runId
+          ? {
+              ...run,
+              messages: (run.messages || []).map((msg) =>
+                msg.id === messageId ? { ...msg, content: msg.content + contentDelta } : msg
+              ),
+            }
+          : run
+      ),
+    })),
+
+  addRunThinkingSection: (runId, section) =>
+    set((state) => ({
+      runs: state.runs.map((run) =>
+        run.id === runId
+          ? { ...run, thinkingSections: [...(run.thinkingSections || []), section] }
+          : run
+      ),
+    })),
+
+  updateRunThinking: (runId, sectionId, content) =>
+    set((state) => ({
+      runs: state.runs.map((run) =>
+        run.id === runId
+          ? {
+              ...run,
+              thinkingSections: (run.thinkingSections || []).map((s) =>
+                s.id === sectionId ? { ...s, content: s.content + content } : s
+              ),
+            }
+          : run
+      ),
+    })),
+
+  setRunThinkingSectionLive: (runId, sectionId, isLive) =>
+    set((state) => ({
+      runs: state.runs.map((run) =>
+        run.id === runId
+          ? {
+              ...run,
+              thinkingSections: (run.thinkingSections || []).map((s) =>
+                s.id === sectionId ? { ...s, isLive } : s
+              ),
+            }
+          : run
+      ),
+    })),
+
   
   setLoading: (isLoading) => set({ isLoading }),
   setError: (error) => set({ error }),

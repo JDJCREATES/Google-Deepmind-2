@@ -1,7 +1,7 @@
 export interface Message {
   id: string;
   content: string;
-  sender: 'user' | 'ai';
+  sender: 'user' | 'ai' | 'system';
   timestamp: Date;
   centered?: boolean;
 }
@@ -23,8 +23,10 @@ export default function ChatMessage({ message }: ChatMessageProps) {
   }
   
   if (!isUser) {
+    const isSystem = message.sender === 'system';
+    
     return (
-      <div className="message message-ai">
+      <div className={`message ${isSystem ? 'message-system' : 'message-ai'}`}>
         <div className="message-content no-bubble">
           {message.content}
         </div>

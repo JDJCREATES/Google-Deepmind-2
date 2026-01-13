@@ -18,7 +18,9 @@ export const AgentDashboard: React.FC = () => {
     error, 
     fetchRuns, 
     createRun,
-    setError 
+    setError,
+    activeRunId,
+    setActiveRun
   } = useAgentRuns();
   
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -127,7 +129,12 @@ export const AgentDashboard: React.FC = () => {
         {primaryRun && (
           <section className="agent-dashboard__section">
             <h2 className="agent-dashboard__section-title">Main</h2>
-            <RunCard run={primaryRun} isPrimary />
+            <RunCard 
+              run={primaryRun} 
+              isPrimary 
+              isSelected={primaryRun.id === activeRunId}
+              onSelect={() => setActiveRun(primaryRun.id)}
+            />
           </section>
         )}
 
@@ -138,7 +145,12 @@ export const AgentDashboard: React.FC = () => {
               Active ({activeRuns.length})
             </h2>
             {activeRuns.map((run) => (
-              <RunCard key={run.id} run={run} />
+              <RunCard 
+                key={run.id} 
+                run={run} 
+                isSelected={run.id === activeRunId}
+                onSelect={() => setActiveRun(run.id)}
+              />
             ))}
           </section>
         )}
@@ -150,7 +162,12 @@ export const AgentDashboard: React.FC = () => {
               Paused ({pausedRuns.length})
             </h2>
             {pausedRuns.map((run) => (
-              <RunCard key={run.id} run={run} />
+              <RunCard 
+                key={run.id} 
+                run={run} 
+                isSelected={run.id === activeRunId}
+                onSelect={() => setActiveRun(run.id)}
+              />
             ))}
           </section>
         )}
@@ -162,7 +179,12 @@ export const AgentDashboard: React.FC = () => {
               Completed ({completedRuns.length})
             </h2>
             {completedRuns.map((run) => (
-              <RunCard key={run.id} run={run} />
+              <RunCard 
+                key={run.id} 
+                run={run} 
+                isSelected={run.id === activeRunId}
+                onSelect={() => setActiveRun(run.id)}
+              />
             ))}
           </section>
         )}
