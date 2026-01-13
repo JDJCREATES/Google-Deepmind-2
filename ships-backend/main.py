@@ -567,6 +567,10 @@ app.include_router(diagnostics_router)
 from app.api.billing import router as billing_router
 app.include_router(billing_router)
 
+# Import and include Runs Router (Agent Dashboard)
+from app.api.runs import router as runs_router
+app.include_router(runs_router)
+
 @app.get("/")
 def read_root():
     return {"message": "ShipS* Backend is Running"}

@@ -1,0 +1,276 @@
+/**
+ * Agent Dashboard Styles
+ * 
+ * Uses CSS variables from the global theme.
+ */
+
+.agent-dashboard {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+/* Header */
+.agent-dashboard__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.agent-dashboard__title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.agent-dashboard__new-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  background: var(--primary-color);
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.agent-dashboard__new-btn:hover {
+  background: var(--primary-color-hover, #e04e47);
+  transform: translateY(-1px);
+}
+
+.agent-dashboard__new-btn:active {
+  transform: translateY(0);
+}
+
+.agent-dashboard__new-btn--large {
+  padding: 12px 24px;
+  font-size: 16px;
+}
+
+/* Error Banner */
+.agent-dashboard__error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: var(--error-bg, rgba(255, 94, 87, 0.1));
+  border-bottom: 1px solid var(--error-color, #ff5e57);
+  color: var(--error-color, #ff5e57);
+  font-size: 14px;
+}
+
+.agent-dashboard__error-dismiss {
+  padding: 4px 12px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* Loading State */
+.agent-dashboard__loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex: 1;
+  color: var(--text-secondary);
+}
+
+.agent-dashboard__spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border-color);
+  border-top-color: var(--primary-color);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Empty State */
+.agent-dashboard__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex: 1;
+  padding: 40px;
+  text-align: center;
+}
+
+.agent-dashboard__empty-icon {
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.agent-dashboard__empty h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.agent-dashboard__empty p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+  max-width: 300px;
+}
+
+/* Runs List */
+.agent-dashboard__runs {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.agent-dashboard__section {
+  margin-bottom: 24px;
+}
+
+.agent-dashboard__section--collapsed {
+  opacity: 0.75;
+}
+
+.agent-dashboard__section-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  margin: 0 0 12px 0;
+}
+
+/* Modal Overlay */
+.agent-dashboard__modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+}
+
+.agent-dashboard__modal {
+  width: 100%;
+  max-width: 480px;
+  padding: 24px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+}
+
+.agent-dashboard__modal-title {
+  margin: 0 0 8px 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.agent-dashboard__modal-description {
+  margin: 0 0 16px 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.agent-dashboard__modal-input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 100px;
+}
+
+.agent-dashboard__modal-input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(255, 94, 87, 0.15);
+}
+
+.agent-dashboard__modal-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.agent-dashboard__modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.agent-dashboard__modal-cancel {
+  padding: 10px 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.agent-dashboard__modal-cancel:hover {
+  background: var(--bg-tertiary);
+}
+
+.agent-dashboard__modal-submit {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  background: var(--primary-color);
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.agent-dashboard__modal-submit:hover:not(:disabled) {
+  background: var(--primary-color-hover, #e04e47);
+}
+
+.agent-dashboard__modal-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.agent-dashboard__modal-hint {
+  display: block;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  text-align: right;
+}

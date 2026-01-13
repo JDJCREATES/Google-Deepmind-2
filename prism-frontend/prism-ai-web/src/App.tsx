@@ -4,7 +4,8 @@ import {
   VscFiles, 
   VscSearch, 
   VscSettingsGear, 
-  VscTerminal 
+  VscTerminal,
+  VscRocket
 } from 'react-icons/vsc';
 import { BiBox } from 'react-icons/bi';
 
@@ -17,6 +18,7 @@ import ArtifactViewer from './components/artifacts/ArtifactViewer';
 import Settings from './components/settings/Settings';
 import { ChatInterface } from './components/chat/ChatInterface';
 import { XTerminal } from './components/terminal/XTerminal';
+import { AgentDashboard } from './components/agent-dashboard';
 
 import { useFileSystem } from './store/fileSystem';
 import { useArtifactStore } from './store/artifactStore';
@@ -28,12 +30,12 @@ import { useTheme } from './hooks/useTheme';
 
 import './App.css';
 
-type SidebarView = 'files' | 'artifacts' | 'search';
+type SidebarView = 'runs' | 'files' | 'artifacts' | 'search';
 
 function App() {
   const { theme } = useTheme();
   const [showExplorer, setShowExplorer] = useState(true);
-  const [activeSidebarView, setActiveSidebarView] = useState<SidebarView>('files');
+  const [activeSidebarView, setActiveSidebarView] = useState<SidebarView>('runs'); // Default to runs
   const [showSettings, setShowSettings] = useState(false);
   const { currentProjectId } = useArtifactStore();
   const { rootHandle } = useFileSystem();
@@ -98,6 +100,13 @@ function App() {
         <div className="activity-bar">
            <div className="activity-top">
              <div 
+               className={`activity-icon ${activeSidebarView === 'runs' && showExplorer ? 'active' : ''}`} 
+               onClick={() => handleSidebarClick('runs')}
+               title="Agent Runs"
+             >
+               <VscRocket size={24} />
+             </div>
+             <div 
                className={`activity-icon ${activeSidebarView === 'files' && showExplorer ? 'active' : ''}`} 
                onClick={() => handleSidebarClick('files')}
                title="File Explorer"
@@ -136,6 +145,18 @@ function App() {
         {showExplorer && (
           <div className="sidebar-pane">
             <div className="sidebar-content">
+              {activeSidebarView === 'runs' && (
+                <div className="runs-sidebar">
+                  <div className="runs-sidebar__header">
+                    <h3>Run Info</h3>
+                  </div>
+                  <div className="runs-sidebar__content">
+                    <p className="runs-sidebar__hint">
+                      Select a run to see details
+                    </p>
+                  </div>
+                </div>
+              )}
               {activeSidebarView === 'files' && <FileExplorer />}
               {activeSidebarView === 'artifacts' && <ArtifactPanel projectId={currentProjectId || ''} />}
               {activeSidebarView === 'search' && <div className="p-4 text-center text-gray-500">Search not implemented</div>}
@@ -144,7 +165,9 @@ function App() {
         )}
 
         <div className="editor-pane">
-          {activeSidebarView === 'artifacts' ? (
+          {activeSidebarView === 'runs' ? (
+            <AgentDashboard />
+          ) : activeSidebarView === 'artifacts' ? (
             <ArtifactViewer />
           ) : (
             <>

@@ -682,3 +682,37 @@ body {
   -webkit-user-select: text;
   cursor: text;
 }
+
+/* Runs Sidebar (Agent Dashboard) */
+.runs-sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 12px;
+}
+
+.runs-sidebar__header {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.runs-sidebar__header h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.runs-sidebar__content {
+  flex: 1;
+  padding-top: 16px;
+}
+
+.runs-sidebar__hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-align: center;
+  margin: 0;
+}
