@@ -167,4 +167,77 @@ contextBridge.exposeInMainWorld('electron', {
         ipcRenderer.on('artifacts:updated', listener);
         return () => ipcRenderer.removeListener('artifacts:updated', listener);
     },
+    
+    // === Agent Runs ===
+    /**
+     * Create a new git branch for a run
+     */
+    createRunBranch: (runId: string, prompt: string) =>
+        ipcRenderer.invoke('runs:createBranch', { runId, prompt }),
+    
+    /**
+     * Switch to a run's git branch
+     */
+    switchRunBranch: (runId: string) =>
+        ipcRenderer.invoke('runs:switchBranch', { runId }),
+    
+    /**
+     * Delete a run's git branch
+     */
+    deleteRunBranch: (runId: string) =>
+        ipcRenderer.invoke('runs:deleteBranch', { runId }),
+    
+    /**
+     * Create a checkpoint (commit) on current branch
+     */
+    createRunCheckpoint: (message: string) =>
+        ipcRenderer.invoke('runs:createCheckpoint', { message }),
+    
+    /**
+     * Rollback to a specific commit
+     */
+    rollbackRun: (commitHash: string) =>
+        ipcRenderer.invoke('runs:rollback', { commitHash }),
+    
+    /**
+     * Create a preview window for a run
+     */
+    createRunPreview: (runId: string) =>
+        ipcRenderer.invoke('runs:createPreview', { runId }),
+    
+    /**
+     * Refresh a run's preview window
+     */
+    refreshRunPreview: (runId: string) =>
+        ipcRenderer.invoke('runs:refreshPreview', { runId }),
+    
+    /**
+     * Close a run's preview window
+     */
+    closeRunPreview: (runId: string) =>
+        ipcRenderer.invoke('runs:closePreview', { runId }),
+    
+    /**
+     * Get all active preview windows
+     */
+    getActiveRunPreviews: () =>
+        ipcRenderer.invoke('runs:getActivePreviews'),
+    
+    /**
+     * Capture a screenshot of a run's preview
+     */
+    captureRunScreenshot: (runId: string, agentPhase: string, description?: string) =>
+        ipcRenderer.invoke('runs:captureScreenshot', { runId, agentPhase, description }),
+    
+    /**
+     * Get all screenshots for a run
+     */
+    getRunScreenshots: (runId: string) =>
+        ipcRenderer.invoke('runs:getScreenshots', { runId }),
+    
+    /**
+     * Delete all screenshots for a run
+     */
+    deleteRunScreenshots: (runId: string) =>
+        ipcRenderer.invoke('runs:deleteScreenshots', { runId }),
 });

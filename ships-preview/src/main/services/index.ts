@@ -40,3 +40,8 @@ export type { Checkpoint, AgentRun } from './gitCheckpoint';
 
 // Runs Management (Agent Dashboard)
 export * from './runs';
+export { 
+  registerRunHandlers, 
+  updateRunProjectPath, 
+  removeRunHandlers 
+} from './runs';

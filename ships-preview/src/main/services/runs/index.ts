@@ -7,3 +7,8 @@
 export { BranchRunManager, type RunBranch } from './BranchRunManager';
 export { PreviewWindowManager, type PreviewWindow } from './PreviewWindowManager';
 export { ScreenshotService, type Screenshot } from './ScreenshotService';
+export { 
+  registerRunHandlers, 
+  updateRunProjectPath, 
+  removeRunHandlers 
+} from './runHandlers';
