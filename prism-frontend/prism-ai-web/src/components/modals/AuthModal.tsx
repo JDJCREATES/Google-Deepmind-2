@@ -11,6 +11,8 @@ interface AuthModalProps {
   onSuccess: () => void;
 }
 
+import './AuthModal.css';
+
 export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
@@ -31,8 +33,8 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
+    <div className="auth-modal-overlay" onClick={onClose}>
+      <div className="auth-modal-content" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
            <RiShip2Fill className="modal-icon" size={32} color="var(--primary-color)" />
            <h2>{isLogin ? 'Welcome Back' : 'Create Account'}</h2>

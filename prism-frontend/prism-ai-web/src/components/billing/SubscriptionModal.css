@@ -24,22 +24,24 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.95); /* High opacity to hide clutter */
+  background: rgba(0, 0, 0, 0.6); /* Match AgentDashboard */
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 20000; /* Ensure on top of everything */
-  backdrop-filter: blur(10px); /* Strong blur */
+  z-index: 20000;
+  backdrop-filter: blur(4px); /* Match AgentDashboard */
 }
 
 .subscription-modal {
-  background: var(--background-color);
+  background: rgba(37, 37, 38, 0.55) !important;
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
   max-width: 1200px;
   width: 95%;
   max-height: 90vh;
   overflow-y: auto;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
 }
 
 .modal-header {

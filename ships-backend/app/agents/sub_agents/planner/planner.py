@@ -720,7 +720,8 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
             for artifact_name in ["task_list", "folder_map", "api_contracts", "dependency_plan", "validation_checklist", "risk_report"]:
                 try:
                     with open(dot_ships / f"{artifact_name}.json", "w", encoding="utf-8") as f:
-                        json_mod.dump(plan_artifacts[artifact_name], f, indent=2)
+                        # Use default=str to handle any lingering datetime objects
+                        f.write(json_mod.dumps(plan_artifacts[artifact_name], indent=2, default=str))
                 except Exception as write_err:
                     logger.warning(f"[PLANNER] Failed to write {artifact_name}: {write_err}")
             

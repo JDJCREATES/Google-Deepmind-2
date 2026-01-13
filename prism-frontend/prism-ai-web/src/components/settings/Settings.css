@@ -288,8 +288,28 @@
 }
 
 .fullscreen-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   z-index: 9999 !important;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.6) !important;
+  backdrop-filter: blur(4px);
+}
+
+.settings-modal-content {
+  width: 80%;
+  height: 80%;
+  background: rgba(37, 37, 38, 0.55) !important; /* 55% opacity */
+  backdrop-filter: blur(16px); /* Strong blur for content */
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 .user-email {

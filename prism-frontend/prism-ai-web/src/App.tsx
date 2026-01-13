@@ -4,10 +4,9 @@ import {
   VscFiles, 
   VscSearch, 
   VscSettingsGear, 
-  VscTerminal,
-  VscRocket
+  VscTerminal
 } from 'react-icons/vsc';
-import { BiBox } from 'react-icons/bi';
+import { BiBox, BiBot } from 'react-icons/bi';
 
 import MonacoEditor from './components/MonacoEditor';
 import FileExplorer from './components/FileExplorer';
@@ -104,7 +103,7 @@ function App() {
                onClick={() => handleSidebarClick('runs')}
                title="Agent Runs"
              >
-               <VscRocket size={24} />
+               <BiBot size={24} />
              </div>
              <div 
                className={`activity-icon ${activeSidebarView === 'files' && showExplorer ? 'active' : ''}`} 
@@ -196,27 +195,8 @@ function App() {
       <ChatInterface electronProjectPath={electronProjectPath} />
 
       {showSettings && (
-        <div className="fullscreen-modal" style={{ 
-          position: 'fixed', 
-          top: 0, 
-          left: 0, 
-          right: 0, 
-          bottom: 0, 
-          display: 'flex', 
-          justifyContent: 'center', 
-          alignItems: 'center',
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          zIndex: 9999
-        }}>
-          <div className="modal-content" style={{
-            width: '80%',
-            height: '80%',
-            backgroundColor: 'var(--bg-primary, #1e1e1e)',
-            borderRadius: '8px',
-            overflow: 'hidden',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
-            position: 'relative'
-          }}>
+        <div className="fullscreen-modal" onClick={() => setShowSettings(false)}>
+          <div className="settings-modal-content" onClick={(e) => e.stopPropagation()}>
              <Settings onClose={() => setShowSettings(false)} />
           </div>
         </div>
