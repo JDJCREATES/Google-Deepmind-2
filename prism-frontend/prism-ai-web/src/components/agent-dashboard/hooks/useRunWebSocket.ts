@@ -7,7 +7,7 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import { useAgentRuns } from './useAgentRuns';
-import { RunStatusEvent, ScreenshotEvent } from '../types';
+import type { RunStatusEvent, ScreenshotEvent } from '../types';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8001/ws/runs';
 

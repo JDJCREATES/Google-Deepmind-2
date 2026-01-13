@@ -6,10 +6,10 @@
  */
 
 import React, { useState } from 'react';
-import { AgentRun } from '../../types';
+import type { AgentRun } from '../../types';
 import { useAgentRuns } from '../../hooks/useAgentRuns';
-import { ScreenshotTimeline } from '../ScreenshotTimeline';
-import { FeedbackInput } from '../FeedbackInput';
+import { ScreenshotTimeline } from '../ScreenshotTimeline/ScreenshotTimeline';
+import { FeedbackInput } from '../FeedbackInput/FeedbackInput';
 import './RunCard.css';
 
 interface RunCardProps {

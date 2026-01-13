@@ -1,3 +1,6 @@
+/**
+ * Agent Dashboard barrel export
+ */
 export { AgentDashboard } from './AgentDashboard';
 export { RunCard } from './components/RunCard';
 export { ScreenshotTimeline } from './components/ScreenshotTimeline';

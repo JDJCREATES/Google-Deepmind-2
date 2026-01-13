@@ -7,8 +7,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { useAgentRuns } from './hooks/useAgentRuns';
-import { RunCard } from './components/RunCard';
-import { CreateRunRequest } from './types';
+import { RunCard } from './components/RunCard/RunCard';
+import type { CreateRunRequest } from './types';
 import './AgentDashboard.css';
 
 export const AgentDashboard: React.FC = () => {

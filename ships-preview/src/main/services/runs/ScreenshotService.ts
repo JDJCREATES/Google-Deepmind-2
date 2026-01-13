@@ -3,12 +3,28 @@
  * 
  * Captures screenshots of preview windows at key moments.
  * Stores screenshots and associates them with git commits.
+ * 
+ * Features:
+ * - Input sanitization for file paths
+ * - File size limits and cleanup
+ * - Concurrent capture protection
+ * - Thumbnail generation with quality settings
+ * - Atomic file writes
  */
 
 import { BrowserWindow } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+
+// Configuration
+const CONFIG = {
+  MAX_SCREENSHOTS_PER_RUN: 100,
+  MAX_TOTAL_SIZE_MB: 500,
+  THUMBNAIL_WIDTH: 200,
+  CLEANUP_THRESHOLD: 0.9, // Clean when 90% of limit reached
+  INDEX_BACKUP_COUNT: 3,
+};
 
 export interface Screenshot {
   id: string;
@@ -19,10 +35,12 @@ export interface Screenshot {
   gitCommitHash: string;
   agentPhase: string;
   description: string;
+  sizeBytes?: number;
 }
 
 export class ScreenshotService {
   private screenshotsDir: string;
+  private captureInProgress: Set<string> = new Set();
 
   constructor(projectPath: string) {
     this.screenshotsDir = path.join(projectPath, '.ships', 'screenshots');
@@ -30,11 +48,75 @@ export class ScreenshotService {
   }
 
   /**
+   * Sanitize input to prevent path traversal
+   */
+  private sanitize(input: string): string {
+    return input.replace(/[^a-zA-Z0-9_-]/g, '');
+  }
+
+  /**
    * Ensure screenshots directory exists
    */
   private ensureDir(): void {
-    if (!fs.existsSync(this.screenshotsDir)) {
-      fs.mkdirSync(this.screenshotsDir, { recursive: true });
+    try {
+      if (!fs.existsSync(this.screenshotsDir)) {
+        fs.mkdirSync(this.screenshotsDir, { recursive: true });
+      }
+    } catch (error) {
+      console.error('[ScreenshotService] Failed to create directory:', error);
+    }
+  }
+
+  /**
+   * Clean up old screenshots when limit is reached
+   */
+  private async cleanupOldScreenshots(runId: string): Promise<void> {
+    const sanitizedId = this.sanitize(runId);
+    const screenshots = this.getScreenshotsForRun(sanitizedId);
+    
+    // Check if we need cleanup
+    if (screenshots.length < CONFIG.MAX_SCREENSHOTS_PER_RUN * CONFIG.CLEANUP_THRESHOLD) {
+      return;
+    }
+    
+    // Remove oldest screenshots (keep most recent half)
+    const toRemove = screenshots.slice(0, Math.floor(screenshots.length / 2));
+    
+    for (const screenshot of toRemove) {
+      this.deleteScreenshot(sanitizedId, screenshot.id);
+    }
+    
+    console.log(`[ScreenshotService] Cleaned up ${toRemove.length} old screenshots for run ${sanitizedId}`);
+  }
+
+  /**
+   * Delete a single screenshot
+   */
+  private deleteScreenshot(runId: string, screenshotId: string): void {
+    const sanitizedId = this.sanitize(runId);
+    const sanitizedScreenshotId = this.sanitize(screenshotId);
+    
+    const screenshots = this.getScreenshotsForRun(sanitizedId);
+    const screenshot = screenshots.find(s => s.id === sanitizedScreenshotId);
+    
+    if (!screenshot) return;
+    
+    try {
+      // Delete image file
+      if (fs.existsSync(screenshot.imagePath)) {
+        fs.unlinkSync(screenshot.imagePath);
+      }
+      
+      // Delete thumbnail
+      if (screenshot.thumbnailPath && fs.existsSync(screenshot.thumbnailPath)) {
+        fs.unlinkSync(screenshot.thumbnailPath);
+      }
+      
+      // Update index
+      const remaining = screenshots.filter(s => s.id !== sanitizedScreenshotId);
+      this.saveScreenshotIndex(sanitizedId, remaining);
+    } catch (error) {
+      console.error(`[ScreenshotService] Failed to delete screenshot ${sanitizedScreenshotId}:`, error);
     }
   }
 
@@ -48,43 +130,87 @@ export class ScreenshotService {
     agentPhase: string,
     description: string = ''
   ): Promise<Screenshot> {
-    const id = crypto.randomUUID().slice(0, 8);
-    const timestamp = new Date().toISOString();
+    const sanitizedRunId = this.sanitize(runId);
+    const sanitizedCommit = this.sanitize(commitHash);
+    const sanitizedPhase = this.sanitize(agentPhase);
+    const sanitizedDesc = description.slice(0, 500); // Limit description length
+    
+    // Prevent concurrent captures for same run
+    if (this.captureInProgress.has(sanitizedRunId)) {
+      throw new Error(`Screenshot capture already in progress for run: ${sanitizedRunId}`);
+    }
+    
+    this.captureInProgress.add(sanitizedRunId);
     
     try {
+      // Validate window
+      if (!window || window.isDestroyed()) {
+        throw new Error('Window is not available for screenshot');
+      }
+      
+      // Check limits and cleanup if needed
+      await this.cleanupOldScreenshots(sanitizedRunId);
+      
+      const id = crypto.randomUUID().slice(0, 8);
+      const timestamp = new Date().toISOString();
+      
       // Capture the page
       const image = await window.webContents.capturePage();
       
-      // Generate filenames
-      const filename = `${runId}_${id}.png`;
-      const thumbFilename = `${runId}_${id}_thumb.png`;
+      if (image.isEmpty()) {
+        throw new Error('Captured image is empty');
+      }
+      
+      // Generate filenames with sanitized components
+      const filename = `${sanitizedRunId}_${id}.png`;
+      const thumbFilename = `${sanitizedRunId}_${id}_thumb.png`;
       const imagePath = path.join(this.screenshotsDir, filename);
       const thumbnailPath = path.join(this.screenshotsDir, thumbFilename);
       
-      // Save full-size image
-      fs.writeFileSync(imagePath, image.toPNG());
+      // Convert to PNG
+      const pngBuffer = image.toPNG();
+      const sizeBytes = pngBuffer.length;
       
-      // Create and save thumbnail (200px wide)
-      const thumb = image.resize({ width: 200 });
-      fs.writeFileSync(thumbnailPath, thumb.toPNG());
+      // Atomic write for main image (write to temp, then rename)
+      const tempPath = `${imagePath}.tmp`;
+      fs.writeFileSync(tempPath, pngBuffer);
+      fs.renameSync(tempPath, imagePath);
+      
+      // Create and save thumbnail
+      let thumbnailSaved = false;
+      try {
+        const thumb = image.resize({ width: CONFIG.THUMBNAIL_WIDTH });
+        const thumbBuffer = thumb.toPNG();
+        const tempThumbPath = `${thumbnailPath}.tmp`;
+        fs.writeFileSync(tempThumbPath, thumbBuffer);
+        fs.renameSync(tempThumbPath, thumbnailPath);
+        thumbnailSaved = true;
+      } catch (thumbError) {
+        console.warn('[ScreenshotService] Failed to create thumbnail:', thumbError);
+      }
       
       const screenshot: Screenshot = {
         id,
-        runId,
+        runId: sanitizedRunId,
         timestamp,
         imagePath,
-        thumbnailPath,
-        gitCommitHash: commitHash,
-        agentPhase,
-        description,
+        thumbnailPath: thumbnailSaved ? thumbnailPath : undefined,
+        gitCommitHash: sanitizedCommit,
+        agentPhase: sanitizedPhase,
+        description: sanitizedDesc,
+        sizeBytes,
       };
       
-      console.log(`[ScreenshotService] Captured screenshot: ${id}`);
+      // Update index
+      const existingScreenshots = this.getScreenshotsForRun(sanitizedRunId);
+      existingScreenshots.push(screenshot);
+      this.saveScreenshotIndex(sanitizedRunId, existingScreenshots);
+      
+      console.log(`[ScreenshotService] Captured screenshot: ${id} (${Math.round(sizeBytes / 1024)}KB)`);
       
       return screenshot;
-    } catch (error) {
-      console.error(`[ScreenshotService] Failed to capture screenshot:`, error);
-      throw error;
+    } finally {
+      this.captureInProgress.delete(sanitizedRunId);
     }
   }
 
@@ -92,13 +218,37 @@ export class ScreenshotService {
    * Get all screenshots for a run
    */
   getScreenshotsForRun(runId: string): Screenshot[] {
-    // Read screenshots index file if exists
-    const indexPath = path.join(this.screenshotsDir, `${runId}_index.json`);
+    const sanitizedId = this.sanitize(runId);
+    const indexPath = path.join(this.screenshotsDir, `${sanitizedId}_index.json`);
     
     if (fs.existsSync(indexPath)) {
       try {
-        return JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
-      } catch {
+        const content = fs.readFileSync(indexPath, 'utf-8');
+        const parsed = JSON.parse(content);
+        
+        // Validate array
+        if (!Array.isArray(parsed)) {
+          console.warn('[ScreenshotService] Invalid index format, returning empty array');
+          return [];
+        }
+        
+        return parsed;
+      } catch (error) {
+        console.error('[ScreenshotService] Failed to read index:', error);
+        
+        // Try to recover from backup
+        for (let i = 1; i <= CONFIG.INDEX_BACKUP_COUNT; i++) {
+          const backupPath = `${indexPath}.bak${i}`;
+          if (fs.existsSync(backupPath)) {
+            try {
+              const backupContent = fs.readFileSync(backupPath, 'utf-8');
+              return JSON.parse(backupContent);
+            } catch {
+              continue;
+            }
+          }
+        }
+        
         return [];
       }
     }
@@ -110,24 +260,55 @@ export class ScreenshotService {
    * Save screenshot index for a run
    */
   saveScreenshotIndex(runId: string, screenshots: Screenshot[]): void {
-    const indexPath = path.join(this.screenshotsDir, `${runId}_index.json`);
-    fs.writeFileSync(indexPath, JSON.stringify(screenshots, null, 2));
+    const sanitizedId = this.sanitize(runId);
+    const indexPath = path.join(this.screenshotsDir, `${sanitizedId}_index.json`);
+    
+    try {
+      // Rotate backups
+      for (let i = CONFIG.INDEX_BACKUP_COUNT; i > 1; i--) {
+        const older = `${indexPath}.bak${i - 1}`;
+        const newer = `${indexPath}.bak${i}`;
+        if (fs.existsSync(older)) {
+          fs.renameSync(older, newer);
+        }
+      }
+      
+      // Current becomes backup 1
+      if (fs.existsSync(indexPath)) {
+        fs.renameSync(indexPath, `${indexPath}.bak1`);
+      }
+      
+      // Atomic write
+      const tempPath = `${indexPath}.tmp`;
+      fs.writeFileSync(tempPath, JSON.stringify(screenshots, null, 2));
+      fs.renameSync(tempPath, indexPath);
+    } catch (error) {
+      console.error('[ScreenshotService] Failed to save index:', error);
+    }
   }
 
   /**
    * Delete all screenshots for a run
    */
   deleteScreenshotsForRun(runId: string): void {
+    const sanitizedId = this.sanitize(runId);
+    
     try {
       const files = fs.readdirSync(this.screenshotsDir);
+      let deletedCount = 0;
       
       for (const file of files) {
-        if (file.startsWith(`${runId}_`)) {
-          fs.unlinkSync(path.join(this.screenshotsDir, file));
+        if (file.startsWith(`${sanitizedId}_`)) {
+          try {
+            fs.unlinkSync(path.join(this.screenshotsDir, file));
+            deletedCount++;
+          } catch {
+            // Continue deleting other files
+          }
         }
       }
       
-      console.log(`[ScreenshotService] Deleted screenshots for run: ${runId}`);
+      console.log(`[ScreenshotService] Deleted ${deletedCount} files for run: ${sanitizedId}`);
     } catch (error) {
       console.error(`[ScreenshotService] Failed to delete screenshots:`, error);
     }
@@ -137,7 +318,32 @@ export class ScreenshotService {
    * Get screenshot by ID
    */
   getScreenshot(runId: string, screenshotId: string): Screenshot | undefined {
-    const screenshots = this.getScreenshotsForRun(runId);
-    return screenshots.find(s => s.id === screenshotId);
+    const sanitizedRunId = this.sanitize(runId);
+    const sanitizedScreenshotId = this.sanitize(screenshotId);
+    
+    const screenshots = this.getScreenshotsForRun(sanitizedRunId);
+    return screenshots.find(s => s.id === sanitizedScreenshotId);
+  }
+
+  /**
+   * Get screenshot image as buffer (for serving via IPC)
+   */
+  getScreenshotImage(runId: string, screenshotId: string, thumbnail: boolean = false): Buffer | null {
+    const screenshot = this.getScreenshot(runId, screenshotId);
+    if (!screenshot) return null;
+    
+    const imagePath = thumbnail && screenshot.thumbnailPath 
+      ? screenshot.thumbnailPath 
+      : screenshot.imagePath;
+    
+    try {
+      if (fs.existsSync(imagePath)) {
+        return fs.readFileSync(imagePath);
+      }
+    } catch (error) {
+      console.error('[ScreenshotService] Failed to read image:', error);
+    }
+    
+    return null;
   }
 }

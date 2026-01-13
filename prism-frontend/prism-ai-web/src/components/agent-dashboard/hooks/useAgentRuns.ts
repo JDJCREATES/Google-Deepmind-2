@@ -7,7 +7,7 @@
  */
 
 import { create } from 'zustand';
-import { AgentRun, Screenshot, RunStatus, AgentType, CreateRunRequest } from '../types';
+import type { AgentRun, Screenshot, RunStatus, AgentType, CreateRunRequest } from '../types';
 
 // ============================================================================
 // Types
