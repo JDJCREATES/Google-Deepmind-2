@@ -99,6 +99,23 @@ async def start_preview(project: ProjectPath):
 async def stop_preview():
     return preview_manager.stop_dev_server()
 
+@preview_router.post("/open")
+async def open_preview():
+    """Start dev server if not running and return preview URL."""
+    status = preview_manager.get_status() if hasattr(preview_manager, 'get_status') else None
+    
+    # If not running, try to start it
+    if not preview_manager.process or preview_manager.process.poll() is not None:
+        if preview_manager.current_project_path:
+            preview_manager.start_dev_server(preview_manager.current_project_path)
+    
+    return {
+        "status": "success",
+        "url": preview_manager.current_url,
+        "project_path": preview_manager.current_project_path,
+        "message": "Preview server started. Use ships-preview Electron app to view."
+    }
+
 @preview_router.get("/status")
 async def get_status():
     # Dynamically check if process is actually running (not just the flag)

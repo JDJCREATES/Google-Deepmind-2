@@ -176,17 +176,18 @@ function App() {
               <div className="monaco-container">
                 <MonacoEditor theme={theme} />
               </div>
-              <XTerminal
-                projectPath={electronProjectPath}
-                isVisible={showTerminal}
-                isCollapsed={terminalCollapsed}
-                onClose={() => setShowTerminal(false)}
-                onToggleCollapse={() => setTerminalCollapsed(!terminalCollapsed)}
-                externalOutput={terminalOutput}
-                onKillBackendProcess={handleKillBackendProcess}
-              />
+
             </>
           )}
+          <XTerminal
+            projectPath={electronProjectPath}
+            isVisible={showTerminal}
+            isCollapsed={terminalCollapsed}
+            onClose={() => setShowTerminal(false)}
+            onToggleCollapse={() => setTerminalCollapsed(!terminalCollapsed)}
+            externalOutput={terminalOutput}
+            onKillBackendProcess={handleKillBackendProcess}
+          />
         </div>
 
       </div>

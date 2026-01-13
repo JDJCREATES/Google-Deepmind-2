@@ -462,14 +462,14 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
         parts.append(f"USER RAW REQUEST: \"{raw_req}\"\n")
         
         # Intent
-        parts.append(f"INTENT ANALYSIS:\n{json.dumps(intent, indent=2)}")
+        parts.append(f"INTENT ANALYSIS:\n{json.dumps(intent, indent=2, default=str)}")
         
         # Framework
         parts.append(f"FRAMEWORK: {context.get('framework', 'react')}")
         
         # Constraints
         if context.get("constraints"):
-            parts.append(f"CONSTRAINTS:\n{json.dumps(context['constraints'], indent=2)[:500]}")
+            parts.append(f"CONSTRAINTS:\n{json.dumps(context['constraints'], indent=2, default=str)[:500]}")
             
         # Current File Tree
         file_tree = context.get("file_tree")

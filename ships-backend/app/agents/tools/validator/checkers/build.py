@@ -85,13 +85,23 @@ class BuildChecker(BaseChecker):
             
             errors = []
             if result.returncode != 0:
-                errors.append(CheckerError(
-                    file="",
-                    line=0,
-                    message=f"Build failed: {result.stderr[:500]}",
-                    severity=CheckerSeverity.ERROR,
-                    source=self.name
-                ))
+                # Parse build output for file-specific errors
+                parsed_errors = self._parse_build_errors(
+                    result.stderr or result.stdout, 
+                    project_path
+                )
+                if parsed_errors:
+                    errors = parsed_errors
+                else:
+                    # Fallback: create generic error with entry point as file
+                    entry_file = self._detect_entry_file(path)
+                    errors.append(CheckerError(
+                        file=entry_file,
+                        line=0,
+                        message=f"Build failed: {(result.stderr or result.stdout)[:500]}",
+                        severity=CheckerSeverity.ERROR,
+                        source=self.name
+                    ))
             
             duration = int((datetime.utcnow() - start).total_seconds() * 1000)
             
@@ -118,6 +128,100 @@ class BuildChecker(BaseChecker):
                 skipped=True,
                 skip_reason="Build tool not installed"
             )
+    def _parse_build_errors(self, output: str, project_path: str) -> List[CheckerError]:
+        """
+        Parse TypeScript/Vite/esbuild error output to extract file-specific errors.
+        
+        Formats handled:
+        - TypeScript: src/file.ts(10,5): error TS2300: message
+        - Vite/esbuild: src/file.ts:10:5: error: message
+        - General: error in src/file.ts
+        """
+        import re
+        errors = []
+        
+        # Pattern 1: TypeScript format - file(line,col): error TSxxxx: message
+        ts_pattern = r'([^\s(]+)\((\d+),(\d+)\):\s*(error|warning)\s+TS\d+:\s*(.+)'
+        
+        # Pattern 2: Vite/esbuild format - file:line:col: error: message
+        vite_pattern = r'([^\s:]+\.(?:ts|tsx|js|jsx)):(\d+):(\d+):\s*(?:error|Error):\s*(.+)'
+        
+        # Pattern 3: General "error in file" format
+        general_pattern = r'(?:error|Error).+?(?:in|at)\s+([^\s:]+\.(?:ts|tsx|js|jsx))'
+        
+        seen_files = set()
+        
+        for line in output.split('\n'):
+            # Try TypeScript pattern
+            match = re.search(ts_pattern, line)
+            if match:
+                file_path = match.group(1).replace('\\', '/')
+                line_num = int(match.group(2))
+                message = match.group(5).strip()
+                
+                errors.append(CheckerError(
+                    file=file_path,
+                    line=line_num,
+                    message=f"TS Error: {message}",
+                    severity=CheckerSeverity.ERROR,
+                    source=self.name
+                ))
+                continue
+            
+            # Try Vite/esbuild pattern
+            match = re.search(vite_pattern, line)
+            if match:
+                file_path = match.group(1).replace('\\', '/')
+                line_num = int(match.group(2))
+                message = match.group(4).strip()
+                
+                errors.append(CheckerError(
+                    file=file_path,
+                    line=line_num,
+                    message=message,
+                    severity=CheckerSeverity.ERROR,
+                    source=self.name
+                ))
+                continue
+            
+            # Try general pattern (just extract file, no line number)
+            match = re.search(general_pattern, line)
+            if match:
+                file_path = match.group(1).replace('\\', '/')
+                if file_path not in seen_files:
+                    seen_files.add(file_path)
+                    errors.append(CheckerError(
+                        file=file_path,
+                        line=0,
+                        message=line.strip()[:200],
+                        severity=CheckerSeverity.ERROR,
+                        source=self.name
+                    ))
+        
+        return errors
+    
+    def _detect_entry_file(self, path: Path) -> str:
+        """Detect the main entry file for a project."""
+        # Common entry points in order of preference
+        candidates = [
+            "src/App.tsx",
+            "src/App.jsx",
+            "src/main.tsx",
+            "src/main.jsx",
+            "src/index.tsx",
+            "src/index.jsx",
+            "src/main.ts",
+            "src/index.ts",
+            "index.js",
+            "main.js",
+        ]
+        
+        for candidate in candidates:
+            if (path / candidate).exists():
+                return candidate
+        
+        # Fallback to any file
+        return "src/App.tsx"
     
     def parse_output(self, output: str, project_path: str) -> List[CheckerError]:
         """Not used - check() handles everything."""

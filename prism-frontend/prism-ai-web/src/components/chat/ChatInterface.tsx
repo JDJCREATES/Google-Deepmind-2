@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { PiShippingContainerFill } from "react-icons/pi";
 import { RiShip2Fill } from 'react-icons/ri';
-import { VscLayoutSidebarRightOff } from 'react-icons/vsc';
+import { VscLayoutSidebarRightOff, VscOpenPreview } from 'react-icons/vsc';
 import { ProgressCircular } from 'react-onsenui';
 
 import ChatMessage from './ChatMessage';
@@ -309,8 +309,47 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
            {activeRun && <span className="chat-subtitle"> / {activeRun.branch.split('/').pop()?.replace('work/', '') || activeRun.title.slice(0, 15)}</span>}
          </div>
          <div className="chat-header-right">
-           <VscLayoutSidebarRightOff size={16} aria-hidden="true" />
-         </div>
+            <button
+              className="chat-header-btn"
+              onClick={async () => {
+                // Best method: Use run-based preview (creates window per run)
+                if ((window as any).electron?.createRunPreview && activeRunId) {
+                  try {
+                    const result = await (window as any).electron.createRunPreview(activeRunId);
+                    if (result.success) {
+                      console.log('[Preview] Created/focused preview:', result.preview);
+                      return;
+                    }
+                    console.warn('[Preview] createRunPreview failed:', result.error);
+                  } catch (e) {
+                    console.error('[Preview] IPC error:', e);
+                  }
+                }
+                
+                // Fallback: Try to get active previews and focus
+                if ((window as any).electron?.getActiveRunPreviews) {
+                  try {
+                    const result = await (window as any).electron.getActiveRunPreviews();
+                    if (result.success && result.previews?.length > 0) {
+                      console.log('[Preview] Active previews:', result.previews);
+                      // Previews exist - the window should be visible
+                      return;
+                    }
+                  } catch (e) {
+                    console.error('[Preview] getActiveRunPreviews error:', e);
+                  }
+                }
+                
+                // Last resort: HTTP API for focus request
+                fetch(`${API_URL}/preview/request-focus`, { method: 'POST' }).catch(console.error);
+              }}
+              title={activeRunId ? 'Open Preview for Run' : 'Open Preview'}
+              disabled={!activeRunId && !electronProjectPath}
+            >
+              <VscOpenPreview size={16} />
+            </button>
+            <VscLayoutSidebarRightOff size={16} aria-hidden="true" />
+          </div>
       </header>
 
       <main className="chat-messages">

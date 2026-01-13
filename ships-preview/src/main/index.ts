@@ -449,15 +449,32 @@ ipcMain.handle('focus-window', async () => {
 /**
  * Open a preview URL - opens in default system browser
  */
-ipcMain.handle('open-preview', async (_event, url: string) => {
-  console.log(`[PREVIEW] Opening preview: ${url}`);
+ipcMain.handle('open-preview', async (_event, projectPath: string) => {
+  console.log(`[PREVIEW] Opening preview for project: ${projectPath}`);
   
   try {
-    // Force open in system browser (Chrome/Edge/Safari)
-    await shell.openExternal(url);
-    return { success: true, url };
+    // Focus the main window if it exists
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.focus();
+      mainWindow.show();
+      
+      // Request focus on the backend side for the preview panel
+      try {
+        const API_URL = process.env.VITE_API_URL || 'http://localhost:8001';
+        await fetch(`${API_URL}/preview/request-focus`, { method: 'POST' });
+      } catch (e) {
+        console.log('[PREVIEW] Could not request focus from backend');
+      }
+      
+      return { success: true, focused: true };
+    }
+    
+    return { success: false, error: 'No main window available' };
   } catch (e: any) {
-    console.error(`[PREVIEW] Failed to open external URL: ${e}`);
+    console.error(`[PREVIEW] Failed to focus preview: ${e}`);
     return { success: false, error: e.message };
   }
 });

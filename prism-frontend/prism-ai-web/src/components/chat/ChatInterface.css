@@ -44,6 +44,30 @@
   gap: 8px;
 }
 
+.chat-header-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary, #888);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.chat-header-btn:hover {
+  color: var(--primary-color, #ff5e57);
+  background: rgba(255, 94, 87, 0.1);
+}
+
+.chat-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* Messages Container */
 .chat-messages {
   flex: 1;
