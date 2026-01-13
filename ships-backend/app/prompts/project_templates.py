@@ -33,8 +33,8 @@ FRONTEND_TEMPLATES = {
 ├── stores/              # Zustand stores (global state)
 ├── api/                 # API client functions
 └── assets/              # Static assets (images, fonts)""",
-        "conventions": """- Files: kebab-case (user-profile.tsx)
-- Components: PascalCase (UserProfile.tsx exports UserProfile)
+        "conventions": """- Files: PascalCase for components (UserProfile.tsx), camelCase for hooks (useAuth.ts)
+- Components: PascalCase export matches filename (UserProfile.tsx exports UserProfile)
 - Hooks: camelCase with use prefix (useAuth.ts) - EXTRACT COMPLEX LOGIC HERE
 - DRY Principle: ALWAYS map over arrays for repetitive elements.
 - Styling: Tailwind utility classes. Use `clsx` or `tailwind-merge` for conditionals.

@@ -277,6 +277,38 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
                appendRunMessageContent(targetRunId, aiMessageId, errorMsg);
            }
          }
+         
+         // Run Complete - Capture screenshot and create preview
+         else if (chunk.type === 'complete') {
+           setPhase('done');
+           console.log('[ChatInterface] Run complete, triggering screenshot capture...');
+           
+           if (targetRunId && (window as any).electron) {
+             // Create or focus preview window, then capture screenshot
+             (window as any).electron.createRunPreview(targetRunId)
+               .then((previewResult: any) => {
+                 console.log('[ChatInterface] Preview result:', previewResult);
+                 
+                 // Wait briefly for page to load, then capture screenshot
+                 setTimeout(() => {
+                   (window as any).electron.captureRunScreenshot(
+                     targetRunId,
+                     'complete',
+                     'Agent run completed successfully'
+                   )
+                     .then((screenshotResult: any) => {
+                       console.log('[ChatInterface] Screenshot captured:', screenshotResult);
+                     })
+                     .catch((e: any) => {
+                       console.warn('[ChatInterface] Screenshot capture failed:', e);
+                     });
+                 }, 2000); // Wait 2s for preview to load
+               })
+               .catch((e: any) => {
+                 console.warn('[ChatInterface] Preview creation failed:', e);
+               });
+           }
+         }
       },
       (error: any) => {
          setPhase('error');
