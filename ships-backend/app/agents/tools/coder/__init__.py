@@ -22,6 +22,7 @@ from .context import (
 # Import tools from modules
 from .file_operations import (
     write_file_to_disk,
+    write_files_batch,
     read_file_from_disk,
     list_directory,
     create_directory,
@@ -79,6 +80,7 @@ CODER_TOOLS = [
     # Primary file operations
     view_source_code,
     write_file_to_disk,
+    write_files_batch,  # PREFERRED for multiple files - reduces iterations
     read_file_from_disk,
     list_directory,
     get_file_tree,      # Prefers .ships/ artifact, falls back to scan
@@ -107,6 +109,7 @@ __all__ = [
     "insert_content",
     # File operations
     "write_file_to_disk",
+    "write_files_batch",
     "read_file_from_disk", 
     "list_directory",
     "create_directory",

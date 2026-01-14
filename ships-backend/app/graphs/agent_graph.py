@@ -532,29 +532,25 @@ ACTUAL FILE STRUCTURE (Disk State):
 "Created: [file]" or "Implementation complete."
 </output_format>"""
 
-    # 5. Build state for Coder.invoke()
-    # 5. Build state for Coder.invoke() - SANITIZED to prevent 300k+ token bloat
-    # We explicitly do NOT pass the full message history to the Coder.
-    # It only needs the user request and specific artifacts.
-    coder_messages = [user_request] if user_request else []
+    # 5. Build state for Coder.invoke() - Use centralized context scoping
+    # Import context scoping service for maintainable token optimization
+    from app.services.context_scoping import scope_context_for_agent
     
-    coder_state = {
-        "messages": coder_messages,  # ONLY the user request
-        "artifacts": {
-            **artifacts,
-            "plan_content": plan_content,
-            "project_structure": real_file_tree,
-            "project_path": project_path,
-        },
-        "parameters": {
-            "user_request": user_request.content if hasattr(user_request, 'content') else str(user_request),
-            "project_path": project_path,
-        },
-        "completed_files": unique_completed,
-        # Keep minimal other state if needed by base class, but exclude large history
-        "phase": state.get("phase"),
-        "loop_detection": state.get("loop_detection"),
+    # Get scoped context (excludes full message history to prevent token bloat)
+    coder_state = scope_context_for_agent(state, "coder")
+    
+    # Merge with coder-specific overrides that need fresh computation
+    coder_state["artifacts"] = {
+        **coder_state.get("artifacts", {}),
+        "plan_content": plan_content,
+        "project_structure": real_file_tree,
+        "project_path": project_path,
     }
+    coder_state["parameters"] = {
+        "user_request": user_request.content if hasattr(user_request, 'content') else str(user_request),
+        "project_path": project_path,
+    }
+    coder_state["completed_files"] = unique_completed
     
     # 6. Invoke the Coder (now uses create_react_agent internally)
     coder = Coder()
@@ -885,17 +881,20 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
                  "messages": [AIMessage(content="Waiting for files to unlock.")]
              }
 
-    fixer_state = {
-        **state,
-        "artifacts": {
-            **artifacts, 
-            "project_path": project_path,
-            "validation_report": filtered_report # Pass constrained report
-        },
-        "parameters": {
-            "attempt_number": fix_attempts,
-            "active_file": active_fix_file
-        },
+    # Use centralized context scoping (prevents token bloat from full state spread)
+    from app.services.context_scoping import scope_context_for_agent
+    
+    fixer_state = scope_context_for_agent(state, "fixer")
+    
+    # Merge with fixer-specific overrides
+    fixer_state["artifacts"] = {
+        **fixer_state.get("artifacts", {}),
+        "project_path": project_path,
+        "validation_report": filtered_report  # Pass constrained report
+    }
+    fixer_state["parameters"] = {
+        "attempt_number": fix_attempts,
+        "active_file": active_fix_file
     }
     
     try:

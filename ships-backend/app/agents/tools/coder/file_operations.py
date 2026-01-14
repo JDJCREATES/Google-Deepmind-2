@@ -82,6 +82,79 @@ def write_file_to_disk(file_path: str, content: str) -> Dict[str, Any]:
 
 
 @tool
+def write_files_batch(files: list[dict]) -> Dict[str, Any]:
+    """
+    Write multiple files to disk in a single tool call.
+    
+    This is the PREFERRED method for creating multiple files at once.
+    Reduces ReAct loop iterations and token usage significantly.
+    
+    Args:
+        files: List of file specs, each with:
+               - path: Relative path (e.g., "src/App.tsx")
+               - content: Full content to write
+               
+    Returns:
+        Summary with success count and any errors (not full file contents)
+        
+    Example:
+        write_files_batch([
+            {"path": "src/App.tsx", "content": "import React..."},
+            {"path": "src/index.css", "content": "body {...}"},
+        ])
+    """
+    project_root = get_project_root()
+    if not project_root:
+        return {"success": False, "error": "Project root not set", "written": 0}
+    
+    written = []
+    errors = []
+    total_bytes = 0
+    
+    for file_spec in files:
+        file_path = file_spec.get("path", "")
+        content = file_spec.get("content", "")
+        
+        if not file_path:
+            errors.append({"path": "(empty)", "error": "Missing path"})
+            continue
+            
+        try:
+            # Validate path safety
+            is_safe, error = is_path_safe(file_path)
+            if not is_safe:
+                errors.append({"path": file_path, "error": error})
+                continue
+            
+            resolved_path = (Path(project_root) / file_path).resolve()
+            
+            # Create parent directories
+            resolved_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Write the file
+            resolved_path.write_text(content, encoding="utf-8")
+            
+            written.append(file_path)
+            total_bytes += len(content)
+            
+            logger.info(f"[CODER] ✅ Wrote file: {file_path} ({len(content)} bytes)")
+            
+        except Exception as e:
+            errors.append({"path": file_path, "error": str(e)})
+            logger.error(f"[CODER] ❌ Failed to write {file_path}: {e}")
+    
+    # Return minimal summary (not full content) to reduce token usage
+    return {
+        "success": len(errors) == 0,
+        "written": written,
+        "written_count": len(written),
+        "total_bytes": total_bytes,
+        "errors": errors if errors else None,
+        "message": f"Wrote {len(written)} files ({total_bytes} bytes)" + (f", {len(errors)} errors" if errors else "")
+    }
+
+
+@tool
 def read_file_from_disk(file_path: str) -> Dict[str, Any]:
     """
     Read a file from the current project.
@@ -342,8 +415,10 @@ def view_source_code(
 # Export tools
 FILE_OPERATION_TOOLS = [
     write_file_to_disk,
+    write_files_batch,  # Batch writes - reduces ReAct iterations
     read_file_from_disk,
     list_directory,
     create_directory,
     view_source_code,
 ]
+

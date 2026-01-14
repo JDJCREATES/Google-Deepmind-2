@@ -113,15 +113,20 @@ Before returning, verify:
 
 # Token Efficiency
 
-## 1. Do NOT Rewrite Entire Files
+## 1. BATCH File Writes (CRITICAL for Performance)
+- When creating MULTIPLE new files, use `write_files_batch` instead of separate `write_file_to_disk` calls.
+- Example: Creating 5 files = 1 batch call, NOT 5 separate calls.
+- This dramatically reduces token usage and processing time.
+
+## 2. Do NOT Rewrite Entire Files
 - If a file exists, use `apply_source_edits` to change ONLY what is needed.
 - `write_file_to_disk` on existing files is inefficient. Use edits.
 
-## 2. Context is Pre-Loaded
+## 3. Context is Pre-Loaded
 - You have folder structure in your prompt. Do NOT call `list_directory`.
 - You have file content if pre-read. Do NOT read it again.
 
-## 3. Surgical Edits
+## 4. Surgical Edits
 - Provide UNIQUE context for search blocks.
 - Verify that your search block exists exactly in the file.
 - Small targeted edits > full file rewrites.
