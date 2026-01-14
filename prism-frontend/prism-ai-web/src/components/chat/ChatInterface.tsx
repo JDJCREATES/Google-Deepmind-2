@@ -252,9 +252,33 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
         
         // Thinking Content
         else if (chunk.type === 'thinking' && chunk.content) {
-          const sectionId = currentThinkingSectionRef.current;
-          if (targetRunId && sectionId) {
-             updateRunThinking(targetRunId, sectionId, chunk.content);
+          if (targetRunId) {
+              let sectionId = currentThinkingSectionRef.current;
+              
+              // Auto-create section if none exists
+              if (!sectionId) {
+                const node = chunk.node || 'agent';
+                sectionId = `${node}-${Date.now()}`;
+                const titleMap: Record<string, string> = {
+                  'orchestrator': '🧠 Analyzing Request',
+                  'planner': '📝 Planning Implementation',
+                  'coder': '💻 Writing Code',
+                  'validator': '✓ Validating Build',
+                  'fixer': '🔧 Fixing Issues',
+                  'chat': '💬 Responding',
+                };
+                const newSection: ThinkingSectionData = {
+                  id: sectionId,
+                  title: titleMap[node.toLowerCase()] || `Processing (${node})`,
+                  node: node,
+                  content: '',
+                  isLive: true
+                };
+                addRunThinkingSection(targetRunId, newSection);
+                currentThinkingSectionRef.current = sectionId;
+              }
+              
+              updateRunThinking(targetRunId, sectionId, chunk.content + '\n');
           }
         }
         
@@ -423,6 +447,18 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
          <div className="activity-section">
             <ActivityIndicator activity={currentActivity} type={activityType} />
          </div>
+         
+         {/* Tool Progress - Shows files created, commands run, etc. */}
+         {toolEvents.length > 0 && (
+           <ToolProgress 
+             events={toolEvents} 
+             onFileClick={(filePath) => {
+               if (electronProjectPath) {
+                 openFile(filePath);
+               }
+             }}
+           />
+         )}
          
          {/* Bottom Spacer */}
          <div ref={messagesEndRef} />

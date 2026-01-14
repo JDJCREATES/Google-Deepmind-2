@@ -7,6 +7,7 @@
  */
 
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import type { AgentRun, Screenshot, RunStatus, AgentType, CreateRunRequest, ChatMessage, ThinkingSectionData } from '../types';
 
 // ============================================================================
@@ -146,7 +147,9 @@ const electronAPI = {
 // Store
 // ============================================================================
 
-export const useAgentRuns = create<AgentRunsState>((set, get) => ({
+export const useAgentRuns = create<AgentRunsState>()(
+  persist(
+    (set, get) => ({
   runs: [],
   activeRunId: null,
   isLoading: false,
@@ -514,7 +517,34 @@ export const useAgentRuns = create<AgentRunsState>((set, get) => ({
       return null;
     }
   },
-}));
+}),
+    {
+      name: 'ships-agent-runs-v2',
+      storage: createJSONStorage(() => localStorage),
+      // Persist runs and activeRunId so messages don't disappear
+      partialize: (state) => ({
+        runs: state.runs,
+        activeRunId: state.activeRunId,
+      }),
+      // Handle date serialization
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          // Rehydrate dates in runs
+          state.runs = state.runs.map(run => ({
+            ...run,
+            createdAt: run.createdAt,
+            updatedAt: run.updatedAt,
+            messages: run.messages?.map(msg => ({
+              ...msg,
+              timestamp: new Date(msg.timestamp),
+            })) || [],
+          }));
+          console.log('[useAgentRuns] Rehydrated', state.runs.length, 'runs from storage');
+        }
+      },
+    }
+  )
+);
 
 // ============================================================================
 // Type augmentation for window.electron
