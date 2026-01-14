@@ -533,8 +533,13 @@ ACTUAL FILE STRUCTURE (Disk State):
 </output_format>"""
 
     # 5. Build state for Coder.invoke()
+    # 5. Build state for Coder.invoke() - SANITIZED to prevent 300k+ token bloat
+    # We explicitly do NOT pass the full message history to the Coder.
+    # It only needs the user request and specific artifacts.
+    coder_messages = [user_request] if user_request else []
+    
     coder_state = {
-        **state,
+        "messages": coder_messages,  # ONLY the user request
         "artifacts": {
             **artifacts,
             "plan_content": plan_content,
@@ -546,6 +551,9 @@ ACTUAL FILE STRUCTURE (Disk State):
             "project_path": project_path,
         },
         "completed_files": unique_completed,
+        # Keep minimal other state if needed by base class, but exclude large history
+        "phase": state.get("phase"),
+        "loop_detection": state.get("loop_detection"),
     }
     
     # 6. Invoke the Coder (now uses create_react_agent internally)
