@@ -3,21 +3,64 @@ Agent Runs API
 
 FastAPI router for managing agent runs.
 Each run represents a feature branch with its own agent pipeline.
+Now persists to PostgreSQL via SQLAlchemy.
 """
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Depends, Request
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 import uuid
 import json
 import asyncio
+import logging
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, desc, String
+
+from app.database.connection import get_session
+from app.models.agent_runs import AgentRun as AgentRunModel
+from app.models import User
+
+logger = logging.getLogger("ships.runs")
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
-# In-memory storage for MVP (replace with database later)
-runs_store: dict = {}
+# WebSocket connections (still in-memory - that's fine for real-time)
 websocket_connections: List[WebSocket] = []
+
+
+async def get_current_user_id(
+    request: Request,
+    db: AsyncSession = Depends(get_session)
+) -> uuid.UUID:
+    """
+    Get current authenticated user's ID from session.
+    
+    Requires user to be logged in via OAuth (Google/GitHub).
+    Raises 401 if not authenticated.
+    """
+    session_user = request.session.get('user')
+    
+    if not session_user or not session_user.get('email'):
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Please log in."
+        )
+    
+    # Fetch user from database to get the UUID
+    result = await db.execute(
+        select(User).where(User.email == session_user['email'])
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="User not found. Please log in again."
+        )
+    
+    return user.id
 
 
 # ============================================================================
@@ -61,6 +104,10 @@ class AgentRun(BaseModel):
 class CreateRunRequest(BaseModel):
     prompt: str
     title: Optional[str] = None
+    project_path: Optional[str] = Field(None, alias="projectPath")
+    
+    class Config:
+        populate_by_name = True
 
 
 class FeedbackRequest(BaseModel):
@@ -104,114 +151,161 @@ async def broadcast_event(event: dict):
 # ============================================================================
 
 @router.get("", response_model=List[AgentRun])
-async def list_runs():
-    """Get all agent runs."""
-    return list(runs_store.values())
+async def list_runs(
+    db: AsyncSession = Depends(get_session),
+    user_id: uuid.UUID = Depends(get_current_user_id)
+):
+    """Get all agent runs for the current user."""
+    result = await db.execute(
+        select(AgentRunModel)
+        .where(AgentRunModel.user_id == user_id)
+        .order_by(desc(AgentRunModel.created_at))
+    )
+    runs = result.scalars().all()
+    
+    # Convert to API response format
+    return [_model_to_response(run) for run in runs]
 
 
 @router.post("", response_model=AgentRun)
-async def create_run(request: CreateRunRequest):
+async def create_run(
+    request: CreateRunRequest,
+    db: AsyncSession = Depends(get_session),
+    user_id: uuid.UUID = Depends(get_current_user_id)
+):
     """Create a new agent run."""
-    run_id = str(uuid.uuid4())[:8]
-    now = datetime.utcnow().isoformat() + "Z"
+    run_id = uuid.uuid4()
     
     # Generate branch name
     slug = request.prompt.lower().replace(" ", "-")[:20]
-    branch = f"work/{slug}-{run_id}"
+    branch = f"work/{slug}-{str(run_id)[:8]}"
     
-    # Determine if this is the first (primary) run
-    is_primary = len(runs_store) == 0
-    
-    run = AgentRun(
+    # Create database model
+    db_run = AgentRunModel(
         id=run_id,
-        title=request.title or request.prompt[:50],
-        prompt=request.prompt,
-        branch=branch,
-        port=3000 + len(runs_store),  # Assign sequential port
+        user_id=user_id,
+        project_path=request.project_path or "/tmp/ships",  # TODO: Get from context
+        branch_name=branch,
+        user_request=request.prompt,
         status="pending",
-        currentAgent=None,
-        agentMessage="",
-        screenshots=[],
-        filesChanged=[],
-        commitCount=0,
-        createdAt=now,
-        updatedAt=now,
-        isPrimary=is_primary,
+        run_metadata={
+            "title": request.title or request.prompt[:50],
+            "port": 3000,  # Will be assigned dynamically
+        }
     )
     
-    runs_store[run_id] = run.model_dump(by_alias=True)
+    db.add(db_run)
+    await db.commit()
+    await db.refresh(db_run)
+    
+    run_response = _model_to_response(db_run)
     
     # Broadcast creation event
     await broadcast_event({
         "type": "run_created",
-        "run": runs_store[run_id],
+        "run": run_response,
     })
     
-    # TODO: Trigger agent pipeline via Electron IPC
-    # For now, just set status to running after a delay
-    asyncio.create_task(_simulate_agent_start(run_id))
+    logger.info(f"[RUNS] Created run {run_id} for user {user_id}")
     
-    return runs_store[run_id]
+    return run_response
 
 
-async def _simulate_agent_start(run_id: str):
-    """Simulate agent starting (for development)."""
-    await asyncio.sleep(1)
-    
-    if run_id not in runs_store:
-        return
-    
-    runs_store[run_id]["status"] = "planning"
-    runs_store[run_id]["currentAgent"] = "planner"
-    runs_store[run_id]["agentMessage"] = "Analyzing request..."
-    runs_store[run_id]["updatedAt"] = datetime.utcnow().isoformat() + "Z"
-    
-    await broadcast_event({
-        "type": "run_status",
-        "runId": run_id,
-        "status": "planning",
-        "currentAgent": "planner",
-        "agentMessage": "Analyzing request...",
-    })
+def _model_to_response(run: AgentRunModel) -> dict:
+    """Convert SQLAlchemy model to API response format."""
+    metadata = run.run_metadata or {}
+    return {
+        "id": str(run.id)[:8],  # Short ID for UI
+        "title": metadata.get("title", run.user_request[:50] if run.user_request else "Untitled"),
+        "prompt": run.user_request or "",
+        "branch": run.branch_name or "",
+        "port": metadata.get("port", 3000),
+        "status": run.status,
+        "currentAgent": metadata.get("current_agent"),
+        "agentMessage": metadata.get("agent_message", ""),
+        "screenshots": [],  # TODO: Load from separate table
+        "filesChanged": metadata.get("files_changed", []),
+        "commitCount": metadata.get("commit_count", 0),
+        "createdAt": run.created_at.isoformat() + "Z" if run.created_at else "",
+        "updatedAt": run.created_at.isoformat() + "Z" if run.created_at else "",
+        "isPrimary": metadata.get("is_primary", False),
+    }
+
 
 
 @router.get("/{run_id}", response_model=AgentRun)
-async def get_run(run_id: str):
+async def get_run(
+    run_id: str,
+    db: AsyncSession = Depends(get_session),
+    user_id: uuid.UUID = Depends(get_current_user_id)
+):
     """Get a specific run by ID."""
-    if run_id not in runs_store:
+    # Run IDs are stored as short 8-char prefixes in UI, match by prefix
+    result = await db.execute(
+        select(AgentRunModel)
+        .where(AgentRunModel.user_id == user_id)
+        .where(AgentRunModel.id.cast(String).like(f"{run_id}%"))
+    )
+    run = result.scalar_one_or_none()
+    
+    if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    return runs_store[run_id]
+    return _model_to_response(run)
 
 
 @router.delete("/{run_id}")
-async def delete_run(run_id: str):
+async def delete_run(
+    run_id: str,
+    db: AsyncSession = Depends(get_session),
+    user_id: uuid.UUID = Depends(get_current_user_id)
+):
     """Delete a run."""
-    if run_id not in runs_store:
+    result = await db.execute(
+        select(AgentRunModel)
+        .where(AgentRunModel.user_id == user_id)
+        .where(AgentRunModel.id.cast(String).like(f"{run_id}%"))
+    )
+    run = result.scalar_one_or_none()
+    
+    if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     
     # Don't allow deleting primary run
-    if runs_store[run_id].get("isPrimary"):
+    if run.run_metadata and run.run_metadata.get("is_primary"):
         raise HTTPException(status_code=400, detail="Cannot delete primary run")
     
-    del runs_store[run_id]
+    await db.delete(run)
+    await db.commit()
     
     await broadcast_event({
         "type": "run_deleted",
         "runId": run_id,
     })
     
+    logger.info(f"[RUNS] Deleted run {run_id}")
     return {"success": True}
 
 
 @router.post("/{run_id}/pause")
-async def pause_run(run_id: str):
+async def pause_run(
+    run_id: str,
+    db: AsyncSession = Depends(get_session),
+    user_id: uuid.UUID = Depends(get_current_user_id)
+):
     """Pause a running agent."""
-    if run_id not in runs_store:
+    result = await db.execute(
+        select(AgentRunModel)
+        .where(AgentRunModel.user_id == user_id)
+        .where(AgentRunModel.id.cast(String).like(f"{run_id}%"))
+    )
+    run = result.scalar_one_or_none()
+    
+    if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     
-    runs_store[run_id]["status"] = "paused"
-    runs_store[run_id]["currentAgent"] = None
-    runs_store[run_id]["updatedAt"] = datetime.utcnow().isoformat() + "Z"
+    run.status = "paused"
+    run.run_metadata = {**(run.run_metadata or {}), "current_agent": None, "agent_message": "Paused"}
+    await db.commit()
     
     await broadcast_event({
         "type": "run_status",
@@ -225,14 +319,25 @@ async def pause_run(run_id: str):
 
 
 @router.post("/{run_id}/resume")
-async def resume_run(run_id: str):
+async def resume_run(
+    run_id: str,
+    db: AsyncSession = Depends(get_session),
+    user_id: uuid.UUID = Depends(get_current_user_id)
+):
     """Resume a paused agent."""
-    if run_id not in runs_store:
+    result = await db.execute(
+        select(AgentRunModel)
+        .where(AgentRunModel.user_id == user_id)
+        .where(AgentRunModel.id.cast(String).like(f"{run_id}%"))
+    )
+    run = result.scalar_one_or_none()
+    
+    if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     
-    runs_store[run_id]["status"] = "running"
-    runs_store[run_id]["agentMessage"] = "Resuming..."
-    runs_store[run_id]["updatedAt"] = datetime.utcnow().isoformat() + "Z"
+    run.status = "running"
+    run.run_metadata = {**(run.run_metadata or {}), "agent_message": "Resuming..."}
+    await db.commit()
     
     await broadcast_event({
         "type": "run_status",
@@ -246,19 +351,34 @@ async def resume_run(run_id: str):
 
 
 @router.post("/{run_id}/feedback")
-async def send_feedback(run_id: str, request: FeedbackRequest):
+async def send_feedback(
+    run_id: str, 
+    request: FeedbackRequest,
+    db: AsyncSession = Depends(get_session),
+    user_id: uuid.UUID = Depends(get_current_user_id)
+):
     """Send feedback to the agent."""
-    if run_id not in runs_store:
+    result = await db.execute(
+        select(AgentRunModel)
+        .where(AgentRunModel.user_id == user_id)
+        .where(AgentRunModel.id.cast(String).like(f"{run_id}%"))
+    )
+    run = result.scalar_one_or_none()
+    
+    if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     
-    # Store feedback (in real implementation, this would be processed by agent)
-    runs_store[run_id]["agentMessage"] = f"Processing feedback: {request.message[:50]}..."
-    runs_store[run_id]["updatedAt"] = datetime.utcnow().isoformat() + "Z"
+    # Store feedback in metadata
+    run.run_metadata = {
+        **(run.run_metadata or {}), 
+        "agent_message": f"Processing feedback: {request.message[:50]}..."
+    }
+    await db.commit()
     
     await broadcast_event({
         "type": "run_status",
         "runId": run_id,
-        "status": runs_store[run_id]["status"],
+        "status": run.status,
         "currentAgent": "coder",
         "agentMessage": f"Processing feedback: {request.message[:50]}...",
     })
@@ -269,15 +389,30 @@ async def send_feedback(run_id: str, request: FeedbackRequest):
 
 
 @router.post("/{run_id}/rollback")
-async def rollback_run(run_id: str, request: RollbackRequest):
+async def rollback_run(
+    run_id: str, 
+    request: RollbackRequest,
+    db: AsyncSession = Depends(get_session),
+    user_id: uuid.UUID = Depends(get_current_user_id)
+):
     """Rollback to a specific screenshot/commit."""
-    if run_id not in runs_store:
+    result = await db.execute(
+        select(AgentRunModel)
+        .where(AgentRunModel.user_id == user_id)
+        .where(AgentRunModel.id.cast(String).like(f"{run_id}%"))
+    )
+    run = result.scalar_one_or_none()
+    
+    if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     
     # TODO: Execute git checkout to the specified commit
-    # For now, just update the message
-    runs_store[run_id]["agentMessage"] = f"Rolling back to commit {request.commit_hash[:7]}..."
-    runs_store[run_id]["updatedAt"] = datetime.utcnow().isoformat() + "Z"
+    run.run_metadata = {
+        **(run.run_metadata or {}),
+        "agent_message": f"Rolling back to commit {request.commit_hash[:7]}..."
+    }
+    run.status = "running"
+    await db.commit()
     
     await broadcast_event({
         "type": "run_status",
