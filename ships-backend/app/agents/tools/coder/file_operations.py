@@ -262,11 +262,18 @@ def list_directory(path: str = ".") -> Dict[str, Any]:
         
         logger.info(f"[CODER] 📂 Listed directory: {path} ({len(items)} items)")
         
+        # TOKEN OPTIMIZATION: Truncate to 25 items max
+        total_count = len(items)
+        truncated = total_count > 25
+        display_items = items[:25] if truncated else items
+        
         return {
             "success": True,
             "path": path,
-            "items": items,
-            "count": len(items)
+            "items": display_items,
+            "count": total_count,
+            "truncated": truncated,
+            "message": f"{total_count} items" + (f" (showing first 25)" if truncated else "")
         }
         
     except Exception as e:

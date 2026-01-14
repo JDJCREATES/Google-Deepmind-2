@@ -182,17 +182,26 @@ def scan_project_tree(
             
         logger.info(f"[CODER] 🌳 Scanned tree: {file_count} files, {dir_count} dirs")
         
+        # TOKEN OPTIMIZATION: Truncate entries for tool results
+        # Full tree is saved to artifact, but tool return is minimized
+        total_entries = len(entries)
+        truncated = total_entries > 50
+        display_entries = entries[:50] if truncated else entries
+        
         result = {
             "success": True,
             "root": str(subpath),
-            "entries": entries,
+            "entries": display_entries,
             "stats": {
                 "files": file_count,
-                "directories": dir_count
-            }
+                "directories": dir_count,
+                "total_entries": total_entries,
+                "truncated": truncated
+            },
+            "message": f"Scanned {file_count} files, {dir_count} dirs" + (f" (showing 50/{total_entries})" if truncated else "")
         }
         
-        # Save artifact if requested
+        # Save artifact if requested (saves FULL tree, not truncated)
         if save_artifact:
             try:
                 import json
@@ -200,8 +209,10 @@ def scan_project_tree(
                 ships_dir.mkdir(exist_ok=True)
                 artifact_path = ships_dir / "file_tree.json"
                 
+                # Save full tree to artifact
+                full_result = {**result, "entries": entries}
                 with open(artifact_path, "w", encoding="utf-8") as f:
-                    json.dump(result, f, indent=2)
+                    json.dump(full_result, f, indent=2)
                 
                 logger.info(f"[CODER] 💾 Saved file tree artifact to {artifact_path}")
                 result["artifact_path"] = str(artifact_path)
