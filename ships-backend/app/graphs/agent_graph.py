@@ -582,7 +582,7 @@ ACTUAL FILE STRUCTURE (Disk State):
         # Also check folder_map if available
         ships_dir = Path(project_path) / ".ships" if project_path else None
         if ships_dir and ships_dir.exists():
-            folder_map_path = ships_dir / "folder_map.json"
+            folder_map_path = ships_dir / "folder_map_plan.json"
             if folder_map_path.exists():
                 try:
                     import json
@@ -1053,7 +1053,7 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
             # Load folder_map for context if available
             folder_map_data = None
             if project_path:
-                folder_map_path = Path(project_path) / ".ships" / "folder_map.json"
+                folder_map_path = Path(project_path) / ".ships" / "folder_map_plan.json"
                 if folder_map_path.exists():
                     import json
                     folder_map_data = json.loads(folder_map_path.read_text(encoding='utf-8'))
@@ -1123,23 +1123,32 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
                     logger.warning(f"[ORCHESTRATOR] Could not compare intents: {e}")
     
     # If new intent, version old artifacts and force re-plan
-    if is_new_intent and project_path:
+    # CRITICAL: Only version ONCE per session to prevent duplicate artifacts
+    already_versioned = artifacts.get("artifacts_versioned_this_session", False)
+    
+    if is_new_intent and project_path and not already_versioned:
         logger.info("[ORCHESTRATOR] 🔄 Versioning old plan artifacts...")
         ships_dir = Path(project_path) / ".ships"
         import shutil
         from datetime import datetime
         version_suffix = datetime.now().strftime("_%Y%m%d_%H%M%S")
         
-        for artifact_name in ["plan_manifest", "task_list", "folder_map", "implementation_plan"]:
+        versioned_count = 0
+        for artifact_name in ["plan_manifest", "task_list", "folder_map_plan", "implementation_plan"]:
             for ext in [".json", ".md"]:
                 artifact_file = ships_dir / f"{artifact_name}{ext}"
                 if artifact_file.exists():
                     versioned = ships_dir / f"{artifact_name}{version_suffix}{ext}"
-                    shutil.copy2(artifact_file, versioned)
+                    # Use MOVE instead of COPY to prevent duplicates
+                    shutil.move(str(artifact_file), str(versioned))
+                    versioned_count += 1
+        
+        # Mark as versioned in artifacts to prevent re-versioning
+        artifacts["artifacts_versioned_this_session"] = True
         
         # Mark plan as needing refresh
         plan_exists = False
-        logger.info("[ORCHESTRATOR] ✓ Old artifacts versioned, forcing re-plan")
+        logger.info(f"[ORCHESTRATOR] ✓ {versioned_count} artifacts versioned, forcing re-plan")
 
     # 3. Check for CONFIRMATION intent (Approval to proceed)
     is_confirmation = False

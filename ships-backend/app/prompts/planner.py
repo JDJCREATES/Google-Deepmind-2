@@ -71,12 +71,12 @@ High-level DESIGN DOCUMENT for human review. Include:
 - **UI/UX Approach**: Visual design direction, interactions (if applicable)
 
 DO NOT include in implementation_plan.md:
-- Detailed file lists (that's in folder_map.json)
+- Detailed file lists (that's in folder_map_plan.json)
 - Task checklists (that's in task_list.json)  
 - Dependency versions (that's in dependency_plan.json)
 - API endpoint details (that's in api_contracts.json)
 
-The plan should reference artifacts: "See folder_map.json for full file structure"
+The plan should reference artifacts: "See folder_map_plan.json for full file structure"
 
 ### 5b. Task List (`.ships/task_list.json`)
 Machine-readable tasks with acceptance criteria:
@@ -94,7 +94,7 @@ Machine-readable tasks with acceptance criteria:
 }}
 ```
 
-### 5c. Folder Map Example (`.ships/folder_map.json`)  
+### 5c. Folder Map Plan (`.ships/folder_map_plan.json`)  
 Complete file structure with descriptions:
 ```json
 {{

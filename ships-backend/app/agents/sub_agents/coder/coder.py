@@ -705,8 +705,8 @@ Use these type definitions. Do NOT read from disk.
                 except Exception:
                     pass
             
-            # Read folder_map.json
-            folder_map_path = ships_dir / "folder_map.json"
+            # Read folder_map_plan.json
+            folder_map_path = ships_dir / "folder_map_plan.json"
             if folder_map_path.exists():
                 try:
                     folder_data = json.loads(folder_map_path.read_text(encoding="utf-8"))
@@ -716,7 +716,7 @@ Use these type definitions. Do NOT read from disk.
                     # DEBUG: Log expected files
                     import logging
                     logger = logging.getLogger("ships.coder")
-                    logger.info(f"[CODER] 📋 Expected files from folder_map: {len(files_to_create)}")
+                    logger.info(f"[CODER] 📋 Expected files from folder_map_plan: {len(files_to_create)}")
                     for f in files_to_create[:10]:
                         logger.info(f"[CODER]    📄 {f}")
                     if len(files_to_create) > 10:

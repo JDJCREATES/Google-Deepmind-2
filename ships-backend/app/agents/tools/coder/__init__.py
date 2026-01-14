@@ -55,6 +55,13 @@ from .edit_operations import (
 
 from .file_tree import scan_project_tree, get_file_tree, get_artifact
 
+from .artifact_tools import (
+    update_task_status,
+    update_folder_map_status,
+    add_implementation_note,
+    ARTIFACT_TOOLS,
+)
+
 from .search_tools import (
     search_codebase,
     query_call_graph,
@@ -76,6 +83,10 @@ CODER_TOOLS = [
     list_directory,
     get_file_tree,      # Prefers .ships/ artifact, falls back to scan
     get_artifact,        # Read any artifact from .ships/
+    # Artifact updates (LLM-editable artifacts)
+    update_task_status,
+    update_folder_map_status,
+    add_implementation_note,
     # Search & Navigation (new!)
     search_codebase,
     query_call_graph,

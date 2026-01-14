@@ -134,7 +134,7 @@ def format_implementation_plan(artifacts: Dict[str, Any], project_name: str = "P
         md.append("")
         md.append("For granular details, see:")
         md.append("- `task_list.json` - Step-by-step tasks")
-        md.append("- `folder_map.json` - Complete file structure")
+        md.append("- `folder_map_plan.json` - Complete file structure")
         md.append("- `dependency_plan.json` - All npm packages")
         md.append("")
         

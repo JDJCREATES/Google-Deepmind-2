@@ -91,14 +91,17 @@ async def list_artifacts(project_id: str, type: Optional[str] = None):
                 "data": {"path": task_md_path, "format": "markdown"}
             })
 
-        # folder_map.json -> folder_map
-        folder_map_path = os.path.join(dot_ships, "folder_map.json")
+        # folder_map_plan.json -> folder_map (supports legacy folder_map.json too)
+        folder_map_path = os.path.join(dot_ships, "folder_map_plan.json")
+        # Fallback to old name for backward compatibility
+        if not os.path.exists(folder_map_path):
+            folder_map_path = os.path.join(dot_ships, "folder_map.json")
         if os.path.exists(folder_map_path):
             stat = os.stat(folder_map_path)
             artifacts.append({
-                "id": "folder_map",
-                "type": "folder_map",
-                "title": "Folder Structure",
+                "id": "folder_map_plan",
+                "type": "folder_map_plan",
+                "title": "Folder Structure Plan",
                 "projectId": project_id,
                 "createdAt": datetime.fromtimestamp(stat.st_ctime).isoformat(),
                 "updatedAt": datetime.fromtimestamp(stat.st_mtime).isoformat(),

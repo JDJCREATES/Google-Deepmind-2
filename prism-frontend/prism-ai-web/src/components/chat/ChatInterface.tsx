@@ -28,6 +28,7 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
     activeRunId, 
     runs, 
     createRun,
+    setActiveRun,
     addRunMessage,
     updateRunMessage,
     appendRunMessageContent,
@@ -88,6 +89,7 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
       });
       if (newRun) {
         targetRunId = newRun.id;
+        setActiveRun(newRun.id); // IMPORTANT: Set active run so messages display
       }
       setLoading(false);
     }

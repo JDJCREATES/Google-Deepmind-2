@@ -273,7 +273,7 @@ def get_artifact(name: str) -> Dict[str, Any]:
     - security_report.json: Vulnerabilities and secrets
     - task_list.json: Current task list
     - dependency_plan.json: Dependency plan
-    - folder_map.json: Folder structure
+    - folder_map_plan.json: Planned folder structure
     
     Note: Only reads .json files. Non-JSON files (like .md) are ignored.
     
