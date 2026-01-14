@@ -228,6 +228,111 @@ async def github_callback(request: Request, db: AsyncSession = Depends(get_sessi
     return await _handle_oauth_callback(request, db, 'github')
 
 
+# --- Account Linking Routes ---
+
+@router.get("/github/link")
+async def github_link_start(request: Request):
+    """
+    Initiate GitHub OAuth flow for account linking.
+    
+    User must already be authenticated (via Google).
+    This will link their GitHub account to their existing user.
+    """
+    session_user = request.session.get('user')
+    if not session_user:
+        raise HTTPException(status_code=401, detail="Must be logged in to link accounts")
+    
+    # Check if GitHub OAuth is configured
+    oauth = get_oauth_config()
+    if not oauth.is_configured('github'):
+        logger.error("GitHub OAuth not configured - cannot link accounts")
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+        return RedirectResponse(url=f"{frontend_url}/settings?link_error=github_not_configured")
+    
+    # Store linking flag in session
+    request.session['linking_github'] = True
+    request.session['linking_user_email'] = session_user.get('email')
+    
+    # Proceed with normal OAuth flow
+    return await _initiate_oauth(request, 'github')
+
+
+@router.get("/github/link/callback")
+async def github_link_callback(request: Request, db: AsyncSession = Depends(get_session)):
+    """
+    Handle GitHub OAuth callback for account linking.
+    
+    Links the GitHub account to the existing user based on session.
+    """
+    from sqlalchemy import select
+    
+    try:
+        # Check if this is a linking flow
+        if not request.session.get('linking_github'):
+            # Not a linking flow, use normal callback
+            return await _handle_oauth_callback(request, db, 'github')
+        
+        session_email = request.session.get('linking_user_email')
+        if not session_email:
+            raise AuthError(error="session_expired", description="Session expired, please try again", status_code=400)
+        
+        # Clear linking flags
+        request.session.pop('linking_github', None)
+        request.session.pop('linking_user_email', None)
+        
+        # Get GitHub user info
+        oauth = get_oauth_config()
+        token = await oauth.oauth.github.authorize_access_token(request)
+        user_info = await oauth.fetch_user_info('github', token)
+        
+        if not user_info:
+            raise AuthError(error="profile_fetch_failed", description="Failed to get GitHub profile", status_code=500)
+        
+        # Find the existing user by email (from session)
+        result = await db.execute(
+            select(User).where(User.email == session_email)
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            raise AuthError(error="user_not_found", description="User not found", status_code=404)
+        
+        # Check if GitHub account is already linked to another user
+        if user_info.get('id'):
+            existing = await db.execute(
+                select(User).where(User.github_id == str(user_info['id']))
+            )
+            existing_user = existing.scalar_one_or_none()
+            if existing_user and existing_user.id != user.id:
+                raise AuthError(
+                    error="github_already_linked",
+                    description="This GitHub account is already linked to another user",
+                    status_code=400
+                )
+        
+        # Link GitHub to existing user
+        user.github_id = str(user_info['id'])
+        await db.commit()
+        
+        # Update session to show GitHub is linked
+        request.session['user']['github_connected'] = True
+        
+        logger.info(f"✓ GitHub linked to user: {user.email}")
+        
+        # Redirect back to settings
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+        return RedirectResponse(url=f"{frontend_url}/settings?linked=github")
+        
+    except AuthError as e:
+        logger.error(f"GitHub linking error: {e.description}")
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+        return RedirectResponse(url=f"{frontend_url}/settings?link_error={e.error}")
+    except Exception as e:
+        logger.error(f"GitHub linking error: {e}", exc_info=True)
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+        return RedirectResponse(url=f"{frontend_url}/settings?link_error=server_error")
+
+
 # --- User Routes ---
 
 @router.get("/user")

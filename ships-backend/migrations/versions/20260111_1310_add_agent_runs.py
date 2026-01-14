@@ -1,9 +1,11 @@
 """Add agent_runs and agent_steps tables
 
 Revision ID: 20260111_1310_add_agent_runs
-Revises: 20260104_1700_add_knowledge_entries
+Revises: 14e14b69890a
 Create Date: 2026-01-11 13:10:00.000000
 
+NOTE: Skipping knowledge_entries migration (fb717c637cde) due to pgvector requirement.
+      Run that migration later after installing pgvector on the PostgreSQL server.
 """
 from typing import Sequence, Union
 
@@ -14,7 +16,7 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB
 
 # revision identifiers, used by Alembic.
 revision: str = '20260111_1310_add_agent_runs'
-down_revision: Union[str, None] = 'fb717c637cde'
+down_revision: Union[str, None] = '14e14b69890a'  # Skip fb717c637cde (knowledge_entries)
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

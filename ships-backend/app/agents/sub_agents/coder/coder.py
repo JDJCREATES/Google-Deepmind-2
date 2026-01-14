@@ -830,6 +830,15 @@ IMPORTANT:
                             path = tc_args.get("file_path", "") if isinstance(tc_args, dict) else ""
                             if path:
                                 files_written.append(path)
+                        
+                        # Also track batch writes
+                        elif tc_name == "write_files_batch":
+                            files_arg = tc_args.get("files", []) if isinstance(tc_args, dict) else []
+                            for file_entry in files_arg:
+                                if isinstance(file_entry, dict):
+                                    path = file_entry.get("file_path", "")
+                                    if path:
+                                        files_written.append(path)
             
             return {
                 "artifacts": {

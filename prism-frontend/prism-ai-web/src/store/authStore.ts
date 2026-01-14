@@ -5,9 +5,11 @@ interface User {
   name: string;
   email: string;
   avatarUrl?: string;
-  authMethod?: 'google' | 'password';
+  authMethod?: 'google' | 'github' | 'password';
   tier?: 'free' | 'starter' | 'pro' | 'enterprise';
   subscription_status?: string;
+  githubConnected?: boolean;
+  googleConnected?: boolean;
 }
 
 interface AuthState {
@@ -62,6 +64,9 @@ export const useAuthStore = create<AuthState>((set) => ({
               email: data.user.email,
               avatarUrl: data.user.picture,
               authMethod: data.user.auth_method,
+              tier: data.user.tier,
+              githubConnected: data.user.github_connected,
+              googleConnected: data.user.google_connected,
             },
             isAuthenticated: true,
           });

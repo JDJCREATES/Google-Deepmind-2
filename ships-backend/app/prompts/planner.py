@@ -99,10 +99,14 @@ Complete file structure with descriptions:
 ```json
 {{
   "entries": [
+    {{"path": "index.html", "is_directory": false, "description": "Entry point for Vite/browser"}},
+    {{"path": "src/main.tsx", "is_directory": false, "description": "React entry point"}},
     {{"path": "src/App.tsx", "is_directory": false, "description": "Main app component"}}
   ]
 }}
 ```
+**CRITICAL**: For Vite projects, ALWAYS include `index.html` in the root - builds WILL FAIL without it!
+
 
 ### 5d. Dependency Plan Example (`.ships/dependency_plan.json`)
 All dependencies with versions and purposes:

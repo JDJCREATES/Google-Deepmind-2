@@ -47,14 +47,20 @@ class LockManager:
             
         return clean_file
 
-    def is_locked(self, project_path: str, file_path: str) -> Optional[str]:
+    def is_locked(self, project_path: str, file_path: str, ttl_seconds: int = 300) -> Optional[str]:
         """
-        Check if a file is locked.
-        Returns agent_id if locked, None if free.
+        Check if a file is locked (respecting TTL).
+        Returns agent_id if locked and not expired, None if free or expired.
+        Auto-cleans up expired locks.
         """
         key = self._get_key(project_path, file_path)
         if key in self._locks:
-            agent_id, _ = self._locks[key]
+            agent_id, timestamp = self._locks[key]
+            # Check TTL expiration
+            if time.time() - timestamp > ttl_seconds:
+                logger.warning(f"[LOCKS] ⚠️ Stale lock on {file_path} (held by {agent_id}) - auto-releasing")
+                del self._locks[key]  # Auto-cleanup expired lock
+                return None
             return agent_id
         return None
 

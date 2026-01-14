@@ -134,6 +134,47 @@ const AccountSettings: React.FC = () => {
             </div>
           </div>
 
+          {/* Connected Accounts */}
+          <div className="settings-section">
+            <h3 className="settings-section-title">Connected Accounts</h3>
+            
+            <div className="settings-row">
+              <div className="settings-label">
+                <div className="settings-label-text">Google</div>
+                <div className="settings-label-desc">Primary sign-in method</div>
+              </div>
+              <div className="settings-control">
+                <span style={{ color: 'var(--accent-success)', fontSize: '13px' }}>
+                  ✓ Connected
+                </span>
+              </div>
+            </div>
+
+            <div className="settings-row">
+              <div className="settings-label">
+                <div className="settings-label-text">GitHub</div>
+                <div className="settings-label-desc">Required for code sync and commits</div>
+              </div>
+              <div className="settings-control">
+                {user.githubConnected ? (
+                  <span style={{ color: 'var(--accent-success)', fontSize: '13px' }}>
+                    ✓ Connected
+                  </span>
+                ) : (
+                  <button 
+                    className="settings-button settings-button-primary"
+                    onClick={() => {
+                      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+                      window.location.href = `${apiBase}/auth/github/link`;
+                    }}
+                  >
+                    Link GitHub
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* Subscription */}
           <div className="settings-section">
             <h3 className="settings-section-title">Subscription</h3>

@@ -840,46 +840,55 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
                 error_files.append(f_path)
                 seen.add(f_path)
         
-        # Try to acquire lock with retry
-        import time
-        import asyncio
-        
-        start_wait = time.time()
-        wait_timeout = 60
-        
-        while (time.time() - start_wait) < wait_timeout:
-            for f in error_files:
-                if not lock_manager.is_locked(project_path, f):
-                    if lock_manager.acquire(project_path, f, "fixer_node"):
-                        active_fix_file = f
-                        logger.info(f"[FIXER] 🔒 Acquired lock for: {active_fix_file}")
-                        break
-            
-            if active_fix_file:
-                break
-                
-            logger.debug(f"[FIXER] ⏳ All error files locked. Waiting... ({int(time.time() - start_wait)}s)")
-            await asyncio.sleep(2)
-        
-        # If we locked a file, filter the report
-        if active_fix_file:
-            filtered_violations = [
-                v for v in violations 
-                if (v.get("file_path") == active_fix_file or v.get("file") == active_fix_file)
-            ]
-            filtered_report = {**original_report, "violations": filtered_violations}
-            # Add directive
+        # If no specific files identified (e.g., general build error), skip lock waiting
+        if not error_files:
+            logger.info("[FIXER] ℹ️ No specific error files identified - proceeding without lock")
+            filtered_report = original_report
             filtered_report["fixer_instructions"] = (
-                f"FOCUS: Only fix errors in {active_fix_file}. "
-                "You have an exclusive lock on this file."
+                "GENERAL FIX: No specific file identified in error. "
+                "Check build output and ensure all required files exist (e.g., index.html)."
             )
-        elif error_files:
-             # All files locked
-             logger.warning(f"[FIXER] ⚠️ All error files locked after {wait_timeout}s. Yielding.")
-             return {
-                 "phase": "waiting",
-                 "messages": [AIMessage(content="Waiting for files to unlock.")]
-             }
+        else:
+            # Try to acquire lock with retry
+            import time
+            import asyncio
+            
+            start_wait = time.time()
+            wait_timeout = 60
+            
+            while (time.time() - start_wait) < wait_timeout:
+                for f in error_files:
+                    if not lock_manager.is_locked(project_path, f):
+                        if lock_manager.acquire(project_path, f, "fixer_node"):
+                            active_fix_file = f
+                            logger.info(f"[FIXER] 🔒 Acquired lock for: {active_fix_file}")
+                            break
+                
+                if active_fix_file:
+                    break
+                    
+                logger.debug(f"[FIXER] ⏳ All error files locked. Waiting... ({int(time.time() - start_wait)}s)")
+                await asyncio.sleep(2)
+            
+            # If we locked a file, filter the report
+            if active_fix_file:
+                filtered_violations = [
+                    v for v in violations 
+                    if (v.get("file_path") == active_fix_file or v.get("file") == active_fix_file)
+                ]
+                filtered_report = {**original_report, "violations": filtered_violations}
+                # Add directive
+                filtered_report["fixer_instructions"] = (
+                    f"FOCUS: Only fix errors in {active_fix_file}. "
+                    "You have an exclusive lock on this file."
+                )
+            elif error_files:
+                 # All files locked
+                 logger.warning(f"[FIXER] ⚠️ All error files locked after {wait_timeout}s. Yielding.")
+                 return {
+                     "phase": "waiting",
+                     "messages": [AIMessage(content="Waiting for files to unlock.")]
+                 }
 
     # Use centralized context scoping (prevents token bloat from full state spread)
     from app.services.context_scoping import scope_context_for_agent

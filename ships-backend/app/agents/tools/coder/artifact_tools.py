@@ -127,14 +127,11 @@ def update_folder_map_status(
         folder_map_path = Path(project_root) / ".ships" / "folder_map_plan.json"
         
         if not folder_map_path.exists():
-            # Try legacy path
-            folder_map_path = Path(project_root) / ".ships" / "folder_map.json"
-            if not folder_map_path.exists():
-                return {
-                    "success": False,
-                    "error": "folder_map_plan.json not found",
-                    "hint": "Run Planner first to create folder map"
-                }
+            return {
+                "success": False,
+                "error": "folder_map_plan.json not found",
+                "hint": "Run Planner first to create folder map"
+            }
         
         # Normalize path
         normalized_path = file_path.replace("\\", "/").lstrip("./")

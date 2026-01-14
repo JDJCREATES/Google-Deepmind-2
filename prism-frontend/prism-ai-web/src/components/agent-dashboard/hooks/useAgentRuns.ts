@@ -295,6 +295,7 @@ export const useAgentRuns = create<AgentRunsState>()(
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(request),
+          credentials: 'include',
         })
       );
       
@@ -333,7 +334,7 @@ export const useAgentRuns = create<AgentRunsState>()(
     setError(null);
     
     try {
-      const response = await withRetry(() => fetch(`${API_BASE}/api/runs`));
+      const response = await withRetry(() => fetch(`${API_BASE}/api/runs`, { credentials: 'include' }));
       
       if (!response.ok) {
         throw new Error(`Failed to fetch runs: ${response.status}`);
@@ -355,7 +356,7 @@ export const useAgentRuns = create<AgentRunsState>()(
     
     try {
       const response = await withRetry(() => 
-        fetch(`${API_BASE}/api/runs/${runId}/pause`, { method: 'POST' })
+        fetch(`${API_BASE}/api/runs/${runId}/pause`, { method: 'POST', credentials: 'include' })
       );
       
       if (!response.ok) {
@@ -375,7 +376,7 @@ export const useAgentRuns = create<AgentRunsState>()(
     
     try {
       const response = await withRetry(() => 
-        fetch(`${API_BASE}/api/runs/${runId}/resume`, { method: 'POST' })
+        fetch(`${API_BASE}/api/runs/${runId}/resume`, { method: 'POST', credentials: 'include' })
       );
       
       if (!response.ok) {
@@ -405,7 +406,7 @@ export const useAgentRuns = create<AgentRunsState>()(
       }
       
       const response = await withRetry(() => 
-        fetch(`${API_BASE}/api/runs/${runId}`, { method: 'DELETE' })
+        fetch(`${API_BASE}/api/runs/${runId}`, { method: 'DELETE', credentials: 'include' })
       );
       
       if (!response.ok) {
@@ -429,6 +430,7 @@ export const useAgentRuns = create<AgentRunsState>()(
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message }),
+          credentials: 'include',
         })
       );
       
@@ -474,6 +476,7 @@ export const useAgentRuns = create<AgentRunsState>()(
             screenshotId,
             commitHash: screenshot.gitCommitHash 
           }),
+          credentials: 'include',
         })
       );
       

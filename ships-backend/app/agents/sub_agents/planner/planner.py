@@ -717,13 +717,23 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
             dot_ships = Path(project_path) / ".ships"
             dot_ships.mkdir(parents=True, exist_ok=True)
             
-            for artifact_name in ["task_list", "folder_map", "api_contracts", "dependency_plan", "validation_checklist", "risk_report"]:
+            # Artifact name mapping - folder_map should be saved as folder_map_plan.json
+            artifact_file_names = {
+                "task_list": "task_list.json",
+                "folder_map": "folder_map_plan.json",  # Renamed to match coder expectations
+                "api_contracts": "api_contracts.json",
+                "dependency_plan": "dependency_plan.json",
+                "validation_checklist": "validation_checklist.json",
+                "risk_report": "risk_report.json"
+            }
+            
+            for artifact_name, file_name in artifact_file_names.items():
                 try:
-                    with open(dot_ships / f"{artifact_name}.json", "w", encoding="utf-8") as f:
+                    with open(dot_ships / file_name, "w", encoding="utf-8") as f:
                         # Use default=str to handle any lingering datetime objects
                         f.write(json_mod.dumps(plan_artifacts[artifact_name], indent=2, default=str))
                 except Exception as write_err:
-                    logger.warning(f"[PLANNER] Failed to write {artifact_name}: {write_err}")
+                    logger.warning(f"[PLANNER] Failed to write {file_name}: {write_err}")
             
             # ================================================================
             # Write implementation_plan.md using lean formatter
