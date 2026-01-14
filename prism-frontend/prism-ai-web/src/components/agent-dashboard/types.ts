@@ -50,6 +50,7 @@ export interface AgentRun {
   title: string;
   prompt: string;
   branch: string;
+  baseBranch: string;  // Branch this was forked from (e.g., "main")
   port: number;
   status: RunStatus;
   currentAgent: AgentType;
@@ -62,7 +63,6 @@ export interface AgentRun {
   commitCount: number;
   createdAt: string;
   updatedAt: string;
-  isPrimary: boolean; // First run acts as main/master
 }
 
 /**

@@ -141,14 +141,15 @@ export class BranchRunManager {
       const sanitizedId = this.sanitize(runId);
       const sanitizedPrompt = this.sanitize(prompt);
       
-      // Generate branch name from prompt
+      // Generate branch name - industry standard feature branch naming
       const slug = sanitizedPrompt.toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .slice(0, 30)
         .replace(/-+$/, '')
         .replace(/^-+/, '');
       
-      const branchName = `work/${slug || 'run'}-${sanitizedId}`;
+      const timestamp = new Date().toISOString().slice(5, 10).replace('-', ''); // MMDD format
+      const branchName = `feature/ships-${slug || 'run'}-${timestamp}`;
       
       // Validate branch name
       if (!this.isValidBranchName(branchName)) {

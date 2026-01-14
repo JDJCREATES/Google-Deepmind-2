@@ -7,11 +7,6 @@
   transition: all 0.2s ease;
 }
 
-.run-card--primary {
-  border: 1px solid var(--primary-color-alpha-20, rgba(255, 94, 87, 0.2));
-  background: var(--surface-3);
-}
-
 .run-card--selected {
   border-color: var(--primary-color, #ff5e57);
   box-shadow: 0 0 0 1px var(--primary-color, #ff5e57), 0 4px 12px rgba(0, 0, 0, 0.1);
@@ -59,6 +54,11 @@
   color: var(--text-tertiary);
   font-family: var(--font-mono);
   margin-top: 2px;
+}
+
+.run-card__base-branch {
+  color: var(--text-quaternary, #666);
+  font-style: italic;
 }
 
 .run-card__meta {

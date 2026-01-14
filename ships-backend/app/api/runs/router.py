@@ -86,6 +86,7 @@ class AgentRun(BaseModel):
     title: str
     prompt: str
     branch: str
+    base_branch: str = Field("main", alias="baseBranch")  # Branch this was forked from
     port: int = 0
     status: str = "pending"
     current_agent: Optional[str] = Field(None, alias="currentAgent")
@@ -95,7 +96,6 @@ class AgentRun(BaseModel):
     commit_count: int = Field(0, alias="commitCount")
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
-    is_primary: bool = Field(False, alias="isPrimary")
     
     class Config:
         populate_by_name = True
@@ -176,9 +176,14 @@ async def create_run(
     """Create a new agent run."""
     run_id = uuid.uuid4()
     
-    # Generate branch name
-    slug = request.prompt.lower().replace(" ", "-")[:20]
-    branch = f"work/{slug}-{str(run_id)[:8]}"
+    # Generate branch name - industry standard feature branch naming
+    from datetime import datetime
+    slug = request.prompt.lower()
+    slug = ''.join(c if c.isalnum() or c == ' ' else '' for c in slug)  # Remove special chars
+    slug = slug.strip().replace(' ', '-')[:30]  # Hyphenate, limit length
+    slug = '-'.join(filter(None, slug.split('-')))  # Remove empty parts
+    timestamp = datetime.now().strftime('%m%d')
+    branch = f"feature/ships-{slug}-{timestamp}"
     
     # Create database model
     db_run = AgentRunModel(
@@ -219,6 +224,7 @@ def _model_to_response(run: AgentRunModel) -> dict:
         "title": metadata.get("title", run.user_request[:50] if run.user_request else "Untitled"),
         "prompt": run.user_request or "",
         "branch": run.branch_name or "",
+        "baseBranch": metadata.get("base_branch", "main"),  # Branch this forked from
         "port": metadata.get("port", 3000),
         "status": run.status,
         "currentAgent": metadata.get("current_agent"),
@@ -228,7 +234,6 @@ def _model_to_response(run: AgentRunModel) -> dict:
         "commitCount": metadata.get("commit_count", 0),
         "createdAt": run.created_at.isoformat() + "Z" if run.created_at else "",
         "updatedAt": run.created_at.isoformat() + "Z" if run.created_at else "",
-        "isPrimary": metadata.get("is_primary", False),
     }
 
 
@@ -269,10 +274,6 @@ async def delete_run(
     
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    
-    # Don't allow deleting primary run
-    if run.run_metadata and run.run_metadata.get("is_primary"):
-        raise HTTPException(status_code=400, detail="Cannot delete primary run")
     
     await db.delete(run)
     await db.commit()

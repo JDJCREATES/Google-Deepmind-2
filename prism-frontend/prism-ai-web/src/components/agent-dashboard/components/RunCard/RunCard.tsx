@@ -14,12 +14,11 @@ import './RunCard.css';
 
 interface RunCardProps {
   run: AgentRun;
-  isPrimary?: boolean;
   isSelected?: boolean;
   onSelect?: () => void;
 }
 
-export const RunCard: React.FC<RunCardProps> = ({ run, isPrimary = false, isSelected = false, onSelect }) => {
+export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSelect }) => {
   const { pauseRun, resumeRun, deleteRun, rollbackToScreenshot } = useAgentRuns();
   const [expanded, setExpanded] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -84,7 +83,7 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isPrimary = false, isSele
 
   return (
     <div 
-      className={`run-card ${isPrimary ? 'run-card--primary' : ''} ${isSelected ? 'run-card--selected' : ''} ${!expanded ? 'run-card--collapsed' : ''}`}
+      className={`run-card ${isSelected ? 'run-card--selected' : ''} ${!expanded ? 'run-card--collapsed' : ''}`}
       onClick={(e) => { 
         // Only select if not clicking buttons or content area
         if (!(e.target as HTMLElement).closest('button') && !(e.target as HTMLElement).closest('.run-card__content')) {
@@ -98,7 +97,10 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isPrimary = false, isSele
         
         <div className="run-card__title-section">
           <h3 className="run-card__title">{run.title}</h3>
-          <span className="run-card__branch">{run.branch}</span>
+          <span className="run-card__branch">
+            {run.branch}
+            {run.baseBranch && <span className="run-card__base-branch"> → from {run.baseBranch}</span>}
+          </span>
         </div>
 
         <div className="run-card__meta">
@@ -109,8 +111,7 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isPrimary = false, isSele
         </div>
 
         <div className="run-card__actions">
-          {!isPrimary && (
-            <>
+          <>
               <button 
                 className="run-card__action-btn"
                 onClick={(e) => { e.stopPropagation(); handleTogglePause(); }}
@@ -136,7 +137,6 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isPrimary = false, isSele
                 </svg>
               </button>
             </>
-          )}
           <button 
             className="run-card__expand-btn"
             onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
