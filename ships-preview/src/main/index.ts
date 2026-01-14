@@ -51,12 +51,8 @@ function createWindow() {
       contextIsolation: true,
       webviewTag: true, // Enable <webview> in renderer
     },
-    titleBarStyle: 'hidden',
-    titleBarOverlay: {
-        color: '#252526',
-        symbolColor: '#cccccc',
-        height: 35
-    }
+    // Use native title bar for proper window dragging
+    title: 'ShipS* Preview'
   });
 
   if (process.env.NODE_ENV === 'development') {
