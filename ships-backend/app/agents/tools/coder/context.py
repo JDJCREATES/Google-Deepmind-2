@@ -7,27 +7,27 @@ Set by the system before agents run.
 
 import logging
 from pathlib import Path
+from contextvars import ContextVar
 
 logger = logging.getLogger("ships.coder")
 
 # ============================================================================
 # SECURE PROJECT PATH CONTEXT
 # This is set by the system before the coder runs, NEVER by the LLM
+# Uses ContextVar for async/thread safety
 # ============================================================================
-_project_context = {
-    "project_root": None  # None means no project selected
-}
+_project_root_var: ContextVar[str | None] = ContextVar("project_root", default=None)
 
 
 def set_project_root(path: str) -> None:
     """Set the project root path (called by system, not LLM)."""
-    _project_context["project_root"] = path
+    _project_root_var.set(path)
     logger.info(f"[CODER] 📁 Project root set to: {path}")
 
 
 def get_project_root() -> str | None:
     """Get the current project root path."""
-    return _project_context.get("project_root")
+    return _project_root_var.get()
 
 
 def validate_project_path() -> tuple[bool, str]:

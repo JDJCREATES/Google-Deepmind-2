@@ -75,6 +75,15 @@ class TargetArea(str, Enum):
     SYSTEM = "system"           # System level (pipeline control)
 
 
+class Scope(str, Enum):
+    """Scope of the requested change - helps Planner decide scaffolding."""
+    FEATURE = "feature"       # Adding behavior to existing code (modify existing files)
+    LAYER = "layer"           # Adding new architectural layer (backend, auth, database)
+    COMPONENT = "component"   # Adding new UI/code component (new files)
+    FILE = "file"             # Single file operation
+    PROJECT = "project"       # New project/app scaffolding
+
+
 class StructuredIntent(BaseModel):
     """
     The structured output of the Intent Classifier.
@@ -91,6 +100,10 @@ class StructuredIntent(BaseModel):
     )
     target_area: TargetArea = Field(
         description="Which part of the codebase is affected"
+    )
+    scope: str = Field(
+        default="feature",
+        description="Scope of change: feature (modify existing), layer (new arch layer), component (new files), project (full scaffold)"
     )
     
     # Clarified description
@@ -220,8 +233,9 @@ RULES:
 3. Be CONSERVATIVE - when unsure, set is_ambiguous=true
 4. Be EFFICIENT - output valid JSON only, no explanations
 
-CLASSIFICATION GUIDE:
-- "add X" / "create X" / "implement X" → task_type: feature, action: create
+CLASSIFICATION GUIDE (task_type + action):
+- "create new app" / "generate project" / "scaffold X" → task_type: feature, action: create
+- "add feature X" / "add X to app" / "implement X" → task_type: feature, action: modify
 - "fix X" / "bug in X" / "X is broken" → task_type: fix, action: modify
 - "change X" / "update X" / "modify X" → task_type: modify, action: modify
 - "remove X" / "delete X" → task_type: delete, action: delete
@@ -229,13 +243,27 @@ CLASSIFICATION GUIDE:
 - "what is X" / "how does X work" / "explain X" → task_type: question, action: explain
 - "looks good" / "proceed" / "yes" / "go ahead" / "approved" → task_type: confirmation, action: proceed
 
+SCOPE CLASSIFICATION (CRITICAL - helps Planner decide scaffolding):
+- scope: "feature" → Adding behavior/logic to EXISTING code (e.g., "add dark mode", "add calculation", "add sorting")
+- scope: "layer" → Adding a NEW architectural layer that doesn't exist (e.g., "add backend", "add authentication", "add database", "add API layer")
+- scope: "component" → Adding a NEW UI/code component (e.g., "add a new Settings page", "create a Button component")
+- scope: "project" → Creating a brand new project/app from scratch (e.g., "create a todo app", "scaffold a React app")
+- scope: "file" → Single file operation (e.g., "create a utils.ts file")
+
+SCOPE DECISION LOGIC:
+- If user says "add X to the app" where X is a feature/behavior → scope: feature
+- If user says "add X" where X is a system/layer (backend, auth, db) → scope: layer
+- If user says "create new app" or "scaffold" → scope: project
+- If user says "add a new X component/page" → scope: component
+- When in doubt, use "feature" (safest - won't scaffold unnecessarily)
+
 AMBIGUITY TRIGGERS (set is_ambiguous=true):
 - Request is gibberish or truly nonsensical
 - Contradictory requirements (e.g., "create a file but delete it")
 - Very short requests without context (< 2 words) e.g. "do it"
-- DO NOT mark general "build X" or "create X" tasks as ambiguous. Even if details (framework, stack) are missing, the downstream PLANNER will make those decisions.
+- DO NOT mark general "build X" or "create X" tasks as ambiguous.
 - DO NOT mark requests as ambiguous just because they are open-ended.
-- DO NOT ask "what framework?" or "which library?". Assume standard defaults or let the Planner decide.
+- DO NOT ask "what framework?". Let the Planner decide.
 
 OUTPUT FORMAT:
 You MUST output a valid JSON object matching this schema:
@@ -243,7 +271,8 @@ You MUST output a valid JSON object matching this schema:
     "task_type": "feature|fix|refactor|modify|delete|question|confirmation|unclear",
     "action": "create|modify|delete|explain|analyze|proceed",
     "target_area": "frontend|backend|database|full-stack|configuration|documentation|testing|system|unknown",
-    "description": "MUST preserve the user's EXACT request. Add clarifications, but NEVER remove or abstract away specific details like game names (e.g., 'Tic Tac Toe'), component names, feature specifics, or constraints. If user says 'fantasy tic tac toe', description MUST include 'tic tac toe'.",
+    "scope": "feature|layer|component|project|file",
+    "description": "MUST preserve the user's EXACT request. Add clarifications, but NEVER remove or abstract away specific details.",
     "original_request": "The original request (verbatim copy)",
     "affected_areas": ["area1", "area2"],
     "suggested_files": ["path/to/file.ts"],
@@ -406,6 +435,7 @@ You MUST output a valid JSON object matching this schema:
                 task_type=parsed.get("task_type", "unclear"),
                 action=parsed.get("action", "analyze"),
                 target_area=parsed.get("target_area", "unknown"),
+                scope=parsed.get("scope", "feature"),  # NEW: scope field
                 description=parsed.get("description", user_request),
                 original_request=user_request,
                 affected_areas=parsed.get("affected_areas", []),
@@ -424,7 +454,7 @@ You MUST output a valid JSON object matching this schema:
             # ================================================================
             # VISIBILITY LOGS: Show what Intent Classifier produced
             # ================================================================
-            logger.info(f"[INTENT] 📋 Classified: {intent.task_type}/{intent.action} → {intent.target_area} (conf: {intent.confidence:.2f})")
+            logger.info(f"[INTENT] 📋 Classified: {intent.task_type}/{intent.action} → {intent.target_area} | scope: {intent.scope} (conf: {intent.confidence:.2f})")
             dev_log(logger, f"[INTENT] 📝 Description: {truncate_for_log(intent.description, 150)}")
             dev_log(logger, f"[INTENT] 🎯 Original: {truncate_for_log(intent.original_request, 150)}")
             if intent.is_ambiguous:

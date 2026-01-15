@@ -762,14 +762,61 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
         # ================================================================
         if project_path:
             try:
-                # Check if scaffolding is needed
+                # ============================================================
+                # SCOPE-AWARE SCAFFOLDING DECISION
+                # ============================================================
+                # Use the 'scope' field from intent classification to decide:
+                # - scope: "project" → Always scaffold
+                # - scope: "layer" → Scaffold if layer doesn't exist
+                # - scope: "component" → Create component files if missing
+                # - scope: "feature" → NEVER scaffold, only modify existing
+                # ============================================================
+                scope = intent.get("scope", "feature")
+                target_area = intent.get("target_area", "frontend")
                 project_dir = Path(project_path)
-                scaffolding_indicators = [
-                    project_dir / "package.json",
-                    project_dir / "requirements.txt",
-                    project_dir / "pyproject.toml",
-                ]
-                needs_scaffolding = not any(ind.exists() for ind in scaffolding_indicators)
+                
+                # Determine if scaffolding is needed based on scope
+                needs_scaffolding = False
+                
+                if scope == "project":
+                    # Always scaffold for new project requests
+                    needs_scaffolding = True
+                    logger.info(f"[PLANNER] 🏗️ Scope 'project' → Scaffolding required")
+                    
+                elif scope == "layer":
+                    # Check if the target layer exists
+                    layer_indicators = {
+                        "backend": [project_dir / "server", project_dir / "backend", project_dir / "api"],
+                        "database": [project_dir / "prisma", project_dir / "db", project_dir / "migrations"],
+                        "frontend": [project_dir / "src", project_dir / "app", project_dir / "pages"],
+                    }
+                    
+                    indicators = layer_indicators.get(target_area, [])
+                    layer_exists = any(ind.exists() for ind in indicators)
+                    
+                    if not layer_exists:
+                        needs_scaffolding = True
+                        logger.info(f"[PLANNER] 🏗️ Scope 'layer' + missing {target_area} → Scaffolding required")
+                    else:
+                        logger.info(f"[PLANNER] ✅ Scope 'layer' but {target_area} exists → No scaffolding")
+                        
+                elif scope == "component":
+                    # Check if basic project structure exists
+                    project_indicators = [
+                        project_dir / "package.json",
+                        project_dir / "requirements.txt",
+                        project_dir / "pyproject.toml",
+                    ]
+                    if not any(ind.exists() for ind in project_indicators):
+                        needs_scaffolding = True
+                        logger.info(f"[PLANNER] 🏗️ Scope 'component' but no project → Scaffolding required")
+                    else:
+                        logger.info(f"[PLANNER] ✅ Scope 'component' with existing project → No scaffolding")
+                        
+                else:  # scope == "feature" or "file"
+                    # NEVER scaffold for feature requests - only modify existing code
+                    needs_scaffolding = False
+                    logger.info(f"[PLANNER] ✅ Scope '{scope}' → No scaffolding (modify existing)")
                 
                 if needs_scaffolding:
                     # Build scaffolding prompt from plan
@@ -826,6 +873,7 @@ IMPORTANT:
                 else:
                     plan_artifacts["scaffolding_complete"] = True
                     plan_artifacts["scaffolding_skipped"] = True
+                    plan_artifacts["scaffolding_reason"] = f"Scope '{scope}' does not require scaffolding"
                     
             except Exception as scaffold_error:
                 # Don't fail planning if scaffolding fails
