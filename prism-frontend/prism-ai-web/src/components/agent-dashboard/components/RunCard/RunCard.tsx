@@ -200,12 +200,20 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
               
               <button 
                 className="run-card__option-item run-card__option-item--danger" 
-                onClick={(e) => { e.stopPropagation(); handleDelete(); setShowOptions(false); }}
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  // If already confirming, this click does the delete, so we can close.
+                  // If not confirming, this click starts confirmation, so we keep open.
+                  if (showDeleteConfirm) {
+                    setShowOptions(false);
+                  }
+                  handleDelete(); 
+                }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/>
                 </svg>
-                Delete Run
+                {showDeleteConfirm ? 'Confirm Delete' : 'Delete Run'}
               </button>
             </div>
           )}

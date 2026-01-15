@@ -91,7 +91,6 @@ export class GitSyncManager {
     // Format URL with credentials if available
     // WARNING: Using credentials in URL is not secure for logging/history
     // In production, use git credential helper
-    let pushUrl = remote;
     
     if (this.token && this.username) {
         // Retrieve generic URL
@@ -133,7 +132,7 @@ export class GitSyncManager {
         // Dry run merge to see conflicts
         // git merge-tree write-tree source target
         // (Newer git versions)
-        const { stdout } = await this.execGit(`git merge-tree ${target} ${source}`);
+        await this.execGit(`git merge-tree ${target} ${source}`);
         // Parse output for conflict markers if generic
         // Or simpler: git format-patch ... check? No.
         
@@ -155,9 +154,14 @@ export class GitSyncManager {
   }
 
   private async execGit(command: string, options: any = {}): Promise<{stdout: string, stderr: string}> {
-     return execAsync(command, { 
+     const result = await execAsync(command, { 
         cwd: this.projectPath, 
         ...options 
      });
+     // Ensure stdout/stderr are strings (execAsync can return Buffers depending on opts)
+     return {
+        stdout: result.stdout.toString(),
+        stderr: result.stderr.toString()
+     };
   }
 }

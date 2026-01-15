@@ -415,14 +415,13 @@ export const useAgentRuns = create<AgentRunsState>()(
     const { removeRun, setError, isElectron } = get();
     
     try {
-      // If in Electron, close preview and delete branch first
+      // If in Electron, trigger cleanup but don't block the backend call
       if (isElectron) {
-        try {
-          await electronAPI.closePreview(runId);
-          await electronAPI.deleteBranch(runId);
-        } catch (electronError) {
-          console.warn('[useAgentRuns] Electron cleanup failed:', electronError);
-        }
+        // execute asynchronously
+        Promise.all([
+          electronAPI.closePreview(runId).catch(console.warn),
+          electronAPI.deleteBranch(runId).catch(console.warn)
+        ]).catch(e => console.warn('[useAgentRuns] Electron cleanup error:', e));
       }
       
       const response = await withRetry(() => 
