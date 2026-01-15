@@ -129,21 +129,23 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
             <ActivityIndicator activity={currentActivity} type={activityType} />
          </div>
          
-         {/* Tool Progress - Shows files created, commands run, etc. */}
-         {toolEvents.length > 0 && (
-           <ToolProgress 
-             events={toolEvents} 
-             onFileClick={(filePath) => {
-               if (electronProjectPath) {
-                 openFile(filePath);
-               }
-             }}
-           />
-         )}
-         
          {/* Bottom Spacer */}
          <div ref={messagesEndRef} />
       </main>
+
+      {/* Tool Progress - Sticky above input, shows files created/commands run */}
+      {toolEvents.length > 0 && (
+        <div className="tool-progress-container">
+          <ToolProgress 
+            events={toolEvents} 
+            onFileClick={(filePath) => {
+              if (electronProjectPath) {
+                openFile(filePath);
+              }
+            }}
+          />
+        </div>
+      )}
 
       {/* Input Area */}
       <footer className="chat-input-container">

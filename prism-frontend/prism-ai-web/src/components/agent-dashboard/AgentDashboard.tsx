@@ -9,6 +9,7 @@ import React, { useEffect, useState } from 'react';
 import { useAgentRuns } from './hooks/useAgentRuns';
 import { RunCard } from './components/RunCard/RunCard';
 import type { CreateRunRequest } from './types';
+import { agentService } from '../../services/agentService';
 import './AgentDashboard.css';
 
 export const AgentDashboard: React.FC = () => {
@@ -37,16 +38,43 @@ export const AgentDashboard: React.FC = () => {
     if (!newRunPrompt.trim()) return;
     
     setIsCreating(true);
+    const prompt = newRunPrompt.trim();
     const request: CreateRunRequest = {
-      prompt: newRunPrompt.trim(),
-      title: newRunPrompt.trim().slice(0, 50),
+      prompt,
+      title: prompt.slice(0, 50),
     };
     
     const newRun = await createRun(request);
     
     if (newRun) {
+      // IMPORTANT: Set this run as active so the chat UI binds to it
+      setActiveRun(newRun.id);
       setNewRunPrompt('');
       setShowCreateModal(false);
+      
+      // Auto-trigger the agent with the prompt
+      // This provides immediate feedback - the user doesn't need to re-type
+      console.log('[AgentDashboard] Auto-triggering agent for new run:', newRun.id);
+      
+      // Get project path from Electron if available
+      const projectPath = (window as any).electron?.getProjectPath 
+        ? await (window as any).electron.getProjectPath() 
+        : null;
+      
+      // Start the agent (async, don't await)
+      agentService.runAgent(
+        prompt,
+        projectPath,
+        (chunk) => {
+          // Chunk handling happens in ChatInterface via useChatLogic
+          // The streaming store is shared, so updates will flow there
+          console.log('[AgentDashboard] Agent chunk:', chunk.type);
+        },
+        (error) => {
+          console.error('[AgentDashboard] Agent error:', error);
+          setError(`Agent failed: ${error.message}`);
+        }
+      );
     }
     
     setIsCreating(false);
@@ -66,12 +94,10 @@ export const AgentDashboard: React.FC = () => {
   // Dismiss error
   const dismissError = () => setError(null);
 
-  // Separate primary (first) run from others
-  const primaryRun = runs.find(r => r.isPrimary);
-  const otherRuns = runs.filter(r => !r.isPrimary);
-  const activeRuns = otherRuns.filter(r => r.status !== 'paused' && r.status !== 'completed');
-  const pausedRuns = otherRuns.filter(r => r.status === 'paused');
-  const completedRuns = otherRuns.filter(r => r.status === 'completed');
+  // Categorize runs by status
+  const activeRuns = runs.filter(r => r.status !== 'paused' && r.status !== 'completed');
+  const pausedRuns = runs.filter(r => r.status === 'paused');
+  const completedRuns = runs.filter(r => r.status === 'completed');
 
   return (
     <div className="agent-dashboard">
@@ -125,18 +151,6 @@ export const AgentDashboard: React.FC = () => {
 
       {/* Runs List */}
       <div className="agent-dashboard__runs">
-        {/* Primary Run */}
-        {primaryRun && (
-          <section className="agent-dashboard__section">
-            <h2 className="agent-dashboard__section-title">Main</h2>
-            <RunCard 
-              run={primaryRun} 
-              isPrimary 
-              isSelected={primaryRun.id === activeRunId}
-              onSelect={() => setActiveRun(primaryRun.id)}
-            />
-          </section>
-        )}
 
         {/* Active Runs */}
         {activeRuns.length > 0 && (

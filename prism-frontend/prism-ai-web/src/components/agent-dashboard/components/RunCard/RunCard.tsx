@@ -5,7 +5,7 @@
  * files changed, and feedback input.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import type { AgentRun } from '../../types';
 import { useAgentRuns } from '../../hooks/useAgentRuns';
 import { ScreenshotTimeline } from '../ScreenshotTimeline/ScreenshotTimeline';
@@ -26,6 +26,23 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const [conflicts, setConflicts] = useState<any[]>([]);
+  
+  const optionsRef = useRef<HTMLDivElement>(null);
+
+  // Close options dropdown when clicking outside
+  useEffect(() => {
+    if (!showOptions) return;
+    
+    const handleClickOutside = (e: MouseEvent) => {
+      if (optionsRef.current && !optionsRef.current.contains(e.target as Node)) {
+        setShowOptions(false);
+      }
+    };
+    
+    // Use mousedown to catch click before other handlers
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showOptions]);
 
   // Status indicator color
   const getStatusColor = () => {
@@ -111,14 +128,21 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
     <div 
       className={`run-card ${isSelected ? 'run-card--selected' : ''} ${!expanded ? 'run-card--collapsed' : ''}`}
       onClick={(e) => { 
-        // Only select if not clicking buttons or content area
-        if (!(e.target as HTMLElement).closest('button') && !(e.target as HTMLElement).closest('.run-card__content')) {
+        // Select the card unless clicking interactive elements
+        const target = e.target as HTMLElement;
+        const isInteractive = target.closest('button') || 
+                              target.closest('input') || 
+                              target.closest('textarea') ||
+                              target.closest('.run-card__options-menu') ||
+                              target.closest('.run-card__status-indicator');
+        if (!isInteractive) {
            onSelect?.();
         }
       }}
+      style={{ cursor: 'pointer' }}
     >
       {/* Header */}
-      <header className="run-card__header" onClick={() => setExpanded(!expanded)}>
+      <header className="run-card__header">
         <div 
           className={`run-card__status-indicator ${showOptions ? 'run-card__status-indicator--open' : ''}`}
           style={{ background: getStatusColor() }}
@@ -129,7 +153,7 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
           title="Click for options"
         >
           {showOptions && (
-            <div className="run-card__options-menu" onClick={(e) => e.stopPropagation()}>
+            <div ref={optionsRef} className="run-card__options-menu" onClick={(e) => e.stopPropagation()}>
               <button 
                 className="run-card__option-item" 
                 onClick={(e) => { e.stopPropagation(); handlePush(); setShowOptions(false); }}

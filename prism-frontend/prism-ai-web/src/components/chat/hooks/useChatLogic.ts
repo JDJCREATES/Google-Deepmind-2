@@ -47,8 +47,19 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
     agentPhase, setPhase,
     currentActivity, activityType, setActivity,
     appendTerminalOutput, setShowTerminal,
-    setAwaitingConfirmation
+    setAwaitingConfirmation,
+    resetStreaming  // Add reset function
   } = useStreamingStore();
+
+  // Reset streaming state when switching runs
+  useEffect(() => {
+    if (activeRunId) {
+      // When switching to a new run, reset the streaming state
+      // This clears stuck indicators from previous runs
+      resetStreaming();
+      console.log('[useChatLogic] Reset streaming state for run:', activeRunId);
+    }
+  }, [activeRunId, resetStreaming]);
 
   // Auto-scroll when new content arrives
   useEffect(() => {
