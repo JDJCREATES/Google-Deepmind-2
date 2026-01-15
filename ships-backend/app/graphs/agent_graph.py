@@ -383,13 +383,27 @@ async def coder_node(state: AgentGraphState) -> Dict[str, Any]:
         except:
             return p
 
-    def get_project_tree(root_str: str, max_depth: int = 5) -> str:
-        """Scan project structure recursively for context."""
+    def get_project_tree(root_str: str, max_depth: int = 4) -> str:
+        """Scan project structure recursively for context (Limited size)."""
         tree = []
         root = Path(root_str)
         
+        # Hard cap to prevent token explosion
+        MAX_LINES = 500
+        line_count = 0
+        truncated = False
+        
+        ignore_names = {
+            'node_modules', 'dist', 'build', 'coverage', '__pycache__', 
+            'venv', '.venv', 'env', '.env', 'target', 'bin', 'obj', 
+            'vendor', 'bower_components', 'jspm_packages', '.git',
+            '.idea', '.vscode', '.next', '.nuxt', 'out', '.output'
+        }
+        
         def _scan(dir_path: Path, prefix: str = "", level: int = 0):
-            if level > max_depth: return
+            nonlocal line_count, truncated
+            if level > max_depth or truncated: return
+            
             try:
                 # Sort dirs first, then files
                 items = sorted(dir_path.iterdir(), key=lambda x: (not x.is_dir(), x.name))
@@ -397,19 +411,27 @@ async def coder_node(state: AgentGraphState) -> Dict[str, Any]:
                 return
 
             for item in items:
+                if line_count >= MAX_LINES:
+                    truncated = True
+                    return
+                
                 # Skip heavy/hidden folders
-                if item.name.startswith('.') or item.name in ['node_modules', 'dist', 'build', 'coverage', '__pycache__']:
+                if item.name.startswith('.') or item.name in ignore_names:
                     continue
                 
                 if item.is_dir():
                     tree.append(f"{prefix}📂 {item.name}/")
+                    line_count += 1
                     _scan(item, prefix + "  ", level + 1)
                 else:
                     tree.append(f"{prefix}📄 {item.name}")
+                    line_count += 1
 
         try:
             if root.exists():
                 _scan(root)
+                if truncated:
+                    tree.append("... (truncated: max 500 lines)")
         except Exception as e:
             return f"Error scanning tree: {e}"
             
@@ -607,9 +629,30 @@ ACTUAL FILE STRUCTURE (Disk State):
         if expected_files:
             # Normalize paths for comparison
             normalized_completed = {str(f).replace("\\", "/").lower() for f in current_completed}
-            normalized_expected = {str(f).replace("\\", "/").lower() for f in expected_files}
             
-            missing = normalized_expected - normalized_completed
+            # Check each expected file against state AND disk
+            missing = []
+            for expected in expected_files:
+                norm_expected = str(expected).replace("\\", "/").lower()
+                
+                # 1. Check if marked completed
+                if norm_expected in normalized_completed:
+                    continue
+                
+                # 2. Check strict disk existence (handles cases where tool output parsing failed)
+                # This prevents "loop of doom" where file exists but Coder keeps being told to make it
+                try:
+                    full_path = Path(project_path) / expected
+                    if full_path.exists() and full_path.is_file():
+                        current_completed.append(str(expected)) # Sync state
+                        normalized_completed.add(norm_expected)
+                        logger.info(f"[CODER] 🔍 Verified existing file on disk: {expected}")
+                        continue
+                except Exception:
+                    pass
+                
+                missing.append(expected)
+
             if missing:
                 logger.info(f"[CODER] 📝 Missing files: {len(missing)}")
                 for m in list(missing)[:5]:

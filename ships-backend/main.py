@@ -442,6 +442,10 @@ async def run_agent(request: Request, body: PromptRequest):
                                                 "node": node_name,
                                                 "content": f"Detected intent: {parsed.get('task_type', 'unknown')}"
                                             }) + "\n"
+                                        else:
+                                            # Unrecognized JSON structure - SKIP IT
+                                            # (Don't stream raw JSON to the thinking panel)
+                                            logger.debug(f"[STREAM] Skipping unrecognized JSON: {list(parsed.keys())[:5]}")
                                 except:
                                     # JSON parse failed - skip internal JSON
                                     pass

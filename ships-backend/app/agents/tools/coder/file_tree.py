@@ -102,6 +102,13 @@ def _get_symbols_from_file(file_path: Path) -> List[str]:
                 
         return list(set(symbols)) # Dedupe
         
+    except TypeError as te:
+        if "__init__" in str(te):
+             # Specific suppression for tree-sitter version mismatch
+             logger.debug(f"Tree-sitter init mismatch for {file_path.name}: {te}")
+             return []
+        logger.warning(f"Tree-sitter type error for {file_path.name}: {te}")
+        return []
     except Exception as e:
         logger.warning(f"Tree-sitter parse failed for {file_path.name}: {e}")
         return []
@@ -315,9 +322,70 @@ def get_artifact(name: str) -> Dict[str, Any]:
         
         import json
         with open(artifact_path, "r", encoding="utf-8") as f:
-            content = json.load(f)
+            raw_content = json.load(f)
+            
+        # ================================================================
+        # TOKEN OPTIMIZATION: Strip metadata and extract essentials ONLY
+        # Metadata bloat (schema_version, timestamps, etc.) is USELESS to Coder
+        # ================================================================
+        content = {}
         
-        logger.info(f"[CODER] 📄 Loaded artifact: {name}")
+        # 1. Always strip metadata block
+        if isinstance(raw_content, dict):
+            raw_content.pop("metadata", None)
+            
+            # 2. For known artifacts, extract ONLY the essential data
+            if name == "folder_map_plan.json":
+                # Only need: entries (list of paths)
+                entries = raw_content.get("entries", [])
+                # Extract just path and is_directory - drop all other fields
+                content = [
+                    {"path": e.get("path"), "is_dir": e.get("is_directory", False)}
+                    for e in entries[:30]  # Cap at 30 entries
+                ]
+                if len(entries) > 30:
+                    content.append({"_more": f"{len(entries)-30} more files..."})
+                    
+            elif name == "task_list.json":
+                # Only need: task titles and IDs
+                tasks = raw_content.get("tasks", [])
+                content = [
+                    {"id": t.get("id"), "title": t.get("title", "")[:80]}
+                    for t in tasks[:10]  # Cap at 10 tasks
+                ]
+                
+            elif name == "api_contracts.json":
+                # Only need: endpoint method + path
+                endpoints = raw_content.get("endpoints", [])
+                content = [
+                    {"method": e.get("method"), "path": e.get("path")}
+                    for e in endpoints[:20]
+                ]
+                if not endpoints:
+                    content = {"note": "No API endpoints defined"}
+                    
+            elif name == "dependency_plan.json":
+                # Only need: package names
+                deps = raw_content.get("dependencies", raw_content.get("packages", []))
+                if isinstance(deps, list):
+                    content = [d.get("name") if isinstance(d, dict) else str(d) for d in deps[:20]]
+                else:
+                    content = deps
+                    
+            else:
+                # Unknown artifact - apply generic truncation
+                content = raw_content
+                # Truncate nested lists/dicts
+                if isinstance(content, dict):
+                    for k, v in list(content.items()):
+                        if isinstance(v, list) and len(v) > 15:
+                            content[k] = v[:15] + [f"... ({len(v)-15} more)"]
+                        elif isinstance(v, dict) and len(v) > 15:
+                            content[k] = {sk: sv for i, (sk, sv) in enumerate(v.items()) if i < 15}
+        else:
+            content = raw_content
+        
+        logger.info(f"[CODER] 📄 Loaded artifact: {name} (optimized)")
         return {"success": True, "name": name, "content": content}
         
     except Exception as e:

@@ -665,9 +665,16 @@ Use these type definitions. Do NOT read from disk.
         if project_path and Path(project_path).exists():
             try:
                 tree_lines = []
+                ignore_names = {
+                    'node_modules', 'dist', 'build', 'coverage', '__pycache__', 
+                    'venv', '.venv', 'env', '.env', 'target', 'bin', 'obj', 
+                    'vendor', 'bower_components', 'jspm_packages', '.git',
+                    '.idea', '.vscode', '.next', '.nuxt', 'out', '.output'
+                }
+                
                 for root, dirs, files in os.walk(project_path):
-                    # Skip hidden/ignored folders
-                    dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['node_modules', '__pycache__', 'dist', 'build']]
+                    # Skip heavy/hidden folders
+                    dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ignore_names]
                     
                     level = root.replace(project_path, '').count(os.sep)
                     indent = ' ' * 4 * (level)
@@ -762,6 +769,25 @@ Use these type definitions. Do NOT read from disk.
                         pass
 
         # ================================================================
+        # Context Scoping: Filter task object to prevent bloat
+        # ================================================================
+        scoped_task = {}
+        if isinstance(task, dict):
+            # Whitelist essential fields to avoid "unused fields" spam
+            essential_keys = {"id", "title", "description", "acceptance_criteria", "expected_outputs", "type", "priority"}
+            for k, v in task.items():
+                if k in essential_keys:
+                    # Truncate lists if too long
+                    if isinstance(v, list) and len(v) > 20:
+                        scoped_task[k] = v[:20] + [f"... ({len(v)-20} more)"]
+                    else:
+                        scoped_task[k] = v
+        else:
+            scoped_task = {"description": str(task)}
+        
+        scoped_task_str = json.dumps(scoped_task, indent=2) if scoped_task else str(task)
+
+        # ================================================================
         # Build coding prompt with full context
         # ================================================================
         coder_prompt = f"""PROJECT PATH: {project_path}
@@ -773,7 +799,7 @@ IMPLEMENTATION PLAN:
 {plan_content[:4000] if plan_content else 'No plan provided - implement based on task description.'}
 
 CURRENT TASK:
-{json.dumps(task, indent=2) if isinstance(task, dict) else str(task)}
+{scoped_task_str}
 
 FILES ALREADY CREATED:
 {chr(10).join(['- ' + f for f in completed_files]) if completed_files else '- None yet'}
@@ -836,7 +862,7 @@ IMPORTANT:
                             files_arg = tc_args.get("files", []) if isinstance(tc_args, dict) else []
                             for file_entry in files_arg:
                                 if isinstance(file_entry, dict):
-                                    path = file_entry.get("file_path", "")
+                                    path = file_entry.get("path", file_entry.get("file_path", ""))
                                     if path:
                                         files_written.append(path)
             

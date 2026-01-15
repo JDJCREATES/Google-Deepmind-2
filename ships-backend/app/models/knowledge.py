@@ -65,10 +65,10 @@ class KnowledgeEntry(Base):
         String(100),
         index=True
     )
-    context_embedding: Mapped[Optional[list]] = mapped_column(
-        Vector(768),  # Gemini dimensions
-        nullable=True
-    )
+    # context_embedding: Mapped[Optional[list]] = mapped_column(
+    #     Vector(768),  # Gemini dimensions
+    #     nullable=True
+    # )
     
     # Solution (what fixed it)
     solution_pattern: Mapped[str] = mapped_column(
