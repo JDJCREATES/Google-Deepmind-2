@@ -29,7 +29,7 @@ export const FeedbackInput: React.FC<FeedbackInputProps> = ({
     setIsSending(true);
     
     try {
-      await sendFeedback(runId, message.trim());
+      await sendFeedback(runId, message.trim(), selectedModel);
       setMessage('');
       
       // Reset textarea height
@@ -49,7 +49,7 @@ export const FeedbackInput: React.FC<FeedbackInputProps> = ({
     }
   };
 
-  // Auto-resize textarea
+  // Handle input change
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setMessage(e.target.value);
     
@@ -58,6 +58,8 @@ export const FeedbackInput: React.FC<FeedbackInputProps> = ({
     textarea.style.height = 'auto';
     textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
   };
+
+  const [selectedModel, setSelectedModel] = useState("gemini-3.0-pro-preview");
 
   return (
     <div className={`feedback-input ${disabled ? 'feedback-input--disabled' : ''}`}>
@@ -74,7 +76,7 @@ export const FeedbackInput: React.FC<FeedbackInputProps> = ({
         />
         <button
           className="feedback-input__send"
-          onClick={handleSend}
+          onClick={() => handleSend()}
           disabled={!message.trim() || disabled || isSending}
           title="Send feedback (Enter)"
         >
@@ -87,9 +89,18 @@ export const FeedbackInput: React.FC<FeedbackInputProps> = ({
           )}
         </button>
       </div>
-      <span className="feedback-input__hint">
-        Press Enter to send
-      </span>
+      <div className="feedback-input__footer">
+        <select 
+          className="feedback-input__model-select"
+          value={selectedModel}
+          onChange={(e) => setSelectedModel(e.target.value)}
+          disabled={disabled}
+        >
+          <option value="gemini-3.0-pro-preview">Gemini 3.0 Pro Preview</option>
+          <option value="gemini-3.0-flash-preview">Gemini 3.0 Flash</option>
+        </select>
+        <div className="feedback-input__kv-indicator">KV Cache: ON</div>
+      </div>
     </div>
   );
 };

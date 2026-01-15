@@ -68,6 +68,13 @@ def update_task_status(
                 task["updated_at"] = datetime.now().isoformat()
                 if notes:
                     existing_notes = task.get("notes", [])
+                    # Defensive check: if notes is a string (legacy data), convert to list
+                    if isinstance(existing_notes, str):
+                        existing_notes = [{"content": existing_notes, "timestamp": datetime.now().isoformat()}]
+                    
+                    if not isinstance(existing_notes, list):
+                        existing_notes = []
+
                     existing_notes.append({
                         "content": notes,
                         "timestamp": datetime.now().isoformat()

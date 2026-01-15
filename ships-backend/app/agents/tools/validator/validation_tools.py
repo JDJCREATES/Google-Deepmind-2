@@ -16,6 +16,7 @@ from app.agents.sub_agents.validator.models import (
 from app.agents.tools.validator.layers import (
     StructuralLayer, CompletenessLayer, DependencyLayer, ScopeLayer,
 )
+from app.api.runs.router import broadcast_event
 
 
 @tool
@@ -219,3 +220,30 @@ def create_validation_report(
         "recommended_action": action,
         "task_id": task_id
     }
+
+
+@tool
+async def verify_visually(
+    run_id: str,
+    description: str
+) -> str:
+    """
+    Request a visual verification screenshot of the current preview.
+    
+    This triggers the frontend to take a screenshot via Electron.
+    The screenshot will appear in the run timeline.
+    
+    Args:
+        run_id: The ID of the current run
+        description: Description of what to verify (e.g., "Check the delete button style")
+        
+    Returns:
+        Status message processing request
+    """
+    await broadcast_event({
+        "type": "request_screenshot",
+        "runId": run_id,
+        "description": description
+    })
+    
+    return f"Screenshot requested for run {run_id}. Check the timeline for the image."

@@ -87,6 +87,15 @@ export interface ScreenshotEvent {
 }
 
 /**
+ * WebSocket event for requesting a screenshot
+ */
+export interface RequestScreenshotEvent {
+  type: 'request_screenshot';
+  runId: string;
+  description: string;
+}
+
+/**
  * Create run request
  */
 export interface CreateRunRequest {

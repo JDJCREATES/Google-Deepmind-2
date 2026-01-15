@@ -112,6 +112,7 @@ class CreateRunRequest(BaseModel):
 
 class FeedbackRequest(BaseModel):
     message: str
+    model: Optional[str] = "gemini-1.5-pro-002"
 
 
 class RollbackRequest(BaseModel):
@@ -372,7 +373,8 @@ async def send_feedback(
     # Store feedback in metadata
     run.run_metadata = {
         **(run.run_metadata or {}), 
-        "agent_message": f"Processing feedback: {request.message[:50]}..."
+        "agent_message": f"Processing feedback with {request.model}: {request.message[:50]}...",
+        "last_model_used": request.model
     }
     await db.commit()
     

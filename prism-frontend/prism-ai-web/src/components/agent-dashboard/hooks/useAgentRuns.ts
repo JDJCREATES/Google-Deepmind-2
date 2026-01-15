@@ -54,7 +54,7 @@ interface AgentRunsState {
   pauseRun: (runId: string) => Promise<void>;
   resumeRun: (runId: string) => Promise<void>;
   deleteRun: (runId: string) => Promise<void>;
-  sendFeedback: (runId: string, message: string) => Promise<void>;
+  sendFeedback: (runId: string, message: string, model?: string) => Promise<void>;
   rollbackToScreenshot: (runId: string, screenshotId: string) => Promise<void>;
   
   // Electron-specific actions
@@ -440,7 +440,7 @@ export const useAgentRuns = create<AgentRunsState>()(
     }
   },
   
-  sendFeedback: async (runId, message) => {
+  sendFeedback: async (runId, message, model = "gemini-1.5-pro-002") => {
     const { setError, updateRun } = get();
     
     try {
@@ -448,7 +448,7 @@ export const useAgentRuns = create<AgentRunsState>()(
         fetch(`${API_BASE}/api/runs/${runId}/feedback`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message }),
+          body: JSON.stringify({ message, model }),
           credentials: 'include',
         })
       );

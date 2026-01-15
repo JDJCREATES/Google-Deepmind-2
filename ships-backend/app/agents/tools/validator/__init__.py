@@ -27,6 +27,7 @@ from app.agents.tools.validator.validation_tools import (
     validate_dependencies,
     validate_scope,
     create_validation_report,
+    verify_visually,
 )
 
 # Combined export of all tools for the Validator agent
@@ -36,6 +37,7 @@ VALIDATOR_TOOLS = [
     validate_dependencies,
     validate_scope,
     create_validation_report,
+    verify_visually,
 ]
 
 __all__ = [
@@ -53,6 +55,7 @@ __all__ = [
     "validate_dependencies",
     "validate_scope",
     "create_validation_report",
+    "verify_visually",
     
     # Tool list
     "VALIDATOR_TOOLS",

@@ -7,16 +7,16 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import { useAgentRuns } from './useAgentRuns';
-import type { RunStatusEvent, ScreenshotEvent } from '../types';
+import type { RunStatusEvent, ScreenshotEvent, RequestScreenshotEvent } from '../types';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8001/ws/runs';
 
-type RunEvent = RunStatusEvent | ScreenshotEvent;
+type RunEvent = RunStatusEvent | ScreenshotEvent | RequestScreenshotEvent;
 
 export const useRunWebSocket = () => {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
-  const { updateRunStatus, addScreenshot } = useAgentRuns();
+  const { updateRunStatus, addScreenshot, captureScreenshot } = useAgentRuns();
 
   // Handle incoming messages
   const handleMessage = useCallback((event: MessageEvent) => {
@@ -36,6 +36,13 @@ export const useRunWebSocket = () => {
           
         case 'screenshot_captured':
           addScreenshot(data.runId, data.screenshot);
+          break;
+          
+        case 'request_screenshot':
+          // Trigger Electron capture
+          captureScreenshot(data.runId, 'agent_verification', data.description).catch(err => 
+            console.error('[useRunWebSocket] Auto-capture failed:', err)
+          );
           break;
           
         default:
