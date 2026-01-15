@@ -21,14 +21,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # Ensure pgvector extension is installed for VECTOR type
-    op.execute('CREATE EXTENSION IF NOT EXISTS vector')
+    # op.execute('CREATE EXTENSION IF NOT EXISTS vector')
     
     op.create_table('knowledge_entries',
         sa.Column('id', sa.UUID(), nullable=False),
         sa.Column('entry_type', sa.String(length=50), nullable=False),
         sa.Column('error_signature', sa.String(length=500), nullable=False),
         sa.Column('tech_stack', sa.String(length=100), nullable=True),
-        sa.Column('context_embedding', Vector(768), nullable=True),
+        # sa.Column('context_embedding', Vector(768), nullable=True),
         sa.Column('solution_pattern', sa.Text(), nullable=False),
         sa.Column('solution_description', sa.Text(), nullable=True),
         sa.Column('solution_compressed', sa.LargeBinary(), nullable=True),

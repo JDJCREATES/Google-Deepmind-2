@@ -10,6 +10,7 @@ import type { AgentRun } from '../../types';
 import { useAgentRuns } from '../../hooks/useAgentRuns';
 import { ScreenshotTimeline } from '../ScreenshotTimeline/ScreenshotTimeline';
 import { FeedbackInput } from '../FeedbackInput/FeedbackInput';
+import { MergeConflictModal } from '../MergeConflictModal/MergeConflictModal';
 import './RunCard.css';
 
 interface RunCardProps {
@@ -19,9 +20,11 @@ interface RunCardProps {
 }
 
 export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSelect }) => {
-  const { pauseRun, resumeRun, deleteRun, rollbackToScreenshot } = useAgentRuns();
+  const { pauseRun, resumeRun, deleteRun, rollbackToScreenshot, pushRun, pullRun } = useAgentRuns();
   const [expanded, setExpanded] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showMergeModal, setShowMergeModal] = useState(false);
+  const [conflicts, setConflicts] = useState<any[]>([]);
 
   // Status indicator color
   const getStatusColor = () => {
@@ -60,7 +63,29 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
       resumeRun(run.id);
     } else {
       pauseRun(run.id);
+    }  };
+
+  // Handle push/pull
+  const handlePush = async () => {
+    try {
+        await pushRun(run.id);
+    } catch (e: any) {
+        if (e.message.includes('conflict')) {
+            // Mock conflict for now, in real flow we'd fetch diffs
+            setConflicts([{
+                path: 'src/App.tsx',
+                original: 'const App = () => <div>Original</div>',
+                modified: 'const App = () => <div>Modified</div>'
+            }]);
+            setShowMergeModal(true);
+        }
     }
+  };
+
+  // Handle resolution
+  const handleResolve = (strategy: string) => {
+    console.log('Resolved with:', strategy);
+    setShowMergeModal(false);
   };
 
   // Handle delete
@@ -110,8 +135,16 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
           <span className="run-card__status">{run.status}</span>
         </div>
 
-        <div className="run-card__actions">
-          <>
+          <div className="run-card__actions">
+              <button 
+                className="run-card__action-btn"
+                onClick={(e) => { e.stopPropagation(); handlePush(); }}
+                title="Push to Remote"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 19V5M5 12l7-7 7 7"/>
+                </svg>
+              </button>
               <button 
                 className="run-card__action-btn"
                 onClick={(e) => { e.stopPropagation(); handleTogglePause(); }}
@@ -136,7 +169,7 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
                   <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/>
                 </svg>
               </button>
-            </>
+
           <button 
             className="run-card__expand-btn"
             onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
@@ -189,6 +222,13 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
           <FeedbackInput runId={run.id} disabled={!isActive && run.status !== 'paused'} />
         </div>
       )}
+      
+      <MergeConflictModal 
+        isOpen={showMergeModal}
+        onClose={() => setShowMergeModal(false)}
+        onResolve={handleResolve}
+        files={conflicts}
+      />
     </div>
   );
 };

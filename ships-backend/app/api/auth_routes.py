@@ -312,6 +312,10 @@ async def github_link_callback(request: Request, db: AsyncSession = Depends(get_
         
         # Link GitHub to existing user
         user.github_id = str(user_info['id'])
+        user.github_username = user_info.get('login')
+        user.set_github_token(token['access_token'])
+        # Token expiry is often None for GitHub (never expires), but good to handle if present
+        # user.github_token_expires = ... 
         await db.commit()
         
         # Update session to show GitHub is linked

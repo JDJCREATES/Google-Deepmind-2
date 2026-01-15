@@ -241,10 +241,11 @@ ipcMain.handle('select-project-folder', async () => {
   }
   
   // Initialize artifact service for this project
-  const { registerArtifactHandlers, registerCheckpointHandlers, registerRunHandlers } = require('./services');
+  const { registerArtifactHandlers, registerCheckpointHandlers, registerRunHandlers, registerGitHandlers } = require('./services');
   registerArtifactHandlers(selectedPath);
   registerCheckpointHandlers(selectedPath);
   registerRunHandlers(selectedPath);
+  registerGitHandlers(() => store ? store.get('lastProjectPath') : selectedPath);
   console.log('[ARTIFACTS] Handlers registered for:', selectedPath);
   console.log('[CHECKPOINT] Handlers registered for:', selectedPath);
   console.log('[RUNS] Handlers registered for:', selectedPath);

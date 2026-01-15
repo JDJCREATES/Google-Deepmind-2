@@ -7,7 +7,7 @@ subscription tier management, and usage quota tracking.
 
 from datetime import datetime, timedelta
 from typing import Optional
-from sqlalchemy import String, Integer, DateTime, Index
+from sqlalchemy import String, Integer, DateTime, Index, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -79,6 +79,9 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     google_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, index=True)
     github_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, index=True)
+    github_access_token: Mapped[Optional[str]] = mapped_column(Text)  # Encrypted
+    github_token_expires: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    github_username: Mapped[Optional[str]] = mapped_column(String(255))
     avatar_url: Mapped[Optional[str]] = mapped_column(String(512))
     
     # Subscription
@@ -181,6 +184,17 @@ class User(Base):
     def reset_monthly_usage(self):
         """Reset monthly usage counters."""
         self.tokens_used_month = 0
+        
+    def set_github_token(self, token: str):
+        """Encrypt and set GitHub token."""
+        from app.security.encryption import encrypt_token
+        self.github_access_token = encrypt_token(token)
+        
+    def get_github_token(self) -> Optional[str]:
+        """Decrypt and get GitHub token."""
+        from app.security.encryption import decrypt_token
+        return decrypt_token(self.github_access_token)
+
     
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email={self.email}, tier={self.tier})>"

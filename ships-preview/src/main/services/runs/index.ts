@@ -12,3 +12,4 @@ export {
   updateRunProjectPath, 
   removeRunHandlers 
 } from './runHandlers';
+export { registerGitHandlers } from './gitHandlers';
