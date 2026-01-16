@@ -677,12 +677,106 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
             "unknown": "generic",
         }
         
-        # Get template key from target_area
-        detected_template = template_mapping.get(target_area, "react-vite")
+        # ================================================================
+        # INTELLIGENT TEMPLATE SELECTION
+        # Priority: 
+        # 1. User Explicit Request (e.g. "Use Next.js", "switch to Django")
+        # 2. Existing Project Config (e.g. vite.config.js, pyproject.toml)
+        # 3. Default Mapping (target_area -> template)
+        # ================================================================
         
-        # Update current_project_type to inject correct conventions
+        detected_template = None
+        user_request_lower = intent.get("description", "").lower() + " " + intent.get("original_request", "").lower()
+        
+        # 1. Check User Explicit Request (Keyword Search)
+        # This allows users to override everything by just asking
+        framework_keywords = {
+            "nextjs": ["next.js", "nextjs", "next app"],
+            "react-vite": ["vite", "react app", "standard react"],
+            "vue": ["vue", "nuxt"], # Nuxt will match vue for now unless we separate
+            "angular": ["angular"],
+            "svelte": ["svelte", "sveltekit"],
+            "astro": ["astro"],
+            "fastapi": ["fastapi", "python backend"],
+            "django": ["django"],
+            "flask": ["flask"],
+            "express": ["express", "node backend"],
+            "nestjs": ["nest", "nestjs"],
+        }
+        
+        for key, keywords in framework_keywords.items():
+            if any(kw in user_request_lower for kw in keywords):
+                detected_template = key
+                logger.info(f"[PLANNER] 🧠 user_intent: Detected explicit request for '{key}'")
+                break
+        
+        # 2. If no explicit request, check File System (Project Context)
+        if not detected_template and project_path:
+             project_dir = Path(project_path)
+             fs_template = None
+             
+             # Frontend Configs
+             if (project_dir / "vite.config.js").exists() or (project_dir / "vite.config.ts").exists():
+                 fs_template = "react-vite"
+                 if (project_dir / "src" / "App.vue").exists():
+                     fs_template = "vue"
+                 
+             elif (project_dir / "next.config.js").exists() or (project_dir / "next.config.mjs").exists() or (project_dir / "next.config.ts").exists():
+                 fs_template = "nextjs"
+                 
+             elif (project_dir / "angular.json").exists():
+                 fs_template = "angular"
+            
+             # Backend Configs (Python)
+             # Check these SEPARATELY. If target_area is backend, these take precedence over frontend configs in a split repo.
+             backend_fs_template = None
+             if (project_dir / "pyproject.toml").exists() or (project_dir / "requirements.txt").exists():
+                 try:
+                     content = ""
+                     if (project_dir / "pyproject.toml").exists():
+                         content = (project_dir / "pyproject.toml").read_text()
+                     
+                     if "fastapi" in content.lower():
+                         backend_fs_template = "fastapi"
+                     elif "django" in content.lower():
+                         backend_fs_template = "django"
+                     elif "flask" in content.lower():
+                         backend_fs_template = "flask"
+                     elif "fastapi" in user_request_lower: # fallback if file check insufficient but context implies
+                         backend_fs_template = "fastapi"
+                 except: pass
+
+             # DECISION LOGIC: Combine file findings with target_area
+             if target_area in ["backend", "database"]:
+                 # Prefer backend template if found, otherwise stick to default mapping (don't force frontend)
+                 if backend_fs_template:
+                     detected_template = backend_fs_template
+                     logger.info(f"[PLANNER] 📂 file_system: Backend task + Python config -> '{detected_template}'")
+                 elif fs_template == "nextjs": 
+                     # Next.js IS a backend too, so valid to keep if detected
+                     detected_template = "nextjs"
+                     logger.info(f"[PLANNER] 📂 file_system: Backend task + Next.js config -> '{detected_template}'")
+                 # Else: Do NOT use fs_template (React/Vue/Angular) for backend task. Keep default (e.g. fastapi).
+                 
+             elif target_area in ["frontend", "full-stack", "unknown"]:
+                 # Prefer Frontend/Fullstack template
+                 if fs_template:
+                     detected_template = fs_template
+                     logger.info(f"[PLANNER] 📂 file_system: Frontend/Full-stack task + Frontend config -> '{detected_template}'")
+                 elif backend_fs_template and target_area == "full-stack":
+                     # If only backend found but asking for full stack, maybe generic or backend?
+                     # Let's fallback to default mapping (Next.js)?? NO, that caused the issue.
+                     # If we have Python but no frontend config, and user asks for fullstack, maybe it's Python + generic JS?
+                     pass # Fallback to default mapping logic is safer here, OR detected_template = backend_fs_template?
+
+        # 3. Fallback to Default Mapping
+        if not detected_template:
+            detected_template = template_mapping.get(target_area, "react-vite")
+            logger.info(f"[PLANNER] 🤷 default: Falling back to target_area mapping -> '{detected_template}'")
+        
+        # FINAL: Update current_project_type
         self.current_project_type = detected_template
-        logger.info(f"[PLANNER] 🎯 Using template '{detected_template}' based on target_area='{target_area}'")
+        logger.info(f"[PLANNER] 🎯 Final Template Selection: '{detected_template}'")
         
         app_blueprint = artifacts.get("app_blueprint")
         constraints = artifacts.get("constraints")

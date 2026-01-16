@@ -20,7 +20,7 @@ interface RunCardProps {
 }
 
 export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSelect }) => {
-  const { pauseRun, resumeRun, deleteRun, rollbackToScreenshot, pushRun, pullRun, openPreview } = useAgentRuns();
+  const { pauseRun, resumeRun, deleteRun, rollbackToScreenshot, pushRun, openPreview } = useAgentRuns();
   const [expanded, setExpanded] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showMergeModal, setShowMergeModal] = useState(false);
@@ -174,7 +174,6 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
                 className="run-card__option-item" 
                 onClick={(e) => { 
                   e.stopPropagation(); 
-                  console.log('[RunCard] Open Preview clicked for run:', run.id);
                   openPreview(run.id);
                   setShowOptions(false); 
                 }}

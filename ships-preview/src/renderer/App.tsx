@@ -21,6 +21,7 @@ function App() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [currentPath, setCurrentPath] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
   const [backendConnected, setBackendConnected] = useState(false);
   const connectionTimeoutRef = useRef<number | null>(null);
 
@@ -177,6 +178,14 @@ function App() {
               error: data.error 
             });
             
+            // Set error if present
+            if (data.error) {
+                setError(data.error);
+                setIsConnecting(false);
+            } else {
+                setError(null);
+            }
+            
             if (data.is_running && data.url) {
                 console.log('[Preview] ✓ Backend has running server at:', data.url, 'Setting projectUrl...');
                 setProjectUrl(data.url);
@@ -273,8 +282,26 @@ function App() {
     return () => clearInterval(interval);
   }, [backendConnected, currentPath]);
 
+  if (error) {
+      return (
+        <div style={{
+          width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', backgroundColor: '#1e1e1e', color: '#ff6b6b'
+        }}>
+           <div style={{ fontSize: '48px', marginBottom: '20px' }}>❌</div>
+           <h2 style={{ margin: 0 }}>Preview Error</h2>
+           <p style={{ maxWidth: '80%', textAlign: 'center', marginTop: '10px', color: '#e0e0e0' }}>{error}</p>
+           <button 
+             onClick={() => window.location.reload()}
+             style={{ marginTop: '20px', padding: '10px 20px', cursor: 'pointer', background: '#333', color: '#fff', border: 'none', borderRadius: '4px' }}
+           >
+             Retry
+           </button>
+        </div>
+      );
+  }
+
   if (projectUrl) {
-      console.log('[Preview] Rendering webview with URL:', projectUrl);
       return (
           <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column' }}>
              <webview 

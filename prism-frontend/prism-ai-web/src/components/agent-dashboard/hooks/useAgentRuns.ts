@@ -546,15 +546,11 @@ export const useAgentRuns = create<AgentRunsState>()(
     
     // Ignore default/invalid paths so backend falls back to current context
     if (!projectPath || projectPath === '/tmp/ships') {
-      console.warn('[openPreview] Invalid/Default projectPath on run, will rely on backend current context');
       projectPath = undefined;
     }
     
-    console.log('[openPreview] Using projectPath:', projectPath);
-    
     try {
       updateRun(runId, { previewStatus: 'running' });
-      console.log('[openPreview] Calling API...');
       
       const response = await fetch(`${API_BASE}/preview/open`, {
         method: 'POST',
@@ -567,7 +563,6 @@ export const useAgentRuns = create<AgentRunsState>()(
       });
       
       const result = await response.json();
-      console.log('[openPreview] API result:', result);
       
       // Handle both "running" and "starting" as success
       if (result.status === 'running' || result.status === 'starting') {
@@ -576,7 +571,7 @@ export const useAgentRuns = create<AgentRunsState>()(
           previewUrl: result.url 
         });
       } else {
-        console.error('[openPreview] API returned error:', result);
+        console.warn('[openPreview] API returned error:', result);
         const errorMsg = result.message || 'Unknown backend error';
         updateRun(runId, { previewStatus: 'error', previewError: errorMsg });
         
