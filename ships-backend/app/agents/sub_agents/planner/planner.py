@@ -923,17 +923,27 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
                     # Get user request for context in scaffolding
                     user_request_summary = intent.get("description", "")
                     
+                    # ============================================================
+                    # USE DETECTED TEMPLATE FOR SCAFFOLD COMMAND
+                    # ============================================================
+                    from app.agents.sub_agents.planner.project_analyzer import _get_scaffold_command
+                    
+                    scaffold_command = _get_scaffold_command(self.current_project_type)
+                    logger.info(f"[PLANNER] 🔧 Scaffold command for '{self.current_project_type}': {scaffold_command}")
+                    
                     scaffold_prompt = f"""PROJECT PATH: {project_path}
 
 USER REQUEST: "{user_request_summary[:200]}"
+
+TEMPLATE: {self.current_project_type}
 
 SCAFFOLDING REQUIRED: Execute these steps in order:
 
 1. First, check what exists: call list_directory(".")
 
 2. If no package.json exists, scaffold the project:
-   - For React/Vite: run_terminal_command("npx -y create-vite@latest . --template react")
-   - Then: run_terminal_command("npm install")
+   run_terminal_command("{scaffold_command}")
+   Then: run_terminal_command("npm install")
 
 3. Create ALL these folders in ONE call using create_directories:
    create_directories({json.dumps(folders_to_create[:20])})

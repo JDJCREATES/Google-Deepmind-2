@@ -842,8 +842,9 @@ IMPORTANT:
                     "dependencies": artifact_context[:1500] if artifact_context else "",
                 }
                 
-                # Only cache if we have substantial content
-                if len(file_tree_context) > 500 or len(artifact_context) > 200:
+                # Only cache if we have substantial content (Gemini requires min 1024 tokens, ~4000 chars)
+                total_cache_chars = len(file_tree_context) + len(artifact_context)
+                if total_cache_chars > 4500:  # ~1125 tokens minimum
                     cache_name = cache_manager.create_project_context_cache(
                         project_id=project_id,
                         artifacts=cache_artifacts,
@@ -851,6 +852,8 @@ IMPORTANT:
                     )
                     if cache_name:
                         logger.info(f"[CODER] 🗄️ Created context cache: {cache_name}")
+                else:
+                    logger.info(f"[CODER] ⏭️ Skipping cache: content too small ({total_cache_chars} chars, need 4500+)")
             
             llm = LLMFactory.get_model("coder", cached_content=cache_name)
             

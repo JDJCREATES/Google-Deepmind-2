@@ -1640,7 +1640,7 @@ def create_agent_graph(checkpointer: Optional[MemorySaver] = None) -> StateGraph
     graph.add_edge("coder", "orchestrator")
     graph.add_edge("validator", "orchestrator")
     graph.add_edge("fixer", "orchestrator")
-    graph.add_edge("chat", "orchestrator")
+    graph.add_edge("chat", END)  # Chat waits for user input - STOP the graph
     
     # ORCHESTRATOR ROUTING
     def route_orchestrator(state: AgentGraphState):
