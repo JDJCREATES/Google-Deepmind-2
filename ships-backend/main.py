@@ -289,193 +289,188 @@ async def run_agent(request: Request, body: PromptRequest):
                 
                 try:
                     # Handle subgraphs=True format: (namespace, (message_chunk, metadata))
-                    if isinstance(event, tuple) and len(event) >= 2:
-                        first_element = event[0]
-                        second_element = event[1]
-                        
-                        # Check if this is the subgraphs format (namespace, data)
-                        # namespace is always a tuple (empty or with node info)
-                        if isinstance(first_element, tuple):
-                            # This is subgraphs format: (namespace, (message_chunk, metadata))
-                            namespace = first_element
-                            inner_data = second_element
+                    # Or simple format: (message_chunk, metadata)
+                    message_chunk = None
+                    metadata = {}
+                    node_name = "agent"
+
+                    # RECURSIVE UNPACKING to find the actual chunk
+                    # LangGraph events can be nested like: (('chat:123',), (Chunk, Meta))
+                    def unpack_event(evt):
+                        if isinstance(evt, tuple) and len(evt) == 2:
+                            # Check if second element is the chunk+meta pair
+                            if isinstance(evt[1], tuple) and len(evt[1]) == 2 and hasattr(evt[1][0], 'content'):
+                                return evt[1][0], evt[1][1] # Found (Chunk, Meta)
+                            elif hasattr(evt[0], 'content'):
+                                return evt[0], evt[1] # Found (Chunk, Meta) at top level
+                            # Recursively check second element (usually where payload is)
+                            return unpack_event(evt[1])
+                        return None, None
+
+                    # Try to extract chunk
+                    extracted_chunk, extracted_meta = unpack_event(event)
+
+                    if extracted_chunk:
+                        message_chunk = extracted_chunk
+                        metadata = extracted_meta or {}
+                        # Extract node name from metadata or namespace
+                        if 'langgraph_node' in metadata:
+                            node_name = metadata['langgraph_node']
+                        elif isinstance(event, tuple) and isinstance(event[0], tuple) and len(event[0]) > 0:
+                             # Try to get from namespace ('node:id',)
+                             node_raw = str(event[0][0])
+                             node_name = node_raw.split(':')[0]
+                    else:
+                        # Fallback for unexpected formats
+                        continue
+
+                    # FILTER: Skip HumanMessage types (internal prompts)
+                    msg_type = type(message_chunk).__name__
+                    if msg_type in ['HumanMessage', 'HumanMessageChunk']:
+                        continue
+                    
+                    # SPECIAL: Stream Tool Start events (AIMessage with tool_calls)
+                    if getattr(message_chunk, 'tool_calls', None):
+                        for tc in message_chunk.tool_calls:
+                            tool_name = tc.get('name', 'unknown_tool')
+                            args = tc.get('args', {})
                             
-                            # Extract node name from namespace or inner metadata
-                            if namespace and len(namespace) > 0:
-                                # namespace looks like ('planner:uuid',) - extract node name
-                                node_info = namespace[0] if namespace else ""
-                                node_name = node_info.split(':')[0] if ':' in str(node_info) else str(node_info)
-                            else:
-                                node_name = "agent"
+                            # Extract file path from arguments for file operations
+                            file_path = None
+                            if isinstance(args, dict):
+                                file_path = args.get('file_path') or args.get('path') or args.get('filename')
                             
-                            # inner_data should be (message_chunk, metadata)
-                            if isinstance(inner_data, tuple) and len(inner_data) >= 2:
-                                message_chunk = inner_data[0]
-                                metadata = inner_data[1]
-                            else:
-                                # Fallback: treat inner_data as the message
-                                message_chunk = inner_data
-                                metadata = {}
-                        else:
-                            # Original format without subgraphs: (message_chunk, metadata)
-                            message_chunk = first_element
-                            metadata = second_element
-                            node_name = metadata.get('langgraph_node', 'agent') if isinstance(metadata, dict) else 'agent'
-                        
-                        # FILTER: Skip HumanMessage types (internal prompts)
-                        msg_type = type(message_chunk).__name__
-                        if msg_type in ['HumanMessage', 'HumanMessageChunk']:
-                            continue
-                        
-                        # SPECIAL: Stream Tool Start events (AIMessage with tool_calls)
-                        if getattr(message_chunk, 'tool_calls', None):
-                            for tc in message_chunk.tool_calls:
-                                tool_name = tc.get('name', 'unknown_tool')
-                                args = tc.get('args', {})
-                                
-                                # Extract file path from arguments for file operations
-                                file_path = None
-                                if isinstance(args, dict):
-                                    file_path = args.get('file_path') or args.get('path') or args.get('filename')
-                                
-                                yield json.dumps({
-                                    "type": "tool_start",
-                                    "tool": tool_name,
-                                    "file": file_path,
-                                    "content": str(args)[:200]  # Truncate for safety
-                                }) + "\n"
-                        
-                        # SPECIAL: Stream ToolMessage results to frontend
-                        if msg_type in ['ToolMessage', 'ToolMessageChunk']:
+                            yield json.dumps({
+                                "type": "tool_start",
+                                "tool": tool_name,
+                                "file": file_path,
+                                "content": str(args)[:200]  # Truncate for safety
+                            }) + "\n"
+                    
+                    # SPECIAL: Stream ToolMessage results to frontend
+                    if msg_type in ['ToolMessage', 'ToolMessageChunk']:
+                        try:
+                            tool_name = getattr(message_chunk, 'name', 'tool')
+                            tool_content = message_chunk.content if hasattr(message_chunk, 'content') else str(message_chunk)
+                            # Parse JSON if possible
+                            import json as json_mod
                             try:
-                                tool_name = getattr(message_chunk, 'name', 'tool')
-                                tool_content = message_chunk.content if hasattr(message_chunk, 'content') else str(message_chunk)
-                                # Parse JSON if possible
-                                import json as json_mod
-                                try:
-                                    parsed = json_mod.loads(tool_content) if isinstance(tool_content, str) else tool_content
-                                    if isinstance(parsed, dict):
-                                        is_success = parsed.get('success', False)
-                                        
-                                        # TERMINAL OUTPUT: Stream full output for terminal commands
-                                        if tool_name == 'run_terminal_command':
-                                            output = parsed.get('output') or parsed.get('stdout') or ''
-                                            stderr = parsed.get('stderr') or ''
-                                            yield json.dumps({
-                                                "type": "terminal_output",
-                                                "command": parsed.get('command', ''),
-                                                "output": output,
-                                                "stderr": stderr,
-                                                "success": is_success,
-                                                "exit_code": parsed.get('exit_code'),
-                                                "duration_ms": parsed.get('duration_ms', 0),
-                                                "execution_mode": parsed.get('execution_mode', 'unknown')
-                                            }) + "\n"
-                                        
-                                        # Also send generic tool_result for UI
+                                parsed = json_mod.loads(tool_content) if isinstance(tool_content, str) else tool_content
+                                if isinstance(parsed, dict):
+                                    is_success = parsed.get('success', False)
+                                    
+                                    # TERMINAL OUTPUT: Stream full output for terminal commands
+                                    if tool_name == 'run_terminal_command':
+                                        output = parsed.get('output') or parsed.get('stdout') or ''
+                                        stderr = parsed.get('stderr') or ''
                                         yield json.dumps({
-                                            "type": "tool_result",
-                                            "tool": tool_name,
+                                            "type": "terminal_output",
+                                            "command": parsed.get('command', ''),
+                                            "output": output,
+                                            "stderr": stderr,
                                             "success": is_success,
-                                            "file": parsed.get('relative_path') or parsed.get('path', ''),
-                                            "preview": str(tool_content)[:200]
+                                            "exit_code": parsed.get('exit_code'),
+                                            "duration_ms": parsed.get('duration_ms', 0),
+                                            "execution_mode": parsed.get('execution_mode', 'unknown')
                                         }) + "\n"
-                                except:
-                                    pass
-                            except Exception as e:
-                                logger.debug(f"[STREAM] ToolMessage parse error: {e}")
-                            continue
+                                    
+                                    # Also send generic tool_result for UI
+                                    yield json.dumps({
+                                        "type": "tool_result",
+                                        "tool": tool_name,
+                                        "success": is_success,
+                                        "file": parsed.get('relative_path') or parsed.get('path', ''),
+                                        "preview": str(tool_content)[:200]
+                                    }) + "\n"
+                            except:
+                                pass
+                        except Exception as e:
+                            logger.debug(f"[STREAM] ToolMessage parse error: {e}")
+                        continue
+                    
+                    # Extract content from the message chunk
+                    content = ""
+                    if hasattr(message_chunk, 'content'):
+                        content = message_chunk.content
+                    elif isinstance(message_chunk, dict) and 'content' in message_chunk:
+                        content = message_chunk['content']
+                    elif isinstance(message_chunk, str):
+                        content = message_chunk
+                    else:
+                        # Skip if not extractable
+                        continue
+                    
+                    # Skip empty content
+                    if not content:
+                        continue
+                    
+                    # Track node changes and emit phase events
+                    if node_name != current_node:
+                        current_node = node_name
+                        logger.info(f"[STREAM] Entered node: {node_name}")
                         
-                        # Extract content from the message chunk
-                        content = ""
-                        if hasattr(message_chunk, 'content'):
-                            content = message_chunk.content
-                        elif isinstance(message_chunk, dict) and 'content' in message_chunk:
-                            content = message_chunk['content']
-                        elif isinstance(message_chunk, str):
-                            content = message_chunk
-                        else:
-                            # Skip if not extractable
-                            continue
-                        
-                        # Skip empty content
-                        if not content:
-                            continue
-                        
-                        # Track node changes and emit phase events
-                        if node_name != current_node:
-                            current_node = node_name
-                            logger.info(f"[STREAM] Entered node: {node_name}")
+                        # Map node names to phase events
+                        phase_map = {
+                            'planner': 'planning',
+                            'coder': 'coding',
+                            'validator': 'validating',
+                            'fixer': 'coding',  # Fixer is part of coding loop
+                            'chat': 'planning', # Chat uses planning phase for UI
+                        }
+                        phase = phase_map.get(node_name.lower())
+                        if phase:
+                            yield json.dumps({
+                                "type": "phase",
+                                "phase": phase
+                            }) + "\n"
                             
-                            # Map node names to phase events
-                            phase_map = {
-                                'planner': 'planning',
-                                'coder': 'coding',
-                                'validator': 'validating',
-                                'fixer': 'coding',  # Fixer is part of coding loop
-                                'chat': 'planning', # Chat uses planning phase for UI
+                            # Emit thinking section start for this node
+                            title_map = {
+                                'orchestrator': '🧠 Analyzing Request',
+                                'planner': '📝 Planning Implementation',
+                                'coder': '💻 Writing Code',
+                                'validator': '✓ Validating Build',
+                                'fixer': '🔧 Fixing Issues',
+                                'chat': '💬 Responding',
                             }
-                            phase = phase_map.get(node_name.lower())
-                            if phase:
-                                yield json.dumps({
-                                    "type": "phase",
-                                    "phase": phase
-                                }) + "\n"
-                                
-                                # Emit thinking section start for this node
-                                title_map = {
-                                    'orchestrator': '🧠 Analyzing Request',
-                                    'planner': '📝 Planning Implementation',
-                                    'coder': '💻 Writing Code',
-                                    'validator': '✓ Validating Build',
-                                    'fixer': '🔧 Fixing Issues',
-                                    'chat': '💬 Responding',
-                                }
-                                title = title_map.get(node_name.lower(), f'Processing ({node_name})')
-                                yield json.dumps({
-                                    "type": "thinking_start",
-                                    "node": node_name,
-                                    "title": title
-                                }) + "\n"
-                        
-                        # ============================================================
-                        # STREAMING: Clean, simple content extraction
-                        # Only stream human-readable text to the frontend
-                        # ============================================================
-                        
-                        # Skip if content isn't a string (could be internal data)
-                        if not isinstance(content, str):
-                            continue
-                        
-                        text = content.strip()
-                        if not text:
-                            continue
-                        
-                        # SKIP: Content that looks like JSON (internal agent output)
-                        # Real human-readable responses don't start/end with JSON brackets
-                        if (text.startswith('{') or text.startswith('[') or 
-                            text.startswith('"') or '": ' in text):
-                            logger.debug(f"[STREAM] Skipping JSON-like content from {node_name}")
-                            continue
-                        
-                        # SKIP: Internal system markers
-                        skip_patterns = [
-                            'ACTION REQUIRED', 'MANDATORY FIRST', 'SCAFFOLDING CHECK',
-                            'task_type', 'action', 'reasoning', 'decision',
-                        ]
-                        if any(pattern in text for pattern in skip_patterns):
-                            continue
-                        
-                        # Stream as message (chat node) or thinking (other nodes)
-                        is_chat = node_name.lower() in ['chat', 'chatter']
-                        yield json.dumps({
-                            "type": "message" if is_chat else "thinking",
-                            "node": node_name,
-                            "content": text
-                        }) + "\n"
+                            title = title_map.get(node_name.lower(), f'Processing ({node_name})')
+                            yield json.dumps({
+                                "type": "thinking_start",
+                                "node": node_name,
+                                "title": title
+                            }) + "\n"
+                    
+                    # ============================================================
+                    # STREAMING: Clean, simple content extraction
+                    # Only stream human-readable text to the frontend
+                    # ============================================================
+                    
+                    # Skip if content isn't a string (could be internal data)
+                    if not isinstance(content, str):
+                        continue
+                    
+                    text = content.strip()
+                    if not text:
+                        continue
+                    
+                    # SKIP: Internal system markers
+                    skip_patterns = [
+                        'ACTION REQUIRED', 'MANDATORY FIRST', 'SCAFFOLDING CHECK',
+                        'task_type', 'action', 'reasoning', 'decision',
+                    ]
+                    if any(pattern in text for pattern in skip_patterns):
+                        continue
+                    
+                    # Stream as message (chat node) or thinking (other nodes)
+                    is_chat = node_name.lower() in ['chat', 'chatter']
+                    yield json.dumps({
+                        "type": "message" if is_chat else "thinking",
+                        "node": node_name,
+                        "content": text
+                    }) + "\n"
                     
                     # Handle dict format (other stream modes)
-                    elif isinstance(event, dict):
+                    if isinstance(event, dict):
                         for node_name, state_update in event.items():
                             if node_name != current_node:
                                 current_node = node_name
