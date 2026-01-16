@@ -343,8 +343,7 @@
   padding: 8px 16px;
   background: var(--bg-secondary, #252526);
   border-top: 1px solid var(--border-color, #333);
-  max-height: 150px;
-  overflow-y: auto;
+  overflow: hidden; /* No outer scrollbar - inner list handles scroll */
 }
 
 @media (min-width: 768px) {
@@ -356,6 +355,5 @@
 @media (min-width: 1024px) {
   .tool-progress-container {
     padding: 8px 20px;
-    max-height: 180px;
   }
 }

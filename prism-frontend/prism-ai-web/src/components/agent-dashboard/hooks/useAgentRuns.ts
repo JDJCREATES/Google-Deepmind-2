@@ -56,6 +56,7 @@ interface AgentRunsState {
   deleteRun: (runId: string) => Promise<void>;
   sendFeedback: (runId: string, message: string, model?: string) => Promise<void>;
   rollbackToScreenshot: (runId: string, screenshotId: string) => Promise<void>;
+  openPreview: (runId: string) => Promise<{ status: string; url?: string; message?: string }>;
   
   // Electron-specific actions
   captureScreenshot: (runId: string, agentPhase: string, description?: string) => Promise<Screenshot | null>;
@@ -523,6 +524,53 @@ export const useAgentRuns = create<AgentRunsState>()(
       const message = error instanceof Error ? error.message : 'Failed to rollback';
       setError(message);
       console.error('[useAgentRuns] Rollback error:', error);
+    }
+  },
+  
+  openPreview: async (runId) => {
+    const { runs, updateRun, setError } = get();
+    
+    // Find the run to get project path
+    const run = runs.find(r => r.id === runId);
+    if (!run) {
+      return { status: 'error', message: 'Run not found' };
+    }
+    
+    // The project path should be based on the run's branch
+    // For now, we assume it's in SHIPS_TEST/<branch>
+    const projectPath = `P:\\WERK_IT_2025\\SHIPS_TEST\\${run.branch}`;
+    
+    try {
+      updateRun(runId, { previewStatus: 'running' });
+      
+      const response = await fetch(`${API_BASE}/preview/open`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_path: projectPath,
+          run_id: runId
+        }),
+        credentials: 'include'
+      });
+      
+      const result = await response.json();
+      
+      if (result.status === 'running') {
+        updateRun(runId, { 
+          previewStatus: 'running',
+          previewUrl: result.url 
+        });
+      } else {
+        updateRun(runId, { previewStatus: 'error' });
+      }
+      
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to open preview';
+      setError(message);
+      console.error('[useAgentRuns] Open preview error:', error);
+      updateRun(runId, { previewStatus: 'error' });
+      return { status: 'error', message };
     }
   },
   

@@ -142,11 +142,12 @@ async def capture_successful_fix(
     solution_pattern = extract_solution_pattern(solution_code)
     
     # Create new entry
+    # Note: context_embedding is disabled in model for now (requires vector column)
     entry = KnowledgeEntry(
         entry_type="error_fix",
         error_signature=error_sig,
         tech_stack=tech_stack,
-        context_embedding=context_embedding,
+        # context_embedding=context_embedding,  # Disabled - field not in model
         solution_pattern=solution_pattern,
         solution_description=solution_description,
         confidence=validation.confidence,
@@ -326,11 +327,12 @@ async def capture_successful_pattern(
     solution_pattern = extract_solution_pattern(generated_code)
     
     # Create entry
+    # Note: context_embedding is disabled in model for now (requires vector column)
     entry = KnowledgeEntry(
         entry_type="pattern",
         error_signature=normalized_request,  # Reuse field for feature request
         tech_stack=tech_stack,
-        context_embedding=context_embedding,
+        # context_embedding=context_embedding,  # Disabled - field not in model
         solution_pattern=solution_pattern,
         solution_description=code_description,
         confidence=base_confidence,

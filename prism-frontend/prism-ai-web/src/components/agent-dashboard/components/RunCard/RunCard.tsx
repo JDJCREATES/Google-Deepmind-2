@@ -20,7 +20,7 @@ interface RunCardProps {
 }
 
 export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSelect }) => {
-  const { pauseRun, resumeRun, deleteRun, rollbackToScreenshot, pushRun, pullRun } = useAgentRuns();
+  const { pauseRun, resumeRun, deleteRun, rollbackToScreenshot, pushRun, pullRun, openPreview } = useAgentRuns();
   const [expanded, setExpanded] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showMergeModal, setShowMergeModal] = useState(false);
@@ -170,6 +170,21 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
           >
           {showOptions && (
             <div ref={optionsRef} className="run-card__options-menu" onClick={(e) => e.stopPropagation()}>
+              <button 
+                className="run-card__option-item" 
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  openPreview(run.id);
+                  setShowOptions(false); 
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+                Open Preview
+              </button>
+              
               <button 
                 className="run-card__option-item" 
                 onClick={(e) => { e.stopPropagation(); handlePush(); setShowOptions(false); }}

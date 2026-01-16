@@ -99,40 +99,67 @@ async def start_preview(project: ProjectPath):
 async def stop_preview():
     return preview_manager.stop_dev_server()
 
+class OpenPreviewRequest(BaseModel):
+    project_path: str = None  # Required - the project to preview
+    run_id: str = None  # Optional - for per-run tracking
+
 @preview_router.post("/open")
-async def open_preview():
-    """Start dev server if not running and return preview URL."""
-    status = preview_manager.get_status() if hasattr(preview_manager, 'get_status') else None
+async def open_preview(request: OpenPreviewRequest = None):
+    """
+    ROBUST preview opener using MultiPreviewManager.
     
-    # If not running, try to start it
-    if not preview_manager.process or preview_manager.process.poll() is not None:
-        if preview_manager.current_project_path:
-            preview_manager.start_dev_server(preview_manager.current_project_path)
+    - Checks if project needs npm install
+    - Allocates unique port
+    - Waits for dev server to be ready
+    - Returns URL when available
+    """
+    # Determine project path and run_id
+    project_path = request.project_path if request else None
+    run_id = request.run_id if request else "default"
     
-    return {
-        "status": "success",
-        "url": preview_manager.current_url,
-        "project_path": preview_manager.current_project_path,
-        "message": "Preview server started. Use ships-preview Electron app to view."
-    }
+    if not project_path:
+        project_path = preview_manager.current_project_path
+    
+    if not project_path:
+        return {
+            "status": "error",
+            "message": "No project path provided. Include project_path in request."
+        }
+    
+    if not run_id:
+        run_id = "default"
+    
+    # Use the robust get_or_start method - handles everything
+    result = preview_manager.get_or_start(run_id, project_path)
+    
+    # Always request focus to bring preview window to front
+    if result.get("status") == "running":
+        preview_manager.request_focus()
+    
+    result["message"] = "Dev server running." if result.get("status") == "running" else result.get("message")
+    return result
 
 @preview_router.get("/status")
-async def get_status():
-    # Dynamically check if process is actually running (not just the flag)
-    process_exists = preview_manager.process is not None
-    process_poll = preview_manager.process.poll() if process_exists else "N/A"
-    is_actually_running = process_exists and process_poll is None
+async def get_status(run_id: str = None):
+    """Get preview status - optionally for a specific run."""
+    if run_id:
+        return preview_manager.get_status(run_id)
     
-    # Debug logging
-    # logger.debug(f"[PREVIEW_STATUS] process={process_exists}, poll={process_poll}, is_running={is_actually_running}, url={preview_manager.current_url}")
-    
+    # For backward compatibility, return current/default status
     return {
-        "is_running": is_actually_running,
+        "is_running": preview_manager.process is not None and preview_manager.process.poll() is None,
         "logs": preview_manager.logs[-50:],
         "url": preview_manager.current_url,
         "project_path": preview_manager.current_project_path,
-        "focus_requested": preview_manager.focus_requested
+        "focus_requested": preview_manager.focus_requested,
+        "instances": preview_manager.get_status()  # Include all instances
     }
+
+@preview_router.post("/stop/{run_id}")
+async def stop_run_preview(run_id: str):
+    """Stop preview for a specific run."""
+    preview_manager._stop_instance(run_id)
+    return {"status": "stopped", "run_id": run_id}
 
 @preview_router.post("/request-focus")
 async def request_focus():
