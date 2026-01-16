@@ -1,8 +1,3 @@
-
-import { RiShip2Fill } from 'react-icons/ri';
-import { VscLayoutSidebarRightOff, VscOpenPreview } from 'react-icons/vsc';
-import { ProgressCircular } from 'react-onsenui';
-
 import ChatMessage from './ChatMessage';
 import { ToolProgress, PhaseIndicator } from '../streaming';
 import { ActivityIndicator } from '../streaming/ActivityIndicator';
@@ -11,6 +6,8 @@ import { PlanReviewActions } from '../streaming/PlanReviewActions';
 import { useChatLogic } from './hooks/useChatLogic';
 import { useStreamingStore } from '../../store/streamingStore';
 import { useAgentRuns } from '../agent-dashboard/hooks/useAgentRuns';
+import { ChatHeader } from './ChatHeader';
+import { ChatInput } from './ChatInput';
 
 
 import './ChatInterface.css';
@@ -44,34 +41,21 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
   
   return (
     <aside className="chat-panel" role="complementary" aria-label="AI Chat Assistant">
-      {/* Header */}
-      <header className="chat-header">
-         <div className="chat-header-left">
-           <RiShip2Fill size={20} style={{ marginRight: 8, color: 'var(--primary-color, #ff5e57)' }} />
-           <span className="chat-title">ShipS*</span>
-           {activeRun && <span className="chat-subtitle"> / {activeRun.branch.split('/').pop()?.replace('work/', '') || activeRun.title.slice(0, 15)}</span>}
-         </div>
-         <div className="chat-header-right">
-             <button
-              className="chat-header-btn"
-              onClick={async () => {
-                if (activeRunId) {
-                  console.log('[ChatInterface] Opening preview for run:', activeRunId);
-                  const { openPreview } = useAgentRuns.getState();
-                  await openPreview(activeRunId);
-                } else {
-                   // Fallback for no run
-                   fetch(`${API_URL}/preview/request-focus`, { method: 'POST' }).catch(console.error);
-                }
-              }}
-              title={activeRunId ? 'Open Preview for Run' : 'Open Preview'}
-              disabled={!activeRunId && !electronProjectPath}
-            >
-              <VscOpenPreview size={16} />
-            </button>
-            <VscLayoutSidebarRightOff size={16} aria-hidden="true" />
-          </div>
-      </header>
+      <ChatHeader 
+        activeRun={activeRun}
+        activeRunId={activeRunId}
+        electronProjectPath={electronProjectPath}
+        onOpenPreview={async () => {
+          if (activeRunId) {
+            console.log('[ChatInterface] Opening preview for run:', activeRunId);
+            const { openPreview } = useAgentRuns.getState();
+            await openPreview(activeRunId);
+          } else {
+             // Fallback for no run
+             fetch(`${API_URL}/preview/request-focus`, { method: 'POST' }).catch(console.error);
+          }
+        }}
+      />
 
       <main className="chat-messages">
          {/* Phase Indicator */}
@@ -89,7 +73,6 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
                  node={section.node}
                  content={section.content}
                  isLive={section.isLive}
-                 // defaultExpanded={section.isLive} // Controlled by component usually
                />
              ))}
            </div>
@@ -145,29 +128,14 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
         />
       )}
 
-      {/* Input Area */}
-      <footer className="chat-input-container">
-        <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="chat-form">
-           <textarea
-             value={inputValue}
-             onChange={(e) => setInputValue(e.target.value)}
-             onKeyPress={handleKeyPress}
-             placeholder=""
-             className="chat-input"
-             rows={1}
-           />
-           <button type="submit" className="send-button" disabled={!inputValue.trim() || (isAgentRunning && activeRun?.status !== 'pending' && activeRun?.status !== 'running' && activeRun?.status !== 'planning')}>
-              {isAgentRunning ? (
-                <ProgressCircular indeterminate /> 
-              ) : (
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                  {/* Shipping Container Icon */}
-                  <path d="M3 3h18v18H3V3zm2 2v14h14V5H5zm3 2h2v10H8V7zm4 0h2v10h-2V7zm4 0h2v10h-2V7z" opacity="0.9"/>
-                </svg>
-              )}
-           </button>
-        </form>
-      </footer>
+      <ChatInput 
+        inputValue={inputValue}
+        setInputValue={setInputValue}
+        handleSendMessage={handleSendMessage}
+        handleKeyPress={handleKeyPress}
+        isAgentRunning={isAgentRunning}
+        activeRunStatus={activeRun?.status}
+      />
     </aside>
   );
 }

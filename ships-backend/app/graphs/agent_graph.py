@@ -824,25 +824,16 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
         }
 
 
-async def chat_node(state: AgentGraphState) -> Dict[str, Any]:
+async def chat_cleanup(state: AgentGraphState) -> Dict[str, Any]:
     """
-    Run the Chatter agent (Question Answerer).
+    Cleanup after chat session.
+    Ensure phase is marked complete and intent is cleared.
     """
-    logger.info("[CHAT] 💬 Starting chat node...")
-    
-    # Import locally to avoid circular deps if any, or just for cleanliness
-    from app.agents.mini_agents.chatter import Chatter
-    
-    try:
-        chatter = Chatter()
-        return await chatter.invoke(state)
-        
-    except Exception as e:
-        logger.error(f"[CHAT] ❌ Chat failed: {e}")
-        return {
-            "phase": "error",
-            "messages": [AIMessage(content=f"I couldn't answer that: {e}")]
-        }
+    artifacts = state.get("artifacts", {})
+    return {
+        "phase": "complete",
+        "artifacts": {**artifacts, "structured_intent": None}
+    }
 
 
 async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
@@ -1630,7 +1621,13 @@ def create_agent_graph(checkpointer: Optional[MemorySaver] = None) -> StateGraph
     graph.add_node("coder", coder_node)
     graph.add_node("validator", validator_node)
     graph.add_node("fixer", fixer_node)
-    graph.add_node("chat", chat_node)
+    
+    # Chat is now a SUBGRAPH for streaming support
+    from app.agents.mini_agents.chatter import Chatter
+    chatter = Chatter()
+    graph.add_node("chat", chatter.get_graph())
+    graph.add_node("chat_cleanup", chat_cleanup)
+    
     graph.add_node("complete", complete_node)
     
     # EDGE WIRING: Hub and Spoke
@@ -1640,7 +1637,10 @@ def create_agent_graph(checkpointer: Optional[MemorySaver] = None) -> StateGraph
     graph.add_edge("coder", "orchestrator")
     graph.add_edge("validator", "orchestrator")
     graph.add_edge("fixer", "orchestrator")
-    graph.add_edge("chat", END)  # Chat waits for user input - STOP the graph
+    
+    # Chat Flow: Chat -> Cleanup -> END
+    graph.add_edge("chat", "chat_cleanup")
+    graph.add_edge("chat_cleanup", END)
     
     # ORCHESTRATOR ROUTING
     def route_orchestrator(state: AgentGraphState):

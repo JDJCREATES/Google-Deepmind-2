@@ -62,48 +62,36 @@ RULES:
 - Be concise.
 """
 
-    async def invoke(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    def get_graph(self):
         """
-        Run the Chatter agent.
-        
-        Args:
-            state: AgentGraphState
-            
-        Returns:
-            Dict with messages (the answer)
+        Return the compiled graph for this agent.
+        This allows it to be added as a subgraph in the main AgentGraph,
+        enabling full token streaming via astream(subgraphs=True).
         """
-        # Extract context
-        artifacts = state.get("artifacts", {})
-        project_path = artifacts.get("project_path", ".")
-        
-        # Build prompt
-        system_prompt = self._get_system_prompt(project_path)
-        
-        # Create React Agent (allows tool usage)
-        # Use 'prompt' parameter (state_modifier is deprecated in langgraph 2025)
-        from langchain_core.messages import SystemMessage
-        
+        # Dynamic System Prompt
         def prompt_fn(state):
-            """Add system prompt to the messages."""
-            return [SystemMessage(content=system_prompt)] + state.get("messages", [])
-        
+            # Extract artifacts to get project path
+            artifacts = state.get("artifacts", {})
+            project_path = artifacts.get("project_path", ".")
+            
+            system_prompt = self._get_system_prompt(project_path)
+            
+            # Allow user to provide messages
+            messages = state.get("messages", [])
+            
+            return [SystemMessage(content=system_prompt)] + messages
+
+        # Create the graph once
         agent = create_react_agent(
             self.llm, 
             self.tools, 
             prompt=prompt_fn
         )
-        
-        # Run
-        result = await agent.ainvoke(state)
-        
-        # Extract last message (the answer)
-        last_message = result["messages"][-1]
-        
-        # Clean up artifacts if needed (none really for chat)
-        
-        return {
-            "messages": [last_message],
-            "phase": "complete",  # End the pipeline after chat response
-            # Clear intent so we don't loop
-            "artifacts": {**artifacts, "structured_intent": None}
-        }
+        return agent
+
+    async def invoke(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Legacy invoke for direct calls (non-streaming).
+        """
+        agent = self.get_graph()
+        return await agent.ainvoke(state)
