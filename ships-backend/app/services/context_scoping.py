@@ -71,7 +71,7 @@ def _scope_for_coder(state: Dict, artifacts: Dict, base: Dict) -> Dict:
         **base,
         "artifacts": {
             "project_path": artifacts.get("project_path"),
-            "plan_content": _truncate(plan_content, 4000),
+            "plan_content": plan_content, # Full plan as requested by user
             "project_structure": artifacts.get("project_structure", ""),
         },
         "completed_files": state.get("completed_files", []),

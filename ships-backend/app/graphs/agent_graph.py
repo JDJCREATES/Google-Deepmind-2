@@ -228,17 +228,24 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
     except Exception as ft_e:
         logger.warning(f"[PLANNER_NODE] ⚠️ Failed to refresh file tree: {ft_e}")
     
-    planner_state = {
-        **state,
-        "environment": {
-            "project_path": project_path,
-            "file_tree": file_tree_data, # Inject directly into environment
-        },
-        "artifacts": {
-            **artifacts,
-            "structured_intent": structured_intent,
-            "project_path": project_path,
-        },
+    # CONTEXT SCOPING (Token Optimization)
+    # Use the centralized service to strip excessive messages/artifacts
+    from app.services.context_scoping import scope_context_for_agent
+    
+    planner_state = scope_context_for_agent(state, "planner")
+    
+    # Inject necessary runtime context
+    planner_state["user_request"] = user_request # Using the correctly extracted latest request
+    planner_state["environment"] = {
+        "project_path": project_path,
+        "file_tree": file_tree_data, 
+    }
+    planner_state["artifacts"] = {
+        **planner_state.get("artifacts", {}),
+        "structured_intent": structured_intent,
+        "project_path": project_path,
+        # Ensure we don't lose the plan content if needed for replanning
+        "plan_content": artifacts.get("plan_content", ""),
     }
     
     # Build structured intent for the planner (keeping original logic for structured_intent)
@@ -448,13 +455,16 @@ async def coder_node(state: AgentGraphState) -> Dict[str, Any]:
     if project_path:
         real_file_tree = get_project_tree(project_path)
     
-    # 3. Read Plan Content (Optimization: Prevent repetitive tool calls)
+    # 3. Read Plan Content (User Request: Do not circumvent/truncate plan)
     plan_content = "Plan not found."
     if project_path:
-        plan_path = Path(project_path) / ".ships" / "implementation_plan.md"
+        dot_ships = Path(project_path) / ".ships"
+        plan_path = dot_ships / "implementation_plan.md"
+        
         if plan_path.exists():
             try:
                 plan_content = plan_path.read_text(encoding="utf-8")
+                logger.info(f"[CODER] 📖 Loaded full implementation plan ({len(plan_content)} chars)")
             except Exception as e:
                 plan_content = f"Error reading plan: {e}"
 

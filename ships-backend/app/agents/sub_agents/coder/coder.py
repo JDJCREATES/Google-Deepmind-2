@@ -808,13 +808,13 @@ YOUR INSTRUCTIONS:
 1. Analyze the task and implementation plan.
 2. CHECK "CURRENT FILE STRUCTURE" ABOVE.
    - If a file exists -> Use `apply_source_edits` (Low Token Cost).
-   - If a file is NEW -> Use `write_file_to_disk` (Full Creation).
-3. Do NOT rewrite entire files to change a few lines.
-4. After each file, check if more files need to be created/edited.
+   - If a file is NEW -> Use `write_files_batch` for MULTIPLE files at once.
+3. **BATCH WRITES**: Use `write_files_batch` with 5-10 files per call to minimize iterations.
+4. Do NOT loop one file at a time - group related files together.
 5. When ALL files from the plan are done, respond with "Implementation complete."
 
 IMPORTANT:
-- Use `apply_source_edits` for ALL modifications.
+- PREFER `write_files_batch` over `write_file_to_disk` for efficiency.
 - Write complete working code.
 - Follow the folder structure in the plan."""
 
@@ -822,16 +822,81 @@ IMPORTANT:
         # Execute using create_react_agent with CODER_TOOLS
         # ================================================================
         try:
-            llm = LLMFactory.get_model("coder")
+            # ================================================================
+            # CONTEXT CACHING: Cache static content to reduce token cost
+            # The ReAct loop re-sends the system prompt on each iteration.
+            # By caching static content, we pay for it ONCE.
+            # ================================================================
+            from app.core.cache import cache_manager
+            import hashlib
+            
+            cache_name = None
+            if project_path:
+                # Create a unique cache key from project + plan hash
+                plan_hash = hashlib.md5(plan_content[:500].encode()).hexdigest()[:8] if plan_content else "noplan"
+                project_id = f"{Path(project_path).name}-{plan_hash}"
+                
+                # Build cacheable content (system prompt + static context)
+                cache_artifacts = {
+                    "folder_map": file_tree_context[:3000] if file_tree_context else "",
+                    "dependencies": artifact_context[:1500] if artifact_context else "",
+                }
+                
+                # Only cache if we have substantial content
+                if len(file_tree_context) > 500 or len(artifact_context) > 200:
+                    cache_name = cache_manager.create_project_context_cache(
+                        project_id=project_id,
+                        artifacts=cache_artifacts,
+                        ttl_minutes=30  # Cache for 30 mins (covers typical session)
+                    )
+                    if cache_name:
+                        logger.info(f"[CODER] 🗄️ Created context cache: {cache_name}")
+            
+            llm = LLMFactory.get_model("coder", cached_content=cache_name)
+            
+            # ================================================================
+            # MESSAGE TRIMMING: Prevent token bloat in ReAct loop
+            # Use pre_model_hook to trim messages before each LLM call
+            # ================================================================
+            from langchain_core.messages.utils import trim_messages
+            
+            def pre_model_hook(state):
+                """Trim messages to prevent context overflow in ReAct loop."""
+                messages = state.get("messages", [])
+                
+                # Simple token estimation: ~4 chars per token
+                def estimate_tokens(msgs):
+                    total = 0
+                    for m in msgs:
+                        content = m.content if hasattr(m, 'content') else str(m)
+                        if isinstance(content, list):
+                            content = str(content)
+                        total += len(content) // 4
+                    return total
+                
+                # Trim to keep last ~4000 tokens worth of messages
+                trimmed = trim_messages(
+                    messages,
+                    strategy="last",
+                    token_counter=estimate_tokens,
+                    max_tokens=4000,
+                    start_on="human",  # Always keep the original human message
+                    include_system=True,
+                )
+                
+                # Return trimmed messages via llm_input_messages (doesn't alter state)
+                return {"llm_input_messages": trimmed}
+            
             coder_agent = create_react_agent(
                 model=llm,
                 tools=CODER_TOOLS,
                 prompt=AGENT_PROMPTS.get("coder", "You are a code implementation agent."),
+                pre_model_hook=pre_model_hook,  # Trim before each LLM call
             )
             
             result = await coder_agent.ainvoke(
                 {"messages": [HumanMessage(content=coder_prompt)]},
-                config={"recursion_limit": 50}  # Allow many file writes
+                config={"recursion_limit": 20}  # Reduced from 50 - rarely need more
             )
             
             # Extract completion status from messages
