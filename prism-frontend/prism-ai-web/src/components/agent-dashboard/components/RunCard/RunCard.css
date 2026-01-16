@@ -24,15 +24,30 @@
   background: var(--surface-hover);
 }
 
+.run-card__indicators {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
 .run-card__status-indicator {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  margin-right: 12px;
   flex-shrink: 0;
   position: relative;
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.run-card__preview-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;  /* Square with slight rounding */
+  flex-shrink: 0;
+  transition: background 0.2s ease;
 }
 
 .run-card__status-indicator:not(.run-card__status-indicator--open):hover {

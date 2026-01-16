@@ -63,6 +63,9 @@ export interface AgentRun {
   commitCount: number;
   createdAt: string;
   updatedAt: string;
+  // Preview status
+  previewStatus: 'running' | 'stopped' | 'error' | 'unknown';
+  previewUrl?: string;  // e.g., "http://localhost:5173"
 }
 
 /**

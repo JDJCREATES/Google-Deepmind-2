@@ -392,111 +392,40 @@ async def run_agent(request: Request, body: PromptRequest):
                                 }) + "\n"
                         
                         # ============================================================
-                        # STREAMING: Show agent thinking in real-time
+                        # STREAMING: Clean, simple content extraction
+                        # Only stream human-readable text to the frontend
                         # ============================================================
                         
-                        # Handle string content
-                        if isinstance(content, str) and content.strip():
-                            text = content.strip()
-                            
-                            # Check if this is structured JSON output
-                            is_json = (text.startswith('{') and text.endswith('}')) or \
-                                      (text.startswith('[') and text.endswith(']'))
-                            
-                            if is_json:
-                                # Try to extract meaningful content from JSON
-                                try:
-                                    import json as json_mod
-                                    parsed = json_mod.loads(text)
-                                    
-                                    # Handle different structured outputs
-                                    if isinstance(parsed, dict):
-                                        # Planner output - emit plan_created + summary
-                                        if 'summary' in parsed and 'tasks' in parsed:
-                                            task_count = len(parsed.get('tasks', []))
-                                            yield json.dumps({
-                                                "type": "plan_created",
-                                                "summary": parsed.get('summary', 'Plan created'),
-                                                "task_count": task_count,
-                                                "folders": len(parsed.get('folders', []))
-                                            }) + "\n"
-                                            # Also stream as readable thinking
-                                            yield json.dumps({
-                                                "type": "thinking",
-                                                "node": node_name,
-                                                "content": f"Created plan: {parsed.get('summary', '')}\n{task_count} tasks to implement."
-                                            }) + "\n"
-                                        # Orchestrator decision
-                                        elif 'decision' in parsed:
-                                            decision = parsed.get('decision', '')
-                                            reasoning = parsed.get('reasoning', '')[:200] if parsed.get('reasoning') else ''
-                                            yield json.dumps({
-                                                "type": "thinking",
-                                                "node": node_name,
-                                                "content": f"Decision: {decision}" + (f"\n{reasoning}" if reasoning else "")
-                                            }) + "\n"
-                                        # Intent classifier
-                                        elif 'task_type' in parsed:
-                                            yield json.dumps({
-                                                "type": "thinking",
-                                                "node": node_name,
-                                                "content": f"Detected intent: {parsed.get('task_type', 'unknown')}"
-                                            }) + "\n"
-                                        else:
-                                            # Unrecognized JSON structure - SKIP IT
-                                            # (Don't stream raw JSON to the thinking panel)
-                                            logger.debug(f"[STREAM] Skipping unrecognized JSON: {list(parsed.keys())[:5]}")
-                                except:
-                                    # JSON parse failed - skip internal JSON
-                                    pass
-                            else:
-                                # Plain text - stream directly
-                                # Skip system prompts and internal markers
-                                skip_markers = ['ACTION REQUIRED', 'MANDATORY FIRST', 'SCAFFOLDING CHECK']
-                                
-                                # FILTER: Skip JSON fragments (partial streaming tokens)
-                                # These look like '"key": value,' but aren't complete JSON
-                                is_json_fragment = (
-                                    '": ' in text or  # JSON key-value separator 
-                                    text.startswith('"') or  # Starts with quote
-                                    text.startswith('{') or  # Partial JSON object
-                                    text.startswith('[') or  # Partial JSON array
-                                    text.strip() in ['{', '}', '[', ']', ',']  # JSON syntax
-                                )
-                                
-                                if not any(marker in text for marker in skip_markers) and not is_json_fragment:
-                                    if node_name.lower() in ['chat', 'chatter']:
-                                        yield json.dumps({
-                                            "type": "message",
-                                            "node": node_name,
-                                            "content": text
-                                        }) + "\n"
-                                    else:
-                                        # Other nodes - stream as thinking
-                                        yield json.dumps({
-                                            "type": "thinking",
-                                            "node": node_name,
-                                            "content": text
-                                        }) + "\n"
-                            
-                        # Handle list content (Gemini sometimes returns list of dicts)
-                        elif isinstance(content, list):
-                            for item in content:
-                                if isinstance(item, dict) and 'text' in item:
-                                    text = item['text'].strip()
-                                    if text:
-                                        if node_name.lower() in ['chat', 'chatter']:
-                                            yield json.dumps({
-                                                "type": "message",
-                                                "node": node_name,
-                                                "content": text
-                                            }) + "\n"
-                                        else:
-                                            yield json.dumps({
-                                                "type": "thinking",
-                                                "node": node_name,
-                                                "content": text
-                                            }) + "\n"
+                        # Skip if content isn't a string (could be internal data)
+                        if not isinstance(content, str):
+                            continue
+                        
+                        text = content.strip()
+                        if not text:
+                            continue
+                        
+                        # SKIP: Content that looks like JSON (internal agent output)
+                        # Real human-readable responses don't start/end with JSON brackets
+                        if (text.startswith('{') or text.startswith('[') or 
+                            text.startswith('"') or '": ' in text):
+                            logger.debug(f"[STREAM] Skipping JSON-like content from {node_name}")
+                            continue
+                        
+                        # SKIP: Internal system markers
+                        skip_patterns = [
+                            'ACTION REQUIRED', 'MANDATORY FIRST', 'SCAFFOLDING CHECK',
+                            'task_type', 'action', 'reasoning', 'decision',
+                        ]
+                        if any(pattern in text for pattern in skip_patterns):
+                            continue
+                        
+                        # Stream as message (chat node) or thinking (other nodes)
+                        is_chat = node_name.lower() in ['chat', 'chatter']
+                        yield json.dumps({
+                            "type": "message" if is_chat else "thinking",
+                            "node": node_name,
+                            "content": text
+                        }) + "\n"
                     
                     # Handle dict format (other stream modes)
                     elif isinstance(event, dict):

@@ -61,6 +61,19 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
     }
   };
 
+  // Preview status indicator color (square dot)
+  const getPreviewStatusColor = () => {
+    switch (run.previewStatus) {
+      case 'running':
+        return 'var(--success-color, #4ade80)';
+      case 'error':
+        return 'var(--error-color, #ff5e57)';
+      case 'stopped':
+      default:
+        return 'var(--text-muted, #666)';
+    }
+  };
+
   // Agent display name
   const getAgentDisplay = () => {
     if (!run.currentAgent) return null;
@@ -143,15 +156,18 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
     >
       {/* Header */}
       <header className="run-card__header">
-        <div 
-          className={`run-card__status-indicator ${showOptions ? 'run-card__status-indicator--open' : ''}`}
-          style={{ background: getStatusColor() }}
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowOptions(!showOptions);
-          }}
-          title="Click for options"
-        >
+        {/* Status indicators container */}
+        <div className="run-card__indicators">
+          {/* Run status (circle) */}
+          <div 
+            className={`run-card__status-indicator ${showOptions ? 'run-card__status-indicator--open' : ''}`}
+            style={{ background: getStatusColor() }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowOptions(!showOptions);
+            }}
+            title="Click for options"
+          >
           {showOptions && (
             <div ref={optionsRef} className="run-card__options-menu" onClick={(e) => e.stopPropagation()}>
               <button 
@@ -218,6 +234,16 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
             </div>
           )}
         </div>
+        
+        {/* Preview status (square) */}
+        <div 
+          className="run-card__preview-indicator"
+          style={{ background: getPreviewStatusColor() }}
+          title={run.previewStatus === 'running' 
+            ? `Preview running${run.previewUrl ? ` at ${run.previewUrl}` : ''}` 
+            : 'Preview not running'}
+        />
+      </div>
         
         <div className="run-card__title-section">
           <h3 className="run-card__title">{run.title}</h3>

@@ -326,13 +326,21 @@ export const useAgentRuns = create<AgentRunsState>()(
       
       const newRun: AgentRun = await response.json();
       
+      // Ensure previewStatus has default (may not come from backend yet)
+      if (!newRun.previewStatus) {
+        newRun.previewStatus = 'unknown';
+      }
+      
       // If in Electron, also create git branch and preview
       if (isElectron) {
         try {
           await electronAPI.createBranch(newRun.id, request.prompt);
           await electronAPI.createPreview(newRun.id);
+          // After creating preview, set status to running (will be updated by WS)
+          newRun.previewStatus = 'running';
         } catch (electronError) {
           console.warn('[useAgentRuns] Electron integration failed, continuing with HTTP only:', electronError);
+          newRun.previewStatus = 'stopped';
         }
       }
       
@@ -361,6 +369,10 @@ export const useAgentRuns = create<AgentRunsState>()(
       }
       
       const runs: AgentRun[] = await response.json();
+      // Ensure previewStatus default for all runs
+      runs.forEach(run => {
+        if (!run.previewStatus) run.previewStatus = 'unknown';
+      });
       setRuns(runs);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch runs';
