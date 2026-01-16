@@ -170,10 +170,15 @@ function App() {
         try {
             const res = await fetch('http://localhost:8001/preview/status');
             const data = await res.json();
-            console.log('[Preview] Backend status:', { is_running: data.is_running, url: data.url, project_path: data.project_path });
+            console.log('[Preview] Backend status:', { 
+              is_running: data.is_running, 
+              url: data.url, 
+              project_path: data.project_path,
+              error: data.error 
+            });
             
             if (data.is_running && data.url) {
-                console.log('[Preview] ✓ Backend has running server at:', data.url);
+                console.log('[Preview] ✓ Backend has running server at:', data.url, 'Setting projectUrl...');
                 setProjectUrl(data.url);
                 setIsConnecting(false);
                 setStatusMessage('');

@@ -44,7 +44,7 @@ class MultiPreviewManager:
     """
     
     # Port range for preview servers
-    BASE_PORT = 5173
+    BASE_PORT = 5200
     MAX_INSTANCES = 10  # Maximum concurrent previews
     
     # ANSI escape codes (for log parsing)
@@ -208,49 +208,44 @@ class MultiPreviewManager:
                 daemon=True
             ).start()
             
-            # Wait for URL detection (up to 15 seconds)
-            import time
-            for _ in range(30):
-                time.sleep(0.5)
-                
-                if instance.url:
-                    instance.status = "running"
-                    self._update_current(instance)
-                    logger.info(f"[PREVIEW] ✅ Server ready at {instance.url}")
-                    return {
-                        "status": "running",
-                        "url": instance.url,
-                        "port": port,
-                        "run_id": run_id
-                    }
-                
-                # Check if process died
-                if not instance.is_alive():
-                    instance.status = "error"
-                    instance.error_message = "Process exited during startup"
-                    self._cleanup_instance(run_id)
-                    return {
-                        "status": "error",
-                        "message": "Dev server crashed during startup",
-                        "logs": instance.logs[-10:]
-                    }
-            
-            # Timeout but process still running - use default URL
-            instance.url = f"http://localhost:{port}"
-            instance.status = "running"
+            # DON'T BLOCK - return immediately and let polling detect URL
+            # The log consumer thread will set instance.url when detected
+            instance.status = "starting"
             self._update_current(instance)
             
+            # Set default URL immediately so ships-preview has something to load
+            instance.url = f"http://localhost:{port}"
+            self.current_url = instance.url  # Ensure backward compat
+            
+            logger.info(f"[PREVIEW] 📡 Process started, URL will be: {instance.url}")
+            
+            # Request focus so ships-preview comes to front
+            self.focus_requested = True
+            
             return {
-                "status": "running",
+                "status": "starting",
                 "url": instance.url,
                 "port": port,
                 "run_id": run_id,
-                "warning": "URL not detected, using default"
+                "message": "Dev server starting, poll /preview/status for updates"
             }
             
         except Exception as e:
             logger.error(f"[PREVIEW] Failed to start: {e}")
-            self._cleanup_instance(run_id)
+            # Don't cleanup - keep instance to report error
+            if run_id in self.instances:
+                self.instances[run_id].status = "error"
+                self.instances[run_id].error_message = str(e)
+            else:
+                # Create a placeholder instance for the error
+                self.instances[run_id] = PreviewInstance(
+                    run_id=run_id,
+                    project_path=project_path,
+                    port=port or 0,
+                    status="error",
+                    error_message=str(e)
+                )
+            
             return {"status": "error", "message": str(e)}
     
     def _consume_logs(self, instance: PreviewInstance):

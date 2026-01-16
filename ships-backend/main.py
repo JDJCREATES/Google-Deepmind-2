@@ -145,14 +145,34 @@ async def get_status(run_id: str = None):
     if run_id:
         return preview_manager.get_status(run_id)
     
-    # For backward compatibility, return current/default status
+    # Check if ANY instance is running
+    any_running = False
+    running_url = preview_manager.current_url
+    running_project = preview_manager.current_project_path
+    
+    first_error = None
+    
+    # Check all instances for a running or starting one
+    for inst_id, inst in preview_manager.instances.items():
+        # Consider both alive processes and "starting" status as running
+        if inst.is_alive() or inst.status in ("starting", "running"):
+            any_running = True
+            running_url = inst.url or running_url
+            running_project = inst.project_path or running_project
+            break  # Use first running instance
+        
+        # Capture first error found if no running instance
+        if inst.status == "error" and not first_error:
+            first_error = inst.error_message
+    
     return {
-        "is_running": preview_manager.process is not None and preview_manager.process.poll() is None,
+        "is_running": any_running,
         "logs": preview_manager.logs[-50:],
-        "url": preview_manager.current_url,
-        "project_path": preview_manager.current_project_path,
+        "url": running_url,
+        "project_path": running_project,
         "focus_requested": preview_manager.focus_requested,
-        "instances": preview_manager.get_status()  # Include all instances
+        "instances": preview_manager.get_status(),
+        "error": first_error
     }
 
 @preview_router.post("/stop/{run_id}")

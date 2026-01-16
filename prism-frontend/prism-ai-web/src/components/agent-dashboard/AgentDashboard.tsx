@@ -39,9 +39,30 @@ export const AgentDashboard: React.FC = () => {
     
     setIsCreating(true);
     const prompt = newRunPrompt.trim();
+    
+    // Get project path from Electron BEFORE creating run
+    const projectPath = (window as any).electron?.getProjectPath 
+      ? await (window as any).electron.getProjectPath() 
+      : null;
+    
+    // If no Electron, try to get from preview API (backend knows the current project)
+    let finalProjectPath = projectPath;
+    if (!finalProjectPath) {
+      try {
+        const statusRes = await fetch('http://localhost:8001/preview/path');
+        if (statusRes.ok) {
+          const data = await statusRes.json();
+          finalProjectPath = data.project_path;
+        }
+      } catch (e) {
+        console.warn('[AgentDashboard] Could not fetch project path from backend');
+      }
+    }
+    
     const request: CreateRunRequest = {
       prompt,
       title: prompt.slice(0, 50),
+      projectPath: finalProjectPath || undefined,
     };
     
     const newRun = await createRun(request);
@@ -56,15 +77,12 @@ export const AgentDashboard: React.FC = () => {
       // This provides immediate feedback - the user doesn't need to re-type
       console.log('[AgentDashboard] Auto-triggering agent for new run:', newRun.id);
       
-      // Get project path from Electron if available
-      const projectPath = (window as any).electron?.getProjectPath 
-        ? await (window as any).electron.getProjectPath() 
-        : null;
+      // Use the project path from the created run (now stored in backend)
       
       // Start the agent (async, don't await)
       agentService.runAgent(
         prompt,
-        projectPath,
+        newRun.projectPath,
         (chunk) => {
           // Chunk handling happens in ChatInterface via useChatLogic
           // The streaming store is shared, so updates will flow there

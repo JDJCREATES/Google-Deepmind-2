@@ -174,6 +174,7 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
                 className="run-card__option-item" 
                 onClick={(e) => { 
                   e.stopPropagation(); 
+                  console.log('[RunCard] Open Preview clicked for run:', run.id);
                   openPreview(run.id);
                   setShowOptions(false); 
                 }}

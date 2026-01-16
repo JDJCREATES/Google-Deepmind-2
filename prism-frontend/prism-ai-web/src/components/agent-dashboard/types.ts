@@ -51,6 +51,7 @@ export interface AgentRun {
   prompt: string;
   branch: string;
   baseBranch: string;  // Branch this was forked from (e.g., "main")
+  projectPath: string;  // Filesystem path to the project
   port: number;
   status: RunStatus;
   currentAgent: AgentType;
@@ -62,10 +63,12 @@ export interface AgentRun {
   thinkingSections: ThinkingSectionData[];
   commitCount: number;
   createdAt: string;
+  startedAt: string;
   updatedAt: string;
   // Preview status
-  previewStatus: 'running' | 'stopped' | 'error' | 'unknown';
-  previewUrl?: string;  // e.g., "http://localhost:5173"
+  previewStatus?: 'running' | 'failed' | 'unknown' | 'error' | 'stopped';
+  previewUrl?: string;
+  previewError?: string; // New field for error messages  // e.g., "http://localhost:5173"
 }
 
 /**
@@ -104,6 +107,7 @@ export interface RequestScreenshotEvent {
 export interface CreateRunRequest {
   prompt: string;
   title?: string;
+  projectPath?: string;  // Filesystem path to project
 }
 
 /**

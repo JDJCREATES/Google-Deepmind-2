@@ -530,18 +530,31 @@ export const useAgentRuns = create<AgentRunsState>()(
   openPreview: async (runId) => {
     const { runs, updateRun, setError } = get();
     
+    console.log('[openPreview] Called with runId:', runId);
+    
     // Find the run to get project path
     const run = runs.find(r => r.id === runId);
+    console.log('[openPreview] Found run:', run);
+    
     if (!run) {
+      console.error('[openPreview] Run not found!');
       return { status: 'error', message: 'Run not found' };
     }
     
-    // The project path should be based on the run's branch
-    // For now, we assume it's in SHIPS_TEST/<branch>
-    const projectPath = `P:\\WERK_IT_2025\\SHIPS_TEST\\${run.branch}`;
+    // Use the actual project path from the run
+    let projectPath: string | undefined = run.projectPath;
+    
+    // Ignore default/invalid paths so backend falls back to current context
+    if (!projectPath || projectPath === '/tmp/ships') {
+      console.warn('[openPreview] Invalid/Default projectPath on run, will rely on backend current context');
+      projectPath = undefined;
+    }
+    
+    console.log('[openPreview] Using projectPath:', projectPath);
     
     try {
       updateRun(runId, { previewStatus: 'running' });
+      console.log('[openPreview] Calling API...');
       
       const response = await fetch(`${API_BASE}/preview/open`, {
         method: 'POST',
@@ -554,14 +567,21 @@ export const useAgentRuns = create<AgentRunsState>()(
       });
       
       const result = await response.json();
+      console.log('[openPreview] API result:', result);
       
-      if (result.status === 'running') {
+      // Handle both "running" and "starting" as success
+      if (result.status === 'running' || result.status === 'starting') {
         updateRun(runId, { 
           previewStatus: 'running',
           previewUrl: result.url 
         });
       } else {
-        updateRun(runId, { previewStatus: 'error' });
+        console.error('[openPreview] API returned error:', result);
+        const errorMsg = result.message || 'Unknown backend error';
+        updateRun(runId, { previewStatus: 'error', previewError: errorMsg });
+        
+        // VISIBLE ALERT FOR USER
+        alert(`❌ Preview Startup Failed:\n${errorMsg}`);
       }
       
       return result;

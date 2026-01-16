@@ -87,6 +87,7 @@ class AgentRun(BaseModel):
     prompt: str
     branch: str
     base_branch: str = Field("main", alias="baseBranch")  # Branch this was forked from
+    project_path: str = Field("", alias="projectPath")  # Filesystem path to project
     port: int = 0
     status: str = "pending"
     current_agent: Optional[str] = Field(None, alias="currentAgent")
@@ -226,6 +227,7 @@ def _model_to_response(run: AgentRunModel) -> dict:
         "prompt": run.user_request or "",
         "branch": run.branch_name or "",
         "baseBranch": metadata.get("base_branch", "main"),  # Branch this forked from
+        "projectPath": run.project_path,  # Filesystem path for preview
         "port": metadata.get("port", 3000),
         "status": run.status,
         "currentAgent": metadata.get("current_agent"),
