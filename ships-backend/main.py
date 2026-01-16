@@ -283,6 +283,13 @@ async def run_agent(request: Request, body: PromptRequest):
             current_node = None
             
             async for event in stream_pipeline(body.prompt, project_path=effective_project_path, settings=body.settings, artifact_context=body.artifact_context):
+                # DEBUG: Inspect raw event structure
+                import sys
+                # logger.info(f"[STREAM DEBUG] Event type: {type(event)}") 
+                # logger.info(f"[STREAM DEBUG] Event data: {str(event)[:300]}")
+                # Using print for raw stdout visibility in terminal if logger is filtered
+                print(f"[RAW STREAM] {type(event)}: {str(event)[:200]}...", file=sys.stderr)
+
                 # With subgraphs=True + stream_mode="messages", events are:
                 # (namespace_tuple, (message_chunk, metadata))
                 # namespace_tuple can be () for main graph or ('node:task_id',) for subgraphs
@@ -453,12 +460,15 @@ async def run_agent(request: Request, body: PromptRequest):
                     if not text:
                         continue
                     
-                    # SKIP: Internal system markers
-                    skip_patterns = [
-                        'ACTION REQUIRED', 'MANDATORY FIRST', 'SCAFFOLDING CHECK',
-                        'task_type', 'action', 'reasoning', 'decision',
+                    # SKIP: Internal system markers (use EXACT phrases, not substrings)
+                    skip_phrases = [
+                        'ACTION REQUIRED:', 
+                        'MANDATORY FIRST STEP',
+                        'SCAFFOLDING CHECK:',
+                        '"task_type":',  # JSON field markers
+                        '"action":',
                     ]
-                    if any(pattern in text for pattern in skip_patterns):
+                    if any(phrase in text for phrase in skip_phrases):
                         continue
                     
                     # Stream as message (chat node) or thinking (other nodes)
