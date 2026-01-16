@@ -175,27 +175,79 @@ class ShipSOrchestrator:
         return decision
     
     def _simple_route(self, state: Dict[str, Any]) -> Optional[str]:
-        """Simple rule-based routing. Returns None if ambiguous."""
+        """
+        Simple rule-based routing. Returns None if ambiguous (needs LLM).
+        
+        This method provides FAST deterministic routing for obvious transitions,
+        saving LLM tokens for ambiguous decisions.
+        """
+        from pathlib import Path
+        
         phase = state.get("phase", "idle")
         artifacts = state.get("artifacts", {})
         validation_passed = state.get("validation_passed", False)
+        completed_files = state.get("completed_files", [])
+        fix_attempts = state.get("fix_attempts", 0)
+        project_path = artifacts.get("project_path") or self.project_root
         
-        SIMPLE_ROUTES = {
-            "idle": "planning" if "user_request" in artifacts else None,
-            "planning": "coding" if "plan" in artifacts else None,
-            "coding": "validating" if "code_changes" in artifacts else None,
-            "validating": "complete" if validation_passed else "fixing",
-            "fixing": "validating",  # Always re-validate after fix
-            "building": "complete" if state.get("build_passed", False) else "fixing",
-        }
+        # Check if plan exists on disk (more reliable than artifact key)
+        plan_exists = False
+        if project_path:
+            plan_path = Path(project_path) / ".ships" / "implementation_plan.md"
+            plan_exists = plan_path.exists()
         
-        next_phase = SIMPLE_ROUTES.get(phase)
+        # Determine conditions
+        has_plan = plan_exists or "plan" in artifacts
+        has_code = len(completed_files) > 0 or "code_changes" in artifacts
         
-        # Check for escalation
-        if next_phase == "fixing" and self.should_escalate(state):
-            return "escalated"
+        # Rule-based routing table
+        if phase == "idle" or phase == "planning":
+            if has_plan:
+                return "coding"
+            return None  # Ambiguous - need planner or user input
         
-        return next_phase
+        if phase == "plan_ready":
+            return "coding"  # Always code after plan is ready
+        
+        if phase == "coding":
+            if has_code:
+                return "validating"
+            return None  # Still coding
+        
+        if phase == "validating":
+            # Check if validator has actually run
+            # agent_status is set by validator_node with status="pass" or "fail"
+            agent_status = state.get("agent_status", {})
+            validator_ran = agent_status.get("status") in ["pass", "fail"]
+            
+            # DEBUG: Log actual values
+            logger.debug(f"[SIMPLE_ROUTE] phase=validating, agent_status={agent_status}, validator_ran={validator_ran}, validation_passed={validation_passed}")
+            
+            if not validator_ran:
+                # Validator hasn't run yet - route directly to it
+                logger.debug(f"[SIMPLE_ROUTE] Validator not run yet, routing to validator")
+                return "validating"  # Will be mapped to "validator" node
+            
+            # Validator ran - check result
+            if validation_passed:
+                logger.debug(f"[SIMPLE_ROUTE] Validation passed, routing to complete")
+                return "complete"
+            logger.debug(f"[SIMPLE_ROUTE] Validation failed, routing to fixing")
+            return "fixing"  # Validation failed → fix
+        
+        if phase == "fixing":
+            # Check for escalation
+            if fix_attempts >= self.MAX_FIX_ATTEMPTS:
+                return "escalated"
+            return "validating"  # Always re-validate after fix
+        
+        if phase == "building":
+            if state.get("build_passed", False):
+                return "complete"
+            return "fixing"
+        
+        # Unknown phase - needs LLM
+        return None
     
     # =========================================================================
     # ERROR HANDLING

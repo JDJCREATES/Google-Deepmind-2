@@ -233,6 +233,50 @@ from fastapi.responses import StreamingResponse
 import json
 from app.graphs.agent_graph import stream_pipeline
 
+import re
+
+class JsonValueFilter:
+    def __init__(self, target_keys=None):
+        # Comprehensive list based on planner/models.py
+        self.target_keys = target_keys or [
+            "title", "description", "summary", "name", "content",
+            "path", "command", "assertion", "mitigation", 
+            "detailed_description", "mvs_verification", "notes"
+        ]
+        self.buffer = ""
+        self.is_capturing = False
+        self.key_pattern = re.compile(r'"(' + '|'.join(self.target_keys) + r')"\s*:\s*"')
+
+    def process_chunk(self, chunk: str) -> str:
+        self.buffer += chunk
+        output = ""
+        
+        while True:
+            if self.is_capturing:
+                # Look for unescaped quote
+                # Simple check: find quote, check preceding char
+                match = re.search(r'(?<!\\)"', self.buffer)
+                if match:
+                    end_idx = match.start()
+                    val = self.buffer[:end_idx]
+                    output += val + "\n"
+                    self.is_capturing = False
+                    self.buffer = self.buffer[match.end():]
+                else:
+                    output += self.buffer
+                    self.buffer = "" # Consumed all
+                    break
+            else:
+                match = self.key_pattern.search(self.buffer)
+                if match:
+                    self.is_capturing = True
+                    self.buffer = self.buffer[match.end():] # Start of value
+                else:
+                    # Keep tail
+                    if len(self.buffer) > 40: self.buffer = self.buffer[-40:]
+                    break
+        return output
+
 @agent_router.post("/run")
 async def run_agent(request: Request, body: PromptRequest):
     import logging
@@ -282,13 +326,12 @@ async def run_agent(request: Request, body: PromptRequest):
             logger.info(f"[STREAM] Passing to stream_pipeline: '{body.prompt[:100]}...'")
             current_node = None
             
+            planner_filter = JsonValueFilter() # Filter for cleaning up planner JSON stream
+            
             async for event in stream_pipeline(body.prompt, project_path=effective_project_path, settings=body.settings, artifact_context=body.artifact_context):
-                # DEBUG: Inspect raw event structure
-                import sys
-                # logger.info(f"[STREAM DEBUG] Event type: {type(event)}") 
-                # logger.info(f"[STREAM DEBUG] Event data: {str(event)[:300]}")
-                # Using print for raw stdout visibility in terminal if logger is filtered
-                print(f"[RAW STREAM] {type(event)}: {str(event)[:200]}...", file=sys.stderr)
+                # DEBUG: Inspect raw event structure (disabled - was spamming logs)
+                # import sys
+                # print(f"[RAW STREAM] {type(event)}: {str(event)[:200]}...", file=sys.stderr)
 
                 # With subgraphs=True + stream_mode="messages", events are:
                 # (namespace_tuple, (message_chunk, metadata))
@@ -398,7 +441,18 @@ async def run_agent(request: Request, body: PromptRequest):
                     # Extract content from the message chunk
                     content = ""
                     if hasattr(message_chunk, 'content'):
-                        content = message_chunk.content
+                        raw_content = message_chunk.content
+                        # Handle list format: [{'type': 'text', 'text': '...'}]
+                        if isinstance(raw_content, list):
+                            text_parts = []
+                            for item in raw_content:
+                                if isinstance(item, dict) and 'text' in item:
+                                    text_parts.append(item['text'])
+                                elif isinstance(item, str):
+                                    text_parts.append(item)
+                            content = ''.join(text_parts)
+                        else:
+                            content = raw_content
                     elif isinstance(message_chunk, dict) and 'content' in message_chunk:
                         content = message_chunk['content']
                     elif isinstance(message_chunk, str):
@@ -456,7 +510,15 @@ async def run_agent(request: Request, body: PromptRequest):
                     if not isinstance(content, str):
                         continue
                     
-                    text = content.strip()
+                    # FILTER: If Planner, extract only relevant text (title, description)
+                    # This prevents "matrix rain" of raw JSON
+                    if node_name == 'planner':
+                        filtered = planner_filter.process_chunk(content)
+                        if not filtered.strip():
+                           continue
+                        text = filtered.strip()
+                    else:
+                        text = content.strip()
                     if not text:
                         continue
                     

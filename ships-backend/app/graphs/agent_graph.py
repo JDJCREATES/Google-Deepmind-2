@@ -584,150 +584,144 @@ ACTUAL FILE STRUCTURE (Disk State):
     }
     coder_state["completed_files"] = unique_completed
     
-    # 6. Invoke the Coder (now uses create_react_agent internally)
+    # 6. Invoke the Coder with INTERNAL RETRY LOOP
+    # This prevents expensive Orchestrator roundtrips - keep coding until done!
     coder = Coder()
+    max_coder_iterations = 3  # Max loops within this node before exiting
+    result = None
+    current_completed = list(unique_completed)
+    implementation_complete = False
     
-    try:
-        result = await coder.invoke(coder_state)
+    for coder_iteration in range(1, max_coder_iterations + 1):
+        logger.info(f"[CODER] 🔄 Coder iteration {coder_iteration}/{max_coder_iterations}")
         
-        logger.info(f"[CODER] ✅ Coder completed")
+        # Update state with current progress for next iteration
+        coder_state["completed_files"] = current_completed
         
-        # Extract completion status
-        implementation_complete = result.get("implementation_complete", False)
-        files_written = result.get("completed_files", [])
-        
-        # Update completed files list
-        current_set = set(state.get("completed_files", []))
-        current_set.update(files_written)
-        current_completed = list(current_set)
-        
-        # ================================================================
-        # INTELLIGENT VALIDATION: Compare expected files from plan
-        # ================================================================
-        expected_files = []
-        
-        # Try to extract expected files from plan content
-        plan_content = artifacts.get("plan_content", "")
-        if plan_content:
-            import re
-            # Look for "Files to Create" sections or file paths in plan
-            # Pattern: src/something.tsx or similar paths
-            file_patterns = re.findall(r'(?:src|public|app)/[\w/.-]+\.\w+', plan_content)
-            expected_files = list(set(file_patterns))
-        
-        # Also check folder_map if available
-        ships_dir = Path(project_path) / ".ships" if project_path else None
-        if ships_dir and ships_dir.exists():
-            folder_map_path = ships_dir / "folder_map_plan.json"
-            if folder_map_path.exists():
-                try:
-                    import json
-                    folder_data = json.loads(folder_map_path.read_text(encoding="utf-8"))
-                    entries = folder_data.get("entries", [])
-                    map_files = [e.get("path") for e in entries if not e.get("is_directory", False) and e.get("path")]
-                    expected_files.extend(map_files)
-                except Exception:
-                    pass
-        
-        expected_files = list(set(expected_files))  # Dedupe
-        
-        # Log progress for debugging
-        logger.info(f"[CODER] 📊 Progress: {len(current_completed)} files created")
-        logger.info(f"[CODER] 📋 Expected from plan: {len(expected_files)} files")
-        
-        # Check what's missing (if we have expected files)
-        if expected_files:
-            # Normalize paths for comparison
-            normalized_completed = {str(f).replace("\\", "/").lower() for f in current_completed}
-            
-            # Check each expected file against state AND disk
-            missing = []
-            for expected in expected_files:
-                norm_expected = str(expected).replace("\\", "/").lower()
-                
-                # 1. Check if marked completed
-                if norm_expected in normalized_completed:
-                    continue
-                
-                # 2. Check strict disk existence (handles cases where tool output parsing failed)
-                # This prevents "loop of doom" where file exists but Coder keeps being told to make it
-                try:
-                    full_path = Path(project_path) / expected
-                    if full_path.exists() and full_path.is_file():
-                        current_completed.append(str(expected)) # Sync state
-                        normalized_completed.add(norm_expected)
-                        logger.info(f"[CODER] 🔍 Verified existing file on disk: {expected}")
-                        continue
-                except Exception:
-                    pass
-                
-                missing.append(expected)
-
-            if missing:
-                logger.info(f"[CODER] 📝 Missing files: {len(missing)}")
-                for m in list(missing)[:5]:
-                    logger.info(f"[CODER]    - {m}")
-                
-                # If LLM claims complete but files are missing, force continuation
-                if implementation_complete and len(missing) > 0:
-                    logger.warning(
-                        f"[CODER] ⚠️ LLM claimed complete but {len(missing)} expected files missing. "
-                        f"Continuing..."
-                    )
-                    implementation_complete = False
-            else:
-                logger.info(f"[CODER] ✅ All expected files present!")
-        
-        # Determine next phase
-        next_phase = "validating" if implementation_complete else "coding"
-        if implementation_complete:
-            logger.info(f"[CODER] ✅ Implementation complete. {len(current_completed)} files created.")
-        else:
-            logger.info(f"[CODER] 🔄 More work needed, continuing in coding phase")
-            
-        # REFRESH FILE TREE ARTIFACT (System-level update after Coder)
         try:
-             # Get settings (injected in stream_pipeline)
-             settings = state.get("artifacts", {}).get("settings", {})
-             scan_depth = 3
-             if settings and isinstance(settings, dict):
-                 scan_depth = settings.get("artifacts", {}).get("fileTreeDepth", 3)
-
-             from app.agents.tools.coder.file_tree import scan_project_tree
-             scan_project_tree.invoke({
-                 "subpath": ".",
-                 "max_depth": int(scan_depth),
-                 "extract_symbols": True,
-                 "save_artifact": True
-             })
-             logger.info(f"[CODER_NODE] 🌳 Refreshed file tree artifact after coding")
-        except Exception as ft_e:
-             logger.warning(f"[CODER_NODE] ⚠️ Failed to refresh file tree: {ft_e}")
-        
-        # Release lock
-        if active_file:
-            lock_manager.release(project_path, active_file, "coder_node")
-            logger.info(f"[CODER] 🔓 Released lock for {active_file}")
-
-        return {
-            "messages": [AIMessage(content=f"Coder completed: {result.get('status', 'unknown')}")],
-            "phase": next_phase,
-            "completed_files": current_completed,
-            "agent_status": {"status": result.get("status", "in_progress")}
-        }
-        
-    except Exception as e:
-        logger.error(f"[CODER] ❌ Coder invoke failed: {e}")
-        
-        # Release lock
-        if active_file:
-            lock_manager.release(project_path, active_file, "coder_node")
+            result = await coder.invoke(coder_state)
+            logger.info(f"[CODER] ✅ Coder iteration {coder_iteration} completed")
             
-        return {
-            "phase": "error",
-            "error_log": state.get("error_log", []) + [f"Coder error: {str(e)}"],
-            "messages": [AIMessage(content=f"Coding failed: {e}")]
-        }
+            # Extract completion status
+            implementation_complete = result.get("implementation_complete", False)
+            files_written = result.get("completed_files", [])
+            
+            # Update completed files list
+            current_set = set(current_completed)
+            current_set.update(files_written)
+            current_completed = list(current_set)
+            
+            # ================================================================
+            # CHECK: Are all expected files present?
+            # ================================================================
+            expected_files = []
+            
+            # Try to extract expected files from plan content
+            plan_content = artifacts.get("plan_content", "")
+            if plan_content:
+                import re
+                file_patterns = re.findall(r'(?:src|public|app)/[\w/.-]+\.\w+', plan_content)
+                expected_files = list(set(file_patterns))
+            
+            # Also check folder_map if available
+            ships_dir = Path(project_path) / ".ships" if project_path else None
+            if ships_dir and ships_dir.exists():
+                folder_map_path = ships_dir / "folder_map_plan.json"
+                if folder_map_path.exists():
+                    try:
+                        import json
+                        folder_data = json.loads(folder_map_path.read_text(encoding="utf-8"))
+                        entries = folder_data.get("entries", [])
+                        map_files = [e.get("path") for e in entries if not e.get("is_directory", False) and e.get("path")]
+                        expected_files.extend(map_files)
+                    except Exception:
+                        pass
+            
+            expected_files = list(set(expected_files))
+            
+            # Log progress
+            logger.info(f"[CODER] 📊 Progress: {len(current_completed)} files created")
+            logger.info(f"[CODER] 📋 Expected from plan: {len(expected_files)} files")
+            
+            # Check what's missing
+            if expected_files:
+                normalized_completed = {str(f).replace("\\", "/").lower() for f in current_completed}
+                
+                missing = []
+                for expected in expected_files:
+                    norm_expected = str(expected).replace("\\", "/").lower()
+                    
+                    if norm_expected in normalized_completed:
+                        continue
+                    
+                    # Check disk
+                    try:
+                        full_path = Path(project_path) / expected
+                        if full_path.exists() and full_path.is_file():
+                            current_completed.append(str(expected))
+                            normalized_completed.add(norm_expected)
+                            logger.info(f"[CODER] 🔍 Verified existing file on disk: {expected}")
+                            continue
+                    except Exception:
+                        pass
+                    
+                    missing.append(expected)
+
+                if not missing:
+                    logger.info(f"[CODER] ✅ All expected files present!")
+                    implementation_complete = True
+                    break  # EXIT LOOP: All files done
+                else:
+                    logger.info(f"[CODER] 📝 Missing files: {len(missing)}")
+                    for m in list(missing)[:5]:
+                        logger.info(f"[CODER]    - {m}")
+                    # Continue to next iteration
+            else:
+                # No expected files to check - rely on LLM's claim
+                if implementation_complete:
+                    break
+                    
+        except Exception as e:
+            logger.error(f"[CODER] ❌ Coder iteration {coder_iteration} failed: {e}")
+            # Don't break on error - try again if iterations remain
+            continue
+    
+    # Final determination
+    next_phase = "validating" if implementation_complete else "coding"
+    if implementation_complete:
+        logger.info(f"[CODER] ✅ Implementation complete. {len(current_completed)} files created.")
+    else:
+        logger.info(f"[CODER] 🔄 More work needed (after {max_coder_iterations} iterations)")
+        
+    # REFRESH FILE TREE ARTIFACT
+    try:
+        settings = state.get("artifacts", {}).get("settings", {})
+        scan_depth = 3
+        if settings and isinstance(settings, dict):
+            scan_depth = settings.get("artifacts", {}).get("fileTreeDepth", 3)
+
+        from app.agents.tools.coder.file_tree import scan_project_tree
+        scan_project_tree.invoke({
+            "subpath": ".",
+            "max_depth": int(scan_depth),
+            "extract_symbols": True,
+            "save_artifact": True
+        })
+        logger.info(f"[CODER_NODE] 🌳 Refreshed file tree artifact after coding")
+    except Exception as ft_e:
+        logger.warning(f"[CODER_NODE] ⚠️ Failed to refresh file tree: {ft_e}")
+    
+    # Release lock
+    if active_file:
+        lock_manager.release(project_path, active_file, "coder_node")
+        logger.info(f"[CODER] 🔓 Released lock for {active_file}")
+
+    return {
+        "messages": [AIMessage(content=f"Coder completed: {result.get('status', 'unknown') if result else 'no_result'}")],
+        "phase": next_phase,
+        "completed_files": current_completed,
+        "agent_status": {"status": result.get("status", "in_progress") if result else "error"}
+    }
 
 
 async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
@@ -822,6 +816,21 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
             "error_log": state.get("error_log", []) + [f"Validator error: {str(e)}"],
             "messages": [AIMessage(content=f"Validation error: {e}")]
         }
+
+
+async def chat_setup(state: AgentGraphState) -> Dict[str, Any]:
+    """
+    Setup before chat session.
+    Sets the project_root so chat tools can read files.
+    """
+    artifacts = state.get("artifacts", {})
+    project_path = artifacts.get("project_path")
+    
+    if project_path:
+        set_project_root(project_path)
+        logger.info(f"[CHAT_SETUP] 📁 Project root set to: {project_path}")
+    
+    return {}  # No state changes, just setup
 
 
 async def chat_cleanup(state: AgentGraphState) -> Dict[str, Any]:
@@ -1030,13 +1039,20 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
     if loop_detection.get("last_node") == current_phase:
         loop_detection["consecutive_calls"] = loop_detection.get("consecutive_calls", 0) + 1
         
+        # HARD STOP: Force exit at 5 consecutive calls (don't wait for LLM to decide)
+        if loop_detection["consecutive_calls"] >= 5:
+            logger.error(f"[ORCHESTRATOR] 🛑 HARD STOP: {current_phase} loop detected ({loop_detection['consecutive_calls']} times). Forcing chat.")
+            return {
+                "phase": "chat",
+                "loop_detection": loop_detection,
+                "messages": [AIMessage(content=f"I'm stuck in a loop trying to {current_phase}. I need your help to continue.")],
+            }
+        
         if loop_detection["consecutive_calls"] >= 3:
             loop_detection["loop_detected"] = True
             loop_detection["loop_message"] = (
-                f"⚠️ LOOP DETECTED: {current_phase} called {loop_detection['consecutive_calls']} times consecutively. "
-                f"Previous attempts are not making progress. Consider: "
-                f"1) Ask user for clarification, 2) Try a completely different approach, "
-                f"3) Skip this task and move on, 4) Mark as blocked and explain why."
+                f"⚠️ LOOP WARNING: {current_phase} called {loop_detection['consecutive_calls']} times. "
+                f"Consider asking user for help."
             )
             loop_warning = loop_detection["loop_message"]
             logger.warning(f"[ORCHESTRATOR] {loop_warning}")
@@ -1048,6 +1064,43 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
             "loop_detected": False,
             "loop_message": ""
         }
+    
+    # ================================================================
+    # FAST PATH: Use ShipSOrchestrator._simple_route() for deterministic transitions
+    # This saves LLM tokens for obvious decisions like planning→coding
+    # ================================================================
+    from app.agents.orchestrator import ShipSOrchestrator
+    
+    artifacts = state.get("artifacts", {})
+    project_path = artifacts.get("project_path", ".")
+    
+    fast_router = ShipSOrchestrator(project_root=project_path)
+    fast_decision = fast_router._simple_route(state)
+    
+    if fast_decision and not loop_detection.get("loop_detected"):
+        logger.info(f"[ORCHESTRATOR] ⚡ FAST PATH: {current_phase} → {fast_decision} (no LLM needed)")
+        
+        # Map to phase names used by route_orchestrator
+        phase_map = {
+            "planning": "planner",
+            "coding": "coder", 
+            "validating": "validator",
+            "fixing": "fixer",
+            "complete": "complete",
+            "escalated": "chat",
+        }
+        decision = phase_map.get(fast_decision, fast_decision)
+        
+        return {
+            "phase": decision,
+            "loop_detection": loop_detection,
+            "current_step": state.get("current_step", 0) + 1
+        }
+    
+    # ================================================================
+    # SLOW PATH: LLM reasoning for ambiguous situations
+    # ================================================================
+    logger.info(f"[ORCHESTRATOR] 🧠 SLOW PATH: Calling LLM for decision...")
     
     # 1. Build Dynamic Context
     phase = state.get("phase", "planning")
@@ -1625,6 +1678,7 @@ def create_agent_graph(checkpointer: Optional[MemorySaver] = None) -> StateGraph
     # Chat is now a SUBGRAPH for streaming support
     from app.agents.mini_agents.chatter import Chatter
     chatter = Chatter()
+    graph.add_node("chat_setup", chat_setup)  # Setup project root
     graph.add_node("chat", chatter.get_graph())
     graph.add_node("chat_cleanup", chat_cleanup)
     
@@ -1638,14 +1692,18 @@ def create_agent_graph(checkpointer: Optional[MemorySaver] = None) -> StateGraph
     graph.add_edge("validator", "orchestrator")
     graph.add_edge("fixer", "orchestrator")
     
-    # Chat Flow: Chat -> Cleanup -> END
+    # Chat Flow: Setup -> Chat -> Cleanup -> END
+    graph.add_edge("chat_setup", "chat")
     graph.add_edge("chat", "chat_cleanup")
     graph.add_edge("chat_cleanup", END)
     
     # ORCHESTRATOR ROUTING
     def route_orchestrator(state: AgentGraphState):
         decision = state.get("phase")
-        if decision in ["planner", "coder", "validator", "fixer", "chat", "complete"]:
+        # Route "chat" to "chat_setup" first
+        if decision == "chat":
+            return "chat_setup"
+        if decision in ["planner", "coder", "validator", "fixer", "complete"]:
             return decision
         return "complete" # Default fallback
         

@@ -804,6 +804,178 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
         }
         
         # ================================================================
+        # PHASE 2: Execute Scaffolding using create_react_agent
+        # (Moved BEFORE artifact writing so directory is empty for scaffolders)
+        # ================================================================
+        if project_path:
+            try:
+                # ============================================================
+                # SCOPE-AWARE SCAFFOLDING DECISION
+                # ============================================================
+                scope = intent.get("scope", "feature")
+                target_area = intent.get("target_area", "frontend")
+                project_dir = Path(project_path)
+                
+                # Determine if scaffolding is needed based on scope
+                needs_scaffolding = False
+                
+                if scope == "project":
+                    needs_scaffolding = True
+                    logger.info(f"[PLANNER] 🏗️ Scope 'project' → Scaffolding required")
+                    
+                elif scope == "layer":
+                    # Check if the target layer exists
+                    layer_indicators = {
+                        "backend": [project_dir / "server", project_dir / "backend", project_dir / "api"],
+                        "database": [project_dir / "prisma", project_dir / "db", project_dir / "migrations"],
+                        "frontend": [project_dir / "src", project_dir / "app", project_dir / "pages"],
+                    }
+                    
+                    indicators = layer_indicators.get(target_area, [])
+                    layer_exists = any(ind.exists() for ind in indicators)
+                    
+                    if not layer_exists:
+                        needs_scaffolding = True
+                        logger.info(f"[PLANNER] 🏗️ Scope 'layer' + missing {target_area} → Scaffolding required")
+                    else:
+                        logger.info(f"[PLANNER] ✅ Scope 'layer' but {target_area} exists → No scaffolding")
+                        
+                elif scope == "component":
+                    # Check if basic project structure exists
+                    project_indicators = [
+                        project_dir / "package.json",
+                        project_dir / "src",
+                        project_dir / "app"
+                    ]
+                    if not any(ind.exists() for ind in project_indicators):
+                        needs_scaffolding = True
+                        logger.info(f"[PLANNER] 🏗️ Scope 'component' but no project → Scaffolding required")
+                    else:
+                        logger.info(f"[PLANNER] ✅ Scope 'component' and project exists → No scaffolding")
+                        
+                else: # feature
+                    needs_scaffolding = False
+                    logger.info(f"[PLANNER] ✅ Scope 'feature' → No scaffolding")
+
+                # Execute scaffolding if needed
+                if needs_scaffolding:
+                    
+                    # Create folders first (except .ships which is handled later)
+                    # Use target_arg (subfolder) as prefix if we are scaffolding into a subfolder
+                    prefix = f"{target_arg}/" if target_arg != "." else ""
+                    
+                    folders_to_create = [
+                        f"{prefix}{f.path}" for f in plan_result["folder_map"].entries 
+                        if getattr(f, 'is_directory', False) and not str(f.path).startswith(".ships")
+                    ]
+                    
+                    # Get user request for context in scaffolding
+                    user_request_summary = intent.get("description", "")
+                    
+                    # ============================================================
+                    # USE DETECTED TEMPLATE FOR SCAFFOLD COMMAND
+                    # ============================================================
+                    from app.agents.sub_agents.planner.project_analyzer import _get_scaffold_command
+                    
+                    scaffold_command = _get_scaffold_command(self.current_project_type)
+                    
+                    # ============================================================
+                    # SMART NAMING & SUBFOLDER LOGIC
+                    # ============================================================
+                    import re
+                    
+                    # ============================================================
+                    # SMART NAMING & SUBFOLDER LOGIC
+                    # ============================================================
+                    import re
+                    
+                    # 1. Infer valid slug from user intent
+                    raw_desc = intent.get("description", "my-app")
+                    slug = re.sub(r'[^a-z0-9]+', '-', raw_desc.lower()).strip('-')
+                    if not slug: slug = "my-app"
+                    slug = slug[:30]
+                    
+                    current_dir_name = project_dir.name.lower()
+                    
+                    # 2. Decide target: Subfolder vs Current Dir
+                    # If current dir matches the intended name, use it.
+                    # Otherwise, create a nice subfolder to keep things clean.
+                    if current_dir_name == slug:
+                        target_arg = "."
+                        effective_project_path = project_path
+                        logger.info(f"[PLANNER] 🎯 Current dir matches slug '{slug}'. Scaffolding here.")
+                    else:
+                        target_arg = slug
+                        effective_project_path = str(project_dir / slug)
+                        logger.info(f"[PLANNER] 📦 Scaffolding into subfolder '{slug}' (Parent '{current_dir_name}' mismatch)")
+                        
+                        # UPDATE ARTIFACTS
+                        plan_artifacts["project_path"] = effective_project_path
+                        plan_artifacts["project_name"] = slug
+                        
+                        # Update local var for prompt
+                        project_path = effective_project_path
+                    
+                    # 3. Update Command
+                    if " . " in scaffold_command:
+                        scaffold_command = scaffold_command.replace(" . ", f" {target_arg} ")
+
+                    logger.info(f"[PLANNER] 🔧 Final Scaffold Command: {scaffold_command}")
+                    
+                    scaffold_prompt = f"""PROJECT PATH: {project_dir} (Target: {target_arg})
+
+USER REQUEST: "{user_request_summary[:200]}"
+
+TEMPLATE: {self.current_project_type}
+
+SCAFFOLDING REQUIRED: Execute these steps in order:
+
+1. First, check what exists: call list_directory(".")
+
+2. If no package.json exists, scaffold the project:
+   run_terminal_command("{scaffold_command}")
+   Then: run_terminal_command("npm install")
+
+3. Create ALL these folders in ONE call using create_directories:
+   create_directories({json.dumps(folders_to_create[:20])})
+
+4. Verify scaffolding: call list_directory(".") to confirm structure
+
+IMPORTANT:
+- Use -y flags to avoid prompts
+- Use create_directories (batch) NOT multiple create_directory calls
+- If a command fails, log and continue
+- Do NOT write actual code - just structure"""
+
+
+                    # Create ReAct agent with planner tools
+                    llm = LLMFactory.get_model("planner")
+                    planner_agent = create_react_agent(
+                        model=llm,
+                        tools=PLANNER_TOOLS,
+                        prompt=AGENT_PROMPTS.get("planner", "You are a project scaffolder."),
+                    )
+                    
+                    # Execute scaffolding
+                    scaffold_result = await planner_agent.ainvoke(
+                        {"messages": [HumanMessage(content=scaffold_prompt)]},
+                        config={"recursion_limit": 30}
+                    )
+                    
+                    plan_artifacts["scaffolding_complete"] = True
+                    plan_artifacts["scaffolding_messages"] = len(scaffold_result.get("messages", []))
+                else:
+                    plan_artifacts["scaffolding_complete"] = True
+                    plan_artifacts["scaffolding_skipped"] = True
+                    plan_artifacts["scaffolding_reason"] = f"Scope '{scope}' does not require scaffolding"
+                    
+            except Exception as scaffold_error:
+                # Don't fail planning if scaffolding fails
+                plan_artifacts["scaffolding_complete"] = False
+                plan_artifacts["scaffolding_error"] = str(scaffold_error)
+                logger.error(f"[PLANNER] ❌ Scaffolding failed: {scaffold_error}")
+
+        # ================================================================
         # WRITE ALL ARTIFACTS TO DISK
         # ================================================================
         if project_path:
@@ -851,138 +1023,5 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
             
             logger.info(f"[PLANNER] 💾 Wrote 7 artifacts to {dot_ships}")
         
-        # ================================================================
-        # PHASE 2: Execute Scaffolding using create_react_agent
-        # ================================================================
-        if project_path:
-            try:
-                # ============================================================
-                # SCOPE-AWARE SCAFFOLDING DECISION
-                # ============================================================
-                # Use the 'scope' field from intent classification to decide:
-                # - scope: "project" → Always scaffold
-                # - scope: "layer" → Scaffold if layer doesn't exist
-                # - scope: "component" → Create component files if missing
-                # - scope: "feature" → NEVER scaffold, only modify existing
-                # ============================================================
-                scope = intent.get("scope", "feature")
-                target_area = intent.get("target_area", "frontend")
-                project_dir = Path(project_path)
-                
-                # Determine if scaffolding is needed based on scope
-                needs_scaffolding = False
-                
-                if scope == "project":
-                    # Always scaffold for new project requests
-                    needs_scaffolding = True
-                    logger.info(f"[PLANNER] 🏗️ Scope 'project' → Scaffolding required")
-                    
-                elif scope == "layer":
-                    # Check if the target layer exists
-                    layer_indicators = {
-                        "backend": [project_dir / "server", project_dir / "backend", project_dir / "api"],
-                        "database": [project_dir / "prisma", project_dir / "db", project_dir / "migrations"],
-                        "frontend": [project_dir / "src", project_dir / "app", project_dir / "pages"],
-                    }
-                    
-                    indicators = layer_indicators.get(target_area, [])
-                    layer_exists = any(ind.exists() for ind in indicators)
-                    
-                    if not layer_exists:
-                        needs_scaffolding = True
-                        logger.info(f"[PLANNER] 🏗️ Scope 'layer' + missing {target_area} → Scaffolding required")
-                    else:
-                        logger.info(f"[PLANNER] ✅ Scope 'layer' but {target_area} exists → No scaffolding")
-                        
-                elif scope == "component":
-                    # Check if basic project structure exists
-                    project_indicators = [
-                        project_dir / "package.json",
-                        project_dir / "requirements.txt",
-                        project_dir / "pyproject.toml",
-                    ]
-                    if not any(ind.exists() for ind in project_indicators):
-                        needs_scaffolding = True
-                        logger.info(f"[PLANNER] 🏗️ Scope 'component' but no project → Scaffolding required")
-                    else:
-                        logger.info(f"[PLANNER] ✅ Scope 'component' with existing project → No scaffolding")
-                        
-                else:  # scope == "feature" or "file"
-                    # NEVER scaffold for feature requests - only modify existing code
-                    needs_scaffolding = False
-                    logger.info(f"[PLANNER] ✅ Scope '{scope}' → No scaffolding (modify existing)")
-                
-                if needs_scaffolding:
-                    # Build scaffolding prompt from plan
-                    folder_map = plan_result["folder_map"]
-                    folders_to_create = [
-                        entry.path for entry in folder_map.entries 
-                        if getattr(entry, 'is_directory', False)
-                    ]
-                    
-                    # Get user request for context in scaffolding
-                    user_request_summary = intent.get("description", "")
-                    
-                    # ============================================================
-                    # USE DETECTED TEMPLATE FOR SCAFFOLD COMMAND
-                    # ============================================================
-                    from app.agents.sub_agents.planner.project_analyzer import _get_scaffold_command
-                    
-                    scaffold_command = _get_scaffold_command(self.current_project_type)
-                    logger.info(f"[PLANNER] 🔧 Scaffold command for '{self.current_project_type}': {scaffold_command}")
-                    
-                    scaffold_prompt = f"""PROJECT PATH: {project_path}
 
-USER REQUEST: "{user_request_summary[:200]}"
-
-TEMPLATE: {self.current_project_type}
-
-SCAFFOLDING REQUIRED: Execute these steps in order:
-
-1. First, check what exists: call list_directory(".")
-
-2. If no package.json exists, scaffold the project:
-   run_terminal_command("{scaffold_command}")
-   Then: run_terminal_command("npm install")
-
-3. Create ALL these folders in ONE call using create_directories:
-   create_directories({json.dumps(folders_to_create[:20])})
-
-4. Verify scaffolding: call list_directory(".") to confirm structure
-
-IMPORTANT:
-- Use -y flags to avoid prompts
-- Use create_directories (batch) NOT multiple create_directory calls
-- If a command fails, log and continue
-- Do NOT write actual code - just structure
-- The implementation_plan.md has ALREADY been written - do NOT overwrite it"""
-
-
-                    # Create ReAct agent with planner tools
-                    llm = LLMFactory.get_model("planner")
-                    planner_agent = create_react_agent(
-                        model=llm,
-                        tools=PLANNER_TOOLS,
-                        prompt=AGENT_PROMPTS.get("planner", "You are a project scaffolder."),
-                    )
-                    
-                    # Execute scaffolding
-                    scaffold_result = await planner_agent.ainvoke(
-                        {"messages": [HumanMessage(content=scaffold_prompt)]},
-                        config={"recursion_limit": 30}
-                    )
-                    
-                    plan_artifacts["scaffolding_complete"] = True
-                    plan_artifacts["scaffolding_messages"] = len(scaffold_result.get("messages", []))
-                else:
-                    plan_artifacts["scaffolding_complete"] = True
-                    plan_artifacts["scaffolding_skipped"] = True
-                    plan_artifacts["scaffolding_reason"] = f"Scope '{scope}' does not require scaffolding"
-                    
-            except Exception as scaffold_error:
-                # Don't fail planning if scaffolding fails
-                plan_artifacts["scaffolding_complete"] = False
-                plan_artifacts["scaffolding_error"] = str(scaffold_error)
-        
         return {"artifacts": plan_artifacts}
-
