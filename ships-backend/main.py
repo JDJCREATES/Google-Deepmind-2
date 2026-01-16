@@ -453,7 +453,18 @@ async def run_agent(request: Request, body: PromptRequest):
                                 # Plain text - stream directly
                                 # Skip system prompts and internal markers
                                 skip_markers = ['ACTION REQUIRED', 'MANDATORY FIRST', 'SCAFFOLDING CHECK']
-                                if not any(marker in text for marker in skip_markers):
+                                
+                                # FILTER: Skip JSON fragments (partial streaming tokens)
+                                # These look like '"key": value,' but aren't complete JSON
+                                is_json_fragment = (
+                                    '": ' in text or  # JSON key-value separator 
+                                    text.startswith('"') or  # Starts with quote
+                                    text.startswith('{') or  # Partial JSON object
+                                    text.startswith('[') or  # Partial JSON array
+                                    text.strip() in ['{', '}', '[', ']', ',']  # JSON syntax
+                                )
+                                
+                                if not any(marker in text for marker in skip_markers) and not is_json_fragment:
                                     if node_name.lower() in ['chat', 'chatter']:
                                         yield json.dumps({
                                             "type": "message",

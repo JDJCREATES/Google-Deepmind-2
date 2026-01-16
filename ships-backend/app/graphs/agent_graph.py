@@ -855,12 +855,12 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
     max_attempts = state.get("max_fix_attempts", 3)
     
     if fix_attempts > max_attempts:
-        logger.warning(f"[FIXER] ⚠️ Max attempts ({max_attempts}) exceeded, escalating to planner")
+        logger.warning(f"[FIXER] ⚠️ Max attempts ({max_attempts}) exceeded, asking user for help")
         return {
-            "phase": "planner",  # Escalate to replanning
+            "phase": "chat",  # Ask user for help, NOT planner (that causes rebuilds)
             "fix_attempts": fix_attempts,
-            "error_log": state.get("error_log", []) + ["Fixer max attempts exceeded - needs replanning"],
-            "messages": [AIMessage(content="Fix attempts exceeded. Escalating to planner.")]
+            "error_log": state.get("error_log", []) + ["Fixer max attempts exceeded - needs user guidance"],
+            "messages": [AIMessage(content="I've tried to fix this issue multiple times but am still stuck. Let me explain what's happening and get your input.")]
         }
     
     # Invoke the Fixer
@@ -955,15 +955,16 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
             
             logger.info(f"[FIXER] ✅ Fixer completed")
             
-            # Check for escalation
-            if result.get("requires_replan") or result.get("needs_replan"):
-                reason = result.get("artifacts", {}).get("replan_request", {}).get("reason", "Fixer requested escalation")
-                logger.info(f"[FIXER] ⚠️ Escalation requested: {reason}")
+            # Check for escalation (but route to user, not planner)
+            if result.get("requires_user_help") or result.get("requires_replan") or result.get("needs_replan"):
+                reason = result.get("artifacts", {}).get("escalation_reason") or \
+                         result.get("artifacts", {}).get("reason") or "Fixer needs user guidance"
+                logger.info(f"[FIXER] ⚠️ User help needed: {reason}")
                 return {
-                    "phase": "planner",
+                    "phase": "chat",  # Ask user, NOT planner
                     "fix_attempts": fix_attempts,
-                    "error_log": state.get("error_log", []) + [f"Escalated: {reason}"],
-                    "messages": [AIMessage(content=f"Escalating to planner: {reason}")]
+                    "error_log": state.get("error_log", []) + [f"Needs help: {reason}"],
+                    "messages": [AIMessage(content=f"I need your help: {reason}")]
                 }
             
             # ===== COLLECTIVE INTELLIGENCE: Store fix context for capture =====
@@ -1288,6 +1289,34 @@ Please clarify before I proceed."""
     You are the Master Orchestrator. You decide which agent runs next.
     </role>
     
+    <agent_domains>
+    === CRITICAL: Understand what each agent CAN and CANNOT do ===
+    
+    PLANNER:
+    - CAN: Create implementation plans, scaffold new projects, design architecture
+    - CANNOT: Fix code errors, resolve build failures, debug existing code
+    - WHEN TO CALL: New feature requests, no plan exists, need to restructure
+    
+    CODER:
+    - CAN: Write new files, implement features according to plan
+    - CANNOT: Fix its own syntax/build errors (that's Fixer's job)
+    - WHEN TO CALL: Plan exists, need to write/modify code files
+    
+    VALIDATOR:
+    - CAN: Run builds, check for errors, verify code compiles
+    - CANNOT: Fix errors (it only reports them)
+    - WHEN TO CALL: Code was just written, need to verify it works
+    
+    FIXER:
+    - CAN: Fix syntax errors, build errors, type errors, missing imports
+    - CANNOT: Re-architect or re-plan the project
+    - WHEN TO CALL: Validation found errors that need fixing
+    
+    CHAT:
+    - CAN: Answer questions, ask user for clarification, escalate problems
+    - WHEN TO CALL: User asked a question, OR agent is stuck and needs help
+    </agent_domains>
+    
     <state>
     PHASE: {phase}
     FILES COMPLETED: {len(completed_files)}
@@ -1299,31 +1328,35 @@ Please clarify before I proceed."""
     USER QUESTION: {is_question}
     INTENT TYPE: {current_intent.task_type if current_intent else 'None'}
     LOOP WARNING: {loop_warning if loop_warning else 'None'}
+    RECENT ERRORS: {error_log[-3:] if error_log else 'None'}
     </state>
     
     <rules>
     PRIORITY 1: Questions
     - If USER QUESTION is True -> call_chat
     
-    PRIORITY 2: Planning & Execution (AUTONOMOUS MODE)
+    PRIORITY 2: Planning & Execution
     - If PHASE is "planning":
-       - If NEW FEATURE REQUEST is True -> call_planner (ALWAYS re-plan)
+       - If NEW FEATURE REQUEST is True -> call_planner (re-plan for new feature)
        - If plan missing OR scaffolding NOT done -> call_planner
-       - If plan ready AND scaffolding done -> call_coder (AUTO-PROCEED!)
+       - If plan ready AND scaffolding done -> call_coder (proceed to code!)
        
     PRIORITY 3: Execution
-    - If PHASE is "plan_ready" -> call_coder (NO PAUSING - just build!)
-    - If PHASE is "coding" (and files remain) -> call_coder
+    - If PHASE is "plan_ready" or "coding" -> call_coder
     
     PRIORITY 4: Validation & Fixes
     - If PHASE is "validating" -> call_validator
     - If PHASE is "fixing" -> call_fixer
     - If Validation Passed -> finish
-    - If PHASE is "fixing_failed" -> call_planner
-    - If Fixer failed > 3 times -> finish
     
-    NOTE: HITL (Human-in-the-Loop) is DISABLED for routine builds.
-    Only pause for critical architectural decisions (not implemented yet).
+    PRIORITY 5: Error Recovery (CRITICAL)
+    - If FIX ATTEMPTS >= 3 -> call_chat (ASK USER FOR HELP - fixer is stuck)
+    - If LOOP WARNING is present -> call_chat (something is broken, need user)
+    - NEVER call Planner when there are code/build errors - Planner cannot fix code!
+    - NEVER rebuild the project just because validation is failing!
+    
+    PRIORITY 6: Completion
+    - If all files coded and validation passed -> finish
     </rules>
     
     <output_format>

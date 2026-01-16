@@ -91,34 +91,38 @@ class Fixer(BaseAgent):
         """Get system prompt for fix generation."""
         return """You are the Fixer for ShipS*, an AI coding system that SHIPS WORKING CODE.
 
-Your job is to produce the SMALLEST SAFE fix that makes validation pass.
+YOUR MISSION: Fix code errors so the build passes. You are a capable developer.
 
-CRITICAL RULES:
-1. MINIMAL FIXES: Produce the smallest change that fixes the violation
-2. NO ARCHITECTURE CHANGES: If fix requires folder/plan changes, escalate to Planner
-3. ARTIFACT-FIRST: All fixes are persisted artifacts, no "apply and hope"
-4. EXPLAINABILITY: Every fix includes rationale and confidence
-5. SAFETY FIRST: No secrets, no banned packages, verify dependencies
+YOU HAVE FULL ACCESS TO:
+- read_file_from_disk: Read any source file to understand what's happening
+- write_file_to_disk: Write or overwrite files with fixed code
+- apply_source_edits: Make targeted line-by-line edits (preferred for modifications)
+- insert_content: Insert new content at specific locations
+- run_terminal_command: Run build commands, type-check, run tests to verify
 
-WHAT YOU CAN FIX:
-- TODOs and placeholders (convert to stubs with follow-up tasks)
-- Empty functions (add minimal implementation)
-- Missing imports (if package is allowed)
-- Simple typos in paths
+APPROACH:
+1. Read the error messages carefully - understand what's actually broken
+2. Read the relevant source files to see the context
+3. Reason about the root cause - don't just patch symptoms
+4. Make the minimal fix needed - smallest change that solves the problem
+5. Verify by running build/type-check if needed
 
-WHAT YOU MUST ESCALATE:
-- Folder map violations
-- Scope exceeded
-- Architectural changes
-- Security/license issues
+YOU CAN FIX:
+- Syntax errors
+- Type errors  
+- Missing imports
+- Build configuration issues
+- Runtime errors
+- Broken references
+- Any code issue you can diagnose
 
-Output a JSON fix plan:
-{
-    "can_fix": true/false,
-    "fixes": [{"violation_id": "...", "approach": "...", "change": {...}}],
-    "requires_replan": true/false,
-    "confidence": 0.85
-}"""
+STYLE:
+- Be surgical - smallest change that fixes the issue
+- Preserve existing code style and formatting
+- Add comments if the fix is non-obvious
+- If you genuinely cannot fix something after trying, explain clearly why
+
+Output your reasoning, then use tools to implement the fix."""
     
     async def fix(
         self,
@@ -460,9 +464,9 @@ Output a JSON fix plan:
             requires_replan=True,
             replan_request=replan_request,
             fix_attempt_log=attempt_log,
-            recommended_action="replan",
+            recommended_action="ask_user",
             confidence=0.0,
-            next_agent="planner"
+            next_agent="user"  # Don't escalate to planner - ask user what to do
         )
     
     async def invoke(self, state: AgentState) -> Dict[str, Any]:
@@ -491,16 +495,15 @@ Output a JSON fix plan:
         error_log = state.get("error_log", [])
         fix_attempts = parameters.get("attempt_number", 1)
         
-        # Check if we should escalate
+        # Check if we should escalate to user (not planner - that causes rebuilds)
         max_attempts = self.config.max_auto_fix_attempts
         if fix_attempts > max_attempts:
             return {
                 "success": False,
-                "requires_replan": True,
-                "needs_replan": True,
-                "artifacts": {},
-                "recommended_action": "replan",
-                "next_agent": "planner",
+                "requires_user_help": True,
+                "artifacts": {"reason": "Max fix attempts exceeded. Need human guidance."},
+                "recommended_action": "ask_user",
+                "next_agent": "user",
             }
         
         # Get recent errors for context
@@ -583,11 +586,10 @@ When done, respond with:
             if needs_escalate:
                 return {
                     "success": False,
-                    "requires_replan": True,
-                    "needs_replan": True,
-                    "artifacts": {"replan_request": {"reason": escalation_reason}},
-                    "recommended_action": "replan",
-                    "next_agent": "planner",
+                    "requires_user_help": True,
+                    "artifacts": {"escalation_reason": escalation_reason},
+                    "recommended_action": "ask_user",
+                    "next_agent": "user",
                 }
             
             return {

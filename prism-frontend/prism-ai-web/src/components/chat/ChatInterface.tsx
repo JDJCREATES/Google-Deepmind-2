@@ -1,5 +1,4 @@
 
-import { useState, useRef, useEffect } from 'react';
 import { RiShip2Fill } from 'react-icons/ri';
 import { VscLayoutSidebarRightOff, VscOpenPreview } from 'react-icons/vsc';
 import { ProgressCircular } from 'react-onsenui';
@@ -8,7 +7,9 @@ import ChatMessage from './ChatMessage';
 import { ToolProgress, PhaseIndicator } from '../streaming';
 import { ActivityIndicator } from '../streaming/ActivityIndicator';
 import { ThinkingSection } from '../streaming/ThinkingSection';
+import { PlanReviewActions } from '../streaming/PlanReviewActions';
 import { useChatLogic } from './hooks/useChatLogic';
+import { useStreamingStore } from '../../store/streamingStore';
 
 
 import './ChatInterface.css';
@@ -36,6 +37,9 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
     messagesEndRef,
     openFile
   } = useChatLogic({ electronProjectPath });
+  
+  // HITL state - reactive subscription
+  const { awaitingConfirmation, planSummary, setAwaitingConfirmation } = useStreamingStore();
   
   return (
     <aside className="chat-panel" role="complementary" aria-label="AI Chat Assistant">
@@ -144,6 +148,22 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
             }}
           />
         </div>
+      )}
+
+      {/* HITL Plan Review Actions - Shows when awaiting user confirmation */}
+      {awaitingConfirmation && (
+        <PlanReviewActions
+          planSummary={planSummary}
+          onAccept={() => {
+            setAwaitingConfirmation(false);
+            setInputValue('proceed');
+            handleSendMessage();
+          }}
+          onReject={() => {
+            setAwaitingConfirmation(false);
+            setInputValue('');
+          }}
+        />
       )}
 
       {/* Input Area */}

@@ -37,17 +37,31 @@ from app.agents.tools.fixer.fixer_tools import (
 )
 
 # Import write_file_to_disk from coder tools (now modular)
-from app.agents.tools.coder import write_file_to_disk
+from app.agents.tools.coder import (
+    write_file_to_disk,
+    read_file_from_disk,
+    apply_source_edits,   # For targeted line-by-line edits
+    insert_content,       # For inserting new content
+    run_terminal_command,
+)
 
 # Combined export of all tools for the Fixer agent
+# EMPOWERED: Fixer now has full access to read, write, edit, and run commands
 FIXER_TOOLS = [
+    # Core file operations - FULL ACCESS like Coder
+    read_file_from_disk,      # Read files to understand what needs fixing
+    write_file_to_disk,       # Write/overwrite files
+    apply_source_edits,       # Make targeted edits (preferred for modifications)
+    insert_content,           # Insert new content at specific locations
+    run_terminal_command,     # Run npm build, tsc, tests to verify fixes
+    
+    # Specialized fixer tools (optional use)
     triage_violations,
     generate_todo_fix,
     generate_empty_function_fix,
     create_fix_patch,
-    create_replan_request,
     run_preflight_checks,
-    write_file_to_disk,
+    
     # Collective Intelligence
     get_fix_suggestions,
     report_fix_outcome,
@@ -75,8 +89,12 @@ __all__ = [
     "report_fix_outcome",
     "set_fixer_knowledge",
     
-    # Re-exports
+    # Core file operations (re-exported from coder)
+    "read_file_from_disk",
     "write_file_to_disk",
+    "apply_source_edits",
+    "insert_content",
+    "run_terminal_command",
     
     # Tool list
     "FIXER_TOOLS",
