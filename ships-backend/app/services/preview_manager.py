@@ -295,9 +295,14 @@ class MultiPreviewManager:
         logger.info(f"[PREVIEW] Stopping instance for run={run_id}")
         
         # Terminate process
+        # Terminate process tree
         if instance.process:
             try:
-                instance.process.terminate()
+                # On Windows with shell=True, we must kill the tree
+                if os.name == 'nt':
+                    subprocess.run(f"taskkill /F /T /PID {instance.process.pid}", shell=True, capture_output=True)
+                else:
+                    instance.process.terminate()
             except Exception:
                 pass
         
@@ -332,7 +337,7 @@ class MultiPreviewManager:
                         pids.add(pid)
             
             for pid in pids:
-                subprocess.run(f"taskkill /F /PID {pid}", shell=True, capture_output=True)
+                subprocess.run(f"taskkill /F /T /PID {pid}", shell=True, capture_output=True)
         except Exception as e:
             logger.debug(f"Kill by port failed: {e}")
     

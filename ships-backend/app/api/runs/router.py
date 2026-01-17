@@ -430,6 +430,52 @@ async def rollback_run(
     return {"success": True}
 
 
+from app.services.preview_manager import preview_manager
+
+@router.delete("/{run_id}")
+async def delete_run(
+    run_id: str,
+    db: AsyncSession = Depends(get_session),
+    user_id: uuid.UUID = Depends(get_current_user_id)
+):
+    """Delete a run and stop its preview."""
+    # Find the run
+    result = await db.execute(
+        select(AgentRunModel)
+        .where(AgentRunModel.user_id == user_id)
+        .where(AgentRunModel.id.cast(String).like(f"{run_id}%"))
+    )
+    run = result.scalar_one_or_none()
+    
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    
+    # 1. STOP PREVIEW (Kills processes)
+    # Use full UUID or whatever runs map uses (usually same ID)
+    preview_manager.stop_all() # Or stop specific?
+    # Actually, preview_manager keys by run_id. Use the full ID from DB if possible, or the one passed?
+    # The run_id passed in might be short. Let's use the one from DB.
+    try:
+        preview_manager._stop_instance(str(run.id))
+        # Also try short ID just in case
+        if len(run_id) < 32:
+             preview_manager._stop_instance(run_id)
+    except Exception as e:
+        logger.warning(f"[RUNS] Failed to stop preview for {run_id}: {e}")
+
+    # 2. DELETE FROM DB
+    await db.delete(run)
+    await db.commit()
+    
+    # 3. BROADCAST DELETION
+    await broadcast_event({
+        "type": "run_deleted",
+        "runId": str(run.id)
+    })
+    
+    return {"success": True}
+
+
 # ============================================================================
 # WebSocket Endpoint
 # ============================================================================
@@ -441,10 +487,11 @@ async def websocket_endpoint(websocket: WebSocket):
     websocket_connections.append(websocket)
     
     try:
-        # Send current runs on connect
+        # TODO: Fetch initial state from DB if needed
+        # For now, just confirm connection
         await websocket.send_text(json.dumps({
-            "type": "initial_state",
-            "runs": list(runs_store.values()),
+            "type": "connected",
+            "message": "Connected to Runs WebSocket"
         }))
         
         # Keep connection alive
@@ -464,6 +511,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 
     except WebSocketDisconnect:
         pass
+    except Exception as e:
+        logger.error(f"[WS] WebSocket error: {e}")
     finally:
         if websocket in websocket_connections:
             websocket_connections.remove(websocket)
