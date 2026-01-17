@@ -27,7 +27,21 @@ def set_project_root(path: str) -> None:
 
 def get_project_root() -> str | None:
     """Get the current project root path."""
-    return _project_root_var.get()
+    # 1. Try context var (set per request/agent)
+    root = _project_root_var.get()
+    if root:
+        return root
+        
+    # 2. Fallback: Preview Manager (global session singleton)
+    # This catches cases where ContextVar is lost across threads
+    try:
+        from app.services.preview_manager import preview_manager
+        if preview_manager.current_project_path:
+            return preview_manager.current_project_path
+    except ImportError:
+        pass
+        
+    return None
 
 
 def validate_project_path() -> tuple[bool, str]:

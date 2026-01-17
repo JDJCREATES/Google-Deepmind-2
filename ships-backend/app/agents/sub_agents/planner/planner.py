@@ -660,6 +660,9 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
         events.append(emit_event("thinking", "planner", "Analyzing requirements..."))
         
         plan_artifacts = await self.plan(intent)
+        if not plan_artifacts:
+            plan_artifacts = {}
+
         
         # 3. Artifact Persistence
         # (Already done in self.plan? No, self.plan returns them)
