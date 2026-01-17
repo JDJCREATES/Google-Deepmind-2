@@ -253,13 +253,13 @@ class JsonValueFilter:
         
         while True:
             if self.is_capturing:
-                # Look for unescaped quote
-                # Simple check: find quote, check preceding char
+                # Look for unescaped quote to end the value
                 match = re.search(r'(?<!\\)"', self.buffer)
                 if match:
                     end_idx = match.start()
                     val = self.buffer[:end_idx]
-                    output += val + "\n"
+                    # Use space separator, not newline. Frontend handles line breaks.
+                    output += val + " "
                     self.is_capturing = False
                     self.buffer = self.buffer[match.end():]
                 else:
@@ -510,8 +510,12 @@ async def run_agent(request: Request, body: PromptRequest):
                     if not isinstance(content, str):
                         continue
                     
-                    # FILTER: If Planner, extract only relevant text (title, description)
-                    # This prevents "matrix rain" of raw JSON
+                    # SUPPRESS: Orchestrator streams raw JSON (intent classification)
+                    # User doesn't need to see this - they already see "Analyzing Request" status
+                    if node_name.lower() == 'orchestrator':
+                        continue
+                    
+                    # FILTER: Planner streams JSON plan - extract only useful text
                     if node_name == 'planner':
                         filtered = planner_filter.process_chunk(content)
                         if not filtered.strip():

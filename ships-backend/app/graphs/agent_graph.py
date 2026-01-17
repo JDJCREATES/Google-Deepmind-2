@@ -148,7 +148,18 @@ class AgentGraphState(TypedDict):
     # ============================================================================
     # Track consecutive calls to detect loops and inform orchestrator
     loop_detection: Dict[str, Any]  # {last_node, consecutive_calls, loop_detected, loop_message}
+    
+    # ============================================================================
+    # AGENT STATUS (for orchestrator reasoning)
+    # ============================================================================
+    implementation_complete: bool   # Coder sets this when all files written
+    agent_status: Dict[str, Any]    # {status, failure_layer, recommended_action, ...}
     current_step: int               # Step counter for git checkpointing
+    
+    # ============================================================================
+    # FIX REQUEST (structured validator → fixer handoff)
+    # ============================================================================
+    fix_request: Optional[Dict[str, Any]]  # Structured error data from validator
 
 
 # ============================================================================
@@ -313,9 +324,12 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
         merged_artifacts.pop("retry_reason", None)
         
         # SAVE ARTIFACTS TO DISK (For Frontend Persistence)
-        if project_path:
+        # Use the UPDATED project_path (after scaffolding may have changed it to subfolder)
+        final_project_path = merged_artifacts.get("project_path") or project_path
+        
+        if final_project_path:
             try:
-                dot_ships = os.path.join(project_path, ".ships")
+                dot_ships = os.path.join(final_project_path, ".ships")
                 os.makedirs(dot_ships, exist_ok=True)
                 
                 # Save planner status
@@ -324,10 +338,25 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
                     json_mod.dump({
                         "status": "complete",
                         "scaffolding_complete": merged_artifacts.get("scaffolding_complete", False),
-                        "project_path": project_path,
+                        "project_path": final_project_path,
                     }, f, indent=2)
                 
                 logger.info(f"[PLANNER] 💾 Saved planner status to {dot_ships}")
+                
+                # =================================================================
+                # GIT CHECKPOINT: After plan + scaffolding
+                # =================================================================
+                try:
+                    from app.services.git_checkpointer import get_checkpointer
+                    
+                    milestone = "scaffolding_complete" if merged_artifacts.get("scaffolding_complete") else "plan_ready"
+                    checkpointer = get_checkpointer(final_project_path)
+                    commit_hash = checkpointer.checkpoint(milestone)
+                    if commit_hash:
+                        logger.info(f"[PLANNER] 📸 Git checkpoint: {commit_hash[:8]}")
+                except Exception as cp_err:
+                    logger.debug(f"[PLANNER] Git checkpoint skipped: {cp_err}")
+                # =================================================================
                 
             except Exception as io_e:
                 logger.error(f"[PLANNER] ❌ Failed to save artifacts: {io_e}")
@@ -654,16 +683,20 @@ ACTUAL FILE STRUCTURE (Disk State):
                     if norm_expected in normalized_completed:
                         continue
                     
-                    # Check disk
-                    try:
-                        full_path = Path(project_path) / expected
-                        if full_path.exists() and full_path.is_file():
-                            current_completed.append(str(expected))
-                            normalized_completed.add(norm_expected)
-                            logger.info(f"[CODER] 🔍 Verified existing file on disk: {expected}")
-                            continue
-                    except Exception:
-                        pass
+                    # CHECK DISK: DISABLED
+                    # We cannot assume a file on disk is "correct".
+                    # The Coder must explicitly touch/update files to mark them complete in the tracking state.
+                    # This prevents skipping default scaffold files (like page.tsx) that exist but need changes.
+                    #
+                    # try:
+                    #     full_path = Path(project_path) / expected
+                    #     if full_path.exists() and full_path.is_file():
+                    #         current_completed.append(str(expected))
+                    #         normalized_completed.add(norm_expected)
+                    #         logger.info(f"[CODER] 🔍 Verified existing file on disk: {expected}")
+                    #         continue
+                    # except Exception:
+                    #     pass
                     
                     missing.append(expected)
 
@@ -687,7 +720,6 @@ ACTUAL FILE STRUCTURE (Disk State):
             continue
     
     # Final determination
-    next_phase = "validating" if implementation_complete else "coding"
     if implementation_complete:
         logger.info(f"[CODER] ✅ Implementation complete. {len(current_completed)} files created.")
     else:
@@ -716,11 +748,30 @@ ACTUAL FILE STRUCTURE (Disk State):
         lock_manager.release(project_path, active_file, "coder_node")
         logger.info(f"[CODER] 🔓 Released lock for {active_file}")
 
+    # =================================================================
+    # GIT CHECKPOINT: When implementation complete
+    # =================================================================
+    if implementation_complete and project_path:
+        try:
+            from app.services.git_checkpointer import get_checkpointer
+            
+            checkpointer = get_checkpointer(project_path)
+            commit_hash = checkpointer.checkpoint(
+                "implementation_complete",
+                f"{len(current_completed)} files created"
+            )
+            if commit_hash:
+                logger.info(f"[CODER] 📸 Git checkpoint: {commit_hash[:8]}")
+        except Exception as cp_err:
+            logger.debug(f"[CODER] Git checkpoint skipped: {cp_err}")
+    # =================================================================
+
     return {
-        "messages": [AIMessage(content=f"Coder completed: {result.get('status', 'unknown') if result else 'no_result'}")],
-        "phase": next_phase,
+        "messages": [AIMessage(content=f"Coder {'completed' if implementation_complete else 'partially done'}: {len(current_completed)} files written")],
+        # NOTE: Removed "phase" - let orchestrator LLM decide next step
         "completed_files": current_completed,
-        "agent_status": {"status": result.get("status", "in_progress") if result else "error"}
+        "implementation_complete": implementation_complete,  # Orchestrator uses this to reason
+        "agent_status": {"status": "complete" if implementation_complete else "in_progress"}
     }
 
 
@@ -788,6 +839,50 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
             validation_report = result.get("artifacts", {}).get("validation_report", {})
             fixer_instructions = validation_report.get("fixer_instructions", f"Fix {violation_count} violations")
             error_log.append(f"Validation Failed [{failure_layer}]: {fixer_instructions[:200]}")
+            
+            # =================================================================
+            # CREATE STRUCTURED FIX REQUEST
+            # =================================================================
+            try:
+                from app.agents.sub_agents.fixer.fix_request import FixRequest
+                
+                fix_request = FixRequest.from_validation_result(
+                    validation_result=result,
+                    project_path=project_path,
+                    completed_files=state.get("completed_files", []),
+                    fix_attempt=state.get("fix_attempts", 0) + 1
+                )
+                
+                # Save to artifacts
+                merged_artifacts["fix_request"] = fix_request.model_dump()
+                
+                # Also save to disk for persistence
+                if project_path:
+                    from app.artifacts.artifact_manager import get_artifact_manager
+                    am = get_artifact_manager(project_path)
+                    am.save_json("fix_request", fix_request.model_dump())
+                
+                logger.info(f"[VALIDATOR] 📝 Created fix_request: {fix_request.id}")
+            except Exception as fr_err:
+                logger.warning(f"[VALIDATOR] ⚠️ Could not create fix_request: {fr_err}")
+            # =================================================================
+        else:
+            # =================================================================
+            # VALIDATION PASSED - GIT CHECKPOINT
+            # =================================================================
+            try:
+                from app.services.git_checkpointer import get_checkpointer
+                
+                checkpointer = get_checkpointer(project_path)
+                commit_hash = checkpointer.checkpoint(
+                    "validation_passed",
+                    f"All {violation_count} checks passed"
+                )
+                if commit_hash:
+                    logger.info(f"[VALIDATOR] 📸 Git checkpoint: {commit_hash[:8]}")
+            except Exception as cp_err:
+                logger.debug(f"[VALIDATOR] Git checkpoint skipped: {cp_err}")
+            # =================================================================
         
         # Merge artifacts
         merged_artifacts = {**artifacts}
@@ -796,7 +891,7 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
         
         return {
             "validation_passed": validation_passed,
-            "phase": "validating",
+            # NOTE: Removed "phase" - let orchestrator LLM decide next step based on results
             "error_log": error_log,
             "artifacts": merged_artifacts,
             "pending_fix_context": None,  # Clear after capture attempt
@@ -948,11 +1043,31 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
     
     fixer_state = scope_context_for_agent(state, "fixer")
     
+    # =================================================================
+    # CONSUME STRUCTURED FIX REQUEST (if available)
+    # =================================================================
+    fix_request_data = state.get("fix_request") or artifacts.get("fix_request")
+    
+    if fix_request_data:
+        logger.info(f"[FIXER] 📋 Using structured fix_request: {fix_request_data.get('id', 'unknown')}")
+        
+        # Create prompt from fix_request
+        try:
+            from app.agents.sub_agents.fixer.fix_request import FixRequest
+            fix_request = FixRequest.model_validate(fix_request_data)
+            fixer_prompt = fix_request.to_fixer_prompt()
+            fixer_state["fix_request"] = fix_request_data
+            fixer_state["fix_request_prompt"] = fixer_prompt
+        except Exception as fr_err:
+            logger.warning(f"[FIXER] Could not parse fix_request: {fr_err}")
+    # =================================================================
+    
     # Merge with fixer-specific overrides
     fixer_state["artifacts"] = {
         **fixer_state.get("artifacts", {}),
         "project_path": project_path,
-        "validation_report": filtered_report  # Pass constrained report
+        "validation_report": filtered_report,  # Pass constrained report
+        "fix_request": fix_request_data,  # Also pass structured request
     }
     fixer_state["parameters"] = {
         "attempt_number": fix_attempts,
@@ -993,10 +1108,29 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
             }
             # ==================================================================
             
+            # =================================================================
+            # GIT CHECKPOINT: After fix applied
+            # =================================================================
+            if project_path:
+                try:
+                    from app.services.git_checkpointer import get_checkpointer
+                    
+                    checkpointer = get_checkpointer(project_path)
+                    commit_hash = checkpointer.checkpoint(
+                        "fix_applied",
+                        f"Fix attempt #{fix_attempts}"
+                    )
+                    if commit_hash:
+                        logger.info(f"[FIXER] 📸 Git checkpoint: {commit_hash[:8]}")
+                except Exception as cp_err:
+                    logger.debug(f"[FIXER] Git checkpoint skipped: {cp_err}")
+            # =================================================================
+            
             return {
                 "fix_attempts": fix_attempts,
                 "phase": "validating",  # Go back to validation after fix
                 "pending_fix_context": pending_fix_context,
+                "fix_request": None,  # Clear fix_request after consuming
                 "agent_status": {"status": "fixed", "attempt": fix_attempts},
                 "messages": [AIMessage(content=f"Fix applied (attempt {fix_attempts})")]
             }
@@ -1066,41 +1200,14 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
         }
     
     # ================================================================
-    # FAST PATH: Use ShipSOrchestrator._simple_route() for deterministic transitions
-    # This saves LLM tokens for obvious decisions like planning→coding
+    # LLM REASONING: Let the orchestrator decide based on full state
+    # REMOVED: _simple_route() fast path - it caused loops and fragility
+    # The LLM should ALWAYS reason, that's the whole point of an orchestrator
     # ================================================================
-    from app.agents.orchestrator import ShipSOrchestrator
-    
     artifacts = state.get("artifacts", {})
     project_path = artifacts.get("project_path", ".")
     
-    fast_router = ShipSOrchestrator(project_root=project_path)
-    fast_decision = fast_router._simple_route(state)
-    
-    if fast_decision and not loop_detection.get("loop_detected"):
-        logger.info(f"[ORCHESTRATOR] ⚡ FAST PATH: {current_phase} → {fast_decision} (no LLM needed)")
-        
-        # Map to phase names used by route_orchestrator
-        phase_map = {
-            "planning": "planner",
-            "coding": "coder", 
-            "validating": "validator",
-            "fixing": "fixer",
-            "complete": "complete",
-            "escalated": "chat",
-        }
-        decision = phase_map.get(fast_decision, fast_decision)
-        
-        return {
-            "phase": decision,
-            "loop_detection": loop_detection,
-            "current_step": state.get("current_step", 0) + 1
-        }
-    
-    # ================================================================
-    # SLOW PATH: LLM reasoning for ambiguous situations
-    # ================================================================
-    logger.info(f"[ORCHESTRATOR] 🧠 SLOW PATH: Calling LLM for decision...")
+    logger.info(f"[ORCHESTRATOR] 🧠 Calling LLM for decision...")
     
     # 1. Build Dynamic Context
     phase = state.get("phase", "planning")
@@ -1374,6 +1481,9 @@ Please clarify before I proceed."""
     <state>
     PHASE: {phase}
     FILES COMPLETED: {len(completed_files)}
+    IMPLEMENTATION_COMPLETE: {state.get('implementation_complete', False)}
+    VALIDATION_PASSED: {validation_passed}
+    AGENT_STATUS: {state.get('agent_status', {})}
     FIX ATTEMPTS: {fix_attempts}
     PLAN EXISTS: {plan_exists}
     SCAFFOLDING DONE: {scaffolding_done}
@@ -1386,31 +1496,29 @@ Please clarify before I proceed."""
     </state>
     
     <rules>
-    PRIORITY 1: Questions
+    PRIORITY 1: User Questions
     - If USER QUESTION is True -> call_chat
     
-    PRIORITY 2: Planning & Execution
-    - If PHASE is "planning":
-       - If NEW FEATURE REQUEST is True -> call_planner (re-plan for new feature)
-       - If plan missing OR scaffolding NOT done -> call_planner
-       - If plan ready AND scaffolding done -> call_coder (proceed to code!)
-       
-    PRIORITY 3: Execution
-    - If PHASE is "plan_ready" or "coding" -> call_coder
+    PRIORITY 2: Planning
+    - If PLAN EXISTS is False OR SCAFFOLDING DONE is False -> call_planner
+    - If NEW FEATURE REQUEST is True AND this is a modification -> call_planner (re-plan)
     
-    PRIORITY 4: Validation & Fixes
-    - If PHASE is "validating" -> call_validator
-    - If PHASE is "fixing" -> call_fixer
-    - If Validation Passed -> finish
+    PRIORITY 3: Coding
+    - If plan exists AND scaffolding done AND IMPLEMENTATION_COMPLETE is False -> call_coder
     
-    PRIORITY 5: Error Recovery (CRITICAL)
-    - If FIX ATTEMPTS >= 3 -> call_chat (ASK USER FOR HELP - fixer is stuck)
-    - If LOOP WARNING is present -> call_chat (something is broken, need user)
-    - NEVER call Planner when there are code/build errors - Planner cannot fix code!
-    - NEVER rebuild the project just because validation is failing!
+    PRIORITY 4: Validation
+    - If IMPLEMENTATION_COMPLETE is True AND VALIDATION_PASSED is False:
+      - If AGENT_STATUS.status == "fail" -> call_fixer
+      - Otherwise -> call_validator
     
-    PRIORITY 6: Completion
-    - If all files coded and validation passed -> finish
+    PRIORITY 5: Completion
+    - If IMPLEMENTATION_COMPLETE is True AND VALIDATION_PASSED is True -> finish
+    
+    PRIORITY 6: Error Recovery (CRITICAL)
+    - If FIX ATTEMPTS >= 3 -> call_chat (fixer is stuck, ask user)
+    - If LOOP WARNING present -> call_chat (system stuck)
+    - NEVER call Planner for code/build errors
+    - NEVER rebuild just because validation is failing
     </rules>
     
     <output_format>
@@ -1715,7 +1823,8 @@ def create_agent_graph(checkpointer: Optional[MemorySaver] = None) -> StateGraph
             "coder": "coder",
             "validator": "validator",
             "fixer": "fixer",
-            "chat": "chat",
+            "chat_setup": "chat_setup",  # Route to chat_setup first
+            "chat": "chat",              # Fallback direct to chat
             "complete": "complete"
         }
     )

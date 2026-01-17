@@ -860,15 +860,6 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
                 # Execute scaffolding if needed
                 if needs_scaffolding:
                     
-                    # Create folders first (except .ships which is handled later)
-                    # Use target_arg (subfolder) as prefix if we are scaffolding into a subfolder
-                    prefix = f"{target_arg}/" if target_arg != "." else ""
-                    
-                    folders_to_create = [
-                        f"{prefix}{f.path}" for f in plan_result["folder_map"].entries 
-                        if getattr(f, 'is_directory', False) and not str(f.path).startswith(".ships")
-                    ]
-                    
                     # Get user request for context in scaffolding
                     user_request_summary = intent.get("description", "")
                     
@@ -880,47 +871,40 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
                     scaffold_command = _get_scaffold_command(self.current_project_type)
                     
                     # ============================================================
-                    # SMART NAMING & SUBFOLDER LOGIC
+                    # SMART NAMING & SUBFOLDER LOGIC (Must come BEFORE prefix calc)
                     # ============================================================
                     import re
                     
-                    # ============================================================
-                    # SMART NAMING & SUBFOLDER LOGIC
-                    # ============================================================
-                    import re
-                    
-                    # 1. Infer valid slug from user intent
+                    # Generate a suggested slug for the LLM, but it may pick its own name
+                    # We'll detect the actual folder post-scaffolding
                     raw_desc = intent.get("description", "my-app")
-                    slug = re.sub(r'[^a-z0-9]+', '-', raw_desc.lower()).strip('-')
-                    if not slug: slug = "my-app"
-                    slug = slug[:30]
+                    suggested_slug = re.sub(r'[^a-z0-9]+', '-', raw_desc.lower()).strip('-')
+                    if not suggested_slug: suggested_slug = "my-app"
+                    suggested_slug = suggested_slug[:30]
                     
                     current_dir_name = project_dir.name.lower()
                     
-                    # 2. Decide target: Subfolder vs Current Dir
-                    # If current dir matches the intended name, use it.
-                    # Otherwise, create a nice subfolder to keep things clean.
-                    if current_dir_name == slug:
+                    # Decide if we scaffold here (.) or in a subfolder
+                    if current_dir_name == suggested_slug:
                         target_arg = "."
-                        effective_project_path = project_path
-                        logger.info(f"[PLANNER] 🎯 Current dir matches slug '{slug}'. Scaffolding here.")
+                        logger.info(f"[PLANNER] 🎯 Current dir matches slug '{suggested_slug}'. Scaffolding here.")
                     else:
-                        target_arg = slug
-                        effective_project_path = str(project_dir / slug)
-                        logger.info(f"[PLANNER] 📦 Scaffolding into subfolder '{slug}' (Parent '{current_dir_name}' mismatch)")
-                        
-                        # UPDATE ARTIFACTS
-                        plan_artifacts["project_path"] = effective_project_path
-                        plan_artifacts["project_name"] = slug
-                        
-                        # Update local var for prompt
-                        project_path = effective_project_path
+                        # Tell the LLM to scaffold into a subfolder, but don't update project_path yet
+                        # We'll detect the actual created folder post-scaffolding
+                        target_arg = suggested_slug
+                        logger.info(f"[PLANNER] 📦 Will scaffold into subfolder (suggested: '{suggested_slug}')")
                     
-                    # 3. Update Command
+                    # 3. Update scaffold command with target
                     if " . " in scaffold_command:
                         scaffold_command = scaffold_command.replace(" . ", f" {target_arg} ")
-
+                    
                     logger.info(f"[PLANNER] 🔧 Final Scaffold Command: {scaffold_command}")
+                    
+                    # Don't create folders with prefix yet - wait until we know the actual project path
+                    folders_to_create = [
+                        f.path for f in plan_result["folder_map"].entries 
+                        if getattr(f, 'is_directory', False) and not str(f.path).startswith(".ships")
+                    ]
                     
                     scaffold_prompt = f"""PROJECT PATH: {project_dir} (Target: {target_arg})
 
@@ -961,6 +945,30 @@ IMPORTANT:
                         {"messages": [HumanMessage(content=scaffold_prompt)]},
                         config={"recursion_limit": 30}
                     )
+                    
+                    # ============================================================
+                    # POST-SCAFFOLDING: Detect what folder was ACTUALLY created
+                    # The LLM might pick a creative name different from our slug
+                    # ============================================================
+                    actual_project_path = None
+                    try:
+                        # Scan for new directories with package.json (indicator of scaffolded project)
+                        for item in project_dir.iterdir():
+                            if item.is_dir() and not item.name.startswith('.'):
+                                pkg_json = item / "package.json"
+                                if pkg_json.exists():
+                                    actual_project_path = str(item)
+                                    logger.info(f"[PLANNER] 🔍 Detected scaffolded project at: {actual_project_path}")
+                                    break
+                        
+                        # Update project_path to the ACTUAL created folder
+                        if actual_project_path and actual_project_path != project_path:
+                            logger.info(f"[PLANNER] 📦 Updating project_path: {project_path} → {actual_project_path}")
+                            project_path = actual_project_path
+                            plan_artifacts["project_path"] = actual_project_path
+                            plan_artifacts["project_name"] = Path(actual_project_path).name
+                    except Exception as detect_err:
+                        logger.warning(f"[PLANNER] ⚠️ Could not detect scaffolded folder: {detect_err}")
                     
                     plan_artifacts["scaffolding_complete"] = True
                     plan_artifacts["scaffolding_messages"] = len(scaffold_result.get("messages", []))

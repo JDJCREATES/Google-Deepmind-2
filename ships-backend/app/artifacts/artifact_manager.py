@@ -8,7 +8,7 @@ All artifacts are JSON files stored directly in .ships/.
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 
 from pydantic import BaseModel
 
@@ -52,8 +52,17 @@ class ArtifactManager:
     """
     Service for managing ShipS* artifacts in .ships/ directory.
     
-    Provides atomic file operations and path management.
+    Provides atomic file operations, path management, and state↔disk sync.
+    This is the SINGLE SOURCE OF TRUTH for artifacts.
     """
+    
+    # All managed artifact names
+    ARTIFACT_NAMES = [
+        'folder_map', 'task_list', 'api_contracts', 
+        'dependency_plan', 'risk_report', 'validation_checklist',
+        'file_tree', 'planner_status', 'fix_request',
+        'checkpoint_history'
+    ]
     
     def __init__(self, project_root: str | Path):
         """
@@ -65,8 +74,23 @@ class ArtifactManager:
         self.project_root = Path(project_root)
         self.paths = ArtifactPaths(self.project_root)
         
+        # Dynamic artifact paths not in ArtifactPaths
+        self._dynamic_paths = {
+            'fix_request': self.paths.ships_dir / 'fix_request.json',
+            'checkpoint_history': self.paths.ships_dir / 'checkpoint_history.json',
+        }
+        
         # Ensure .ships directory exists
         self.paths.ensure_directories()
+    
+    def _get_path(self, artifact_name: str) -> Optional[Path]:
+        """Get path for an artifact, checking both static and dynamic paths."""
+        # Check static paths first
+        path = getattr(self.paths, artifact_name, None)
+        if path:
+            return path
+        # Check dynamic paths
+        return self._dynamic_paths.get(artifact_name)
     
     def load_json(self, artifact_name: str) -> Optional[dict]:
         """
@@ -78,7 +102,7 @@ class ArtifactManager:
         Returns:
             Parsed JSON dict or None if file doesn't exist
         """
-        path = getattr(self.paths, artifact_name, None)
+        path = self._get_path(artifact_name)
         if not path or not path.exists():
             return None
         
@@ -96,9 +120,11 @@ class ArtifactManager:
             artifact_name: Name of the artifact
             data: Dict to serialize
         """
-        path = getattr(self.paths, artifact_name, None)
+        path = self._get_path(artifact_name)
         if not path:
-            raise ValueError(f"Unknown artifact: {artifact_name}")
+            # Create dynamic path for unknown artifacts
+            path = self.paths.ships_dir / f"{artifact_name}.json"
+            self._dynamic_paths[artifact_name] = path
         
         # Atomic write
         temp_path = path.with_suffix('.tmp')
@@ -113,17 +139,78 @@ class ArtifactManager:
     
     def artifact_exists(self, artifact_name: str) -> bool:
         """Check if an artifact file exists."""
-        path = getattr(self.paths, artifact_name, None)
+        path = self._get_path(artifact_name)
         return path is not None and path.exists()
     
     def get_artifact_summary(self) -> dict[str, bool]:
         """Get existence status of all artifacts."""
-        artifacts = [
-            'folder_map', 'task_list', 'implementation_plan',
-            'api_contracts', 'dependency_plan', 'risk_report',
-            'validation_checklist', 'file_tree', 'planner_status'
-        ]
-        return {name: self.artifact_exists(name) for name in artifacts}
+        return {name: self.artifact_exists(name) for name in self.ARTIFACT_NAMES}
+    
+    # =========================================================================
+    # SYNC METHODS: State ↔ Disk synchronization
+    # =========================================================================
+    
+    def sync_from_disk(self) -> Dict[str, dict]:
+        """
+        Load all artifacts from disk into a dict.
+        
+        Use at pipeline START to initialize state.artifacts.
+        
+        Returns:
+            Dict of all artifacts that exist on disk
+        """
+        artifacts = {}
+        for name in self.ARTIFACT_NAMES:
+            data = self.load_json(name)
+            if data is not None:
+                artifacts[name] = data
+        return artifacts
+    
+    def sync_to_disk(self, state_artifacts: Dict[str, dict]) -> int:
+        """
+        Write state artifacts to disk.
+        
+        Use after each node to persist changes.
+        
+        Args:
+            state_artifacts: Dict from state.artifacts
+            
+        Returns:
+            Number of artifacts written
+        """
+        count = 0
+        for name, data in state_artifacts.items():
+            if name in self.ARTIFACT_NAMES and isinstance(data, dict):
+                try:
+                    self.save_json(name, data)
+                    count += 1
+                except Exception:
+                    pass  # Don't fail pipeline on artifact write error
+        return count
+    
+    def save_batch(self, artifacts: Dict[str, dict]) -> tuple[int, list[str]]:
+        """
+        Save multiple artifacts atomically.
+        
+        Args:
+            artifacts: Dict of artifact_name -> data
+            
+        Returns:
+            Tuple of (success_count, failed_names)
+        """
+        success = 0
+        failed = []
+        
+        for name, data in artifacts.items():
+            try:
+                self.save_json(name, data)
+                success += 1
+            except Exception as e:
+                failed.append(f"{name}: {e}")
+        
+        return success, failed
+
+
 
 
 # Singleton instance

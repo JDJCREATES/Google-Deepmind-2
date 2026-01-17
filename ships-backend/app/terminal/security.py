@@ -31,6 +31,13 @@ ALLOWED_COMMANDS: List[AllowedCommand] = [
     AllowedCommand(prefix="pip", description="Python package manager", max_timeout=300, requires_approval=True),
     AllowedCommand(prefix="node", description="Node.js runtime", max_timeout=60, requires_approval=True),
     AllowedCommand(prefix="mkdir", description="Create directory", max_timeout=10, requires_approval=False),
+    # Debugging/inspection commands (read-only, safe)
+    AllowedCommand(prefix="grep", description="Search file contents", max_timeout=30, requires_approval=False),
+    AllowedCommand(prefix="dir", description="List directory (Windows)", max_timeout=10, requires_approval=False),
+    AllowedCommand(prefix="ls", description="List directory (Unix)", max_timeout=10, requires_approval=False),
+    AllowedCommand(prefix="cat", description="Read file contents", max_timeout=10, requires_approval=False),
+    AllowedCommand(prefix="type", description="Read file contents (Windows)", max_timeout=10, requires_approval=False),
+    AllowedCommand(prefix="find", description="Find files", max_timeout=30, requires_approval=False),
 ]
 
 

@@ -807,16 +807,19 @@ FILES ALREADY CREATED:
 YOUR INSTRUCTIONS:
 1. Analyze the task and implementation plan.
 2. CHECK "CURRENT FILE STRUCTURE" ABOVE.
-   - If a file exists -> Use `apply_source_edits` (Low Token Cost).
-   - If a file is NEW -> Use `write_files_batch` for MULTIPLE files at once.
-3. **BATCH WRITES**: Use `write_files_batch` with 5-10 files per call to minimize iterations.
+   - **CRITICAL**: Do NOT assume existing files are correct. 
+   - Verify if their content matches the plan.
+   - If a file exists (e.g. scaffolded page.tsx) but differs from plan -> Use `apply_source_edits` to update it.
+   - If a file is NEW -> Use `write_files_batch`.
+
+3. **BATCH OPERATIONS**: Group your tool calls.
 4. Do NOT loop one file at a time - group related files together.
-5. When ALL files from the plan are done, respond with "Implementation complete."
+5. When ALL files from the plan are fully implemented and verified, respond with "Implementation complete."
 
 IMPORTANT:
-- PREFER `write_files_batch` over `write_file_to_disk` for efficiency.
-- Write complete working code.
-- Follow the folder structure in the plan."""
+- Respect existing code style.
+- Use `apply_source_edits` for updates (User prefers editing over overwriting).
+- Write complete working code."""
 
         # ================================================================
         # Execute using create_react_agent with CODER_TOOLS

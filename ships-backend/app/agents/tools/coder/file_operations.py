@@ -137,7 +137,9 @@ def write_files_batch(files: list[dict]) -> Dict[str, Any]:
             written.append(file_path)
             total_bytes += len(content)
             
-            logger.info(f"[CODER] ✅ Wrote file: {file_path} ({len(content)} bytes)")
+            # Log explicitly if overwriting
+            status_msg = "Overwrote" if resolved_path.exists() else "Created"
+            logger.info(f"[CODER] ✅ {status_msg} file: {file_path} ({len(content)} bytes)")
             
         except Exception as e:
             errors.append({"path": file_path, "error": str(e)})
