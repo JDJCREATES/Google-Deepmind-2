@@ -375,9 +375,6 @@ Use these type definitions. Do NOT read from disk.
         context: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Use LLM for actual code generation."""
-        import logging
-        logger = logging.getLogger("ships.coder")
-        
         prompt = self._build_coding_prompt(task, context)
         
         messages = [
@@ -737,8 +734,6 @@ Use these type definitions. Do NOT read from disk.
                     files_to_create = [e.get("path") for e in entries if not e.get("is_directory", False)]
                     
                     # DEBUG: Log expected files
-                    import logging
-                    logger = logging.getLogger("ships.coder")
                     logger.info(f"[CODER] 📋 Expected files from folder_map_plan: {len(files_to_create)}")
                     for f in files_to_create[:10]:
                         logger.info(f"[CODER]    📄 {f}")
@@ -750,8 +745,7 @@ Use these type definitions. Do NOT read from disk.
                         for f in files_to_create[:15]:
                             artifact_context += f"  - {f}\n"
                 except Exception as e:
-                    import logging
-                    logging.getLogger("ships.coder").warning(f"[CODER] ⚠️ Failed to read folder_map: {e}")
+                    logger.warning(f"[CODER] ⚠️ Failed to read folder_map: {e}")
             
             # Read api_contracts.json
             api_path = ships_dir / "api_contracts.json"

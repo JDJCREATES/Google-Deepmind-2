@@ -77,6 +77,7 @@ from app.agents.sub_agents import (
 from app.agents.agent_factory import AgentFactory  # For creating orchestrator and other agents
 # from app.agents.orchestrator import MasterOrchestrator  # The Brain (Unused, using agent factory)
 from app.agents.tools.coder import set_project_root  # Secure project path context
+from app.graphs.deterministic_router import DeterministicRouter  # Production-grade deterministic routing
 from app.agents.sub_agents.planner.formatter import (
     format_implementation_plan, 
     format_task_list,
@@ -103,8 +104,20 @@ class AgentGraphState(TypedDict):
     # Messages for conversation (trimmed for token efficiency)
     messages: Annotated[List[BaseMessage], add]
     
-    # Current phase
-    phase: Literal["planning", "coding", "validating", "fixing", "complete", "error"]
+    # Current phase (routing and state tracking)
+    # Note: Routing phases (planner, coder, validator, fixer) are used by orchestrator
+    # State phases (planning, coding, validating, fixing) are used by nodes
+    phase: Literal[
+        "planning", "planner",           # Planning state / route to planner
+        "coding", "coder",               # Coding state / route to coder
+        "validating", "validator",       # Validating state / route to validator
+        "fixing", "fixer",               # Fixing state / route to fixer
+        "chat", "chat_setup",            # Chat interaction
+        "complete",                       # Success state
+        "error",                         # Error state
+        "waiting",                       # Waiting for locks
+        "orchestrator"                   # Escalation to orchestrator
+    ]
     
     # Artifacts produced by agents
     artifacts: Dict[str, Any]
@@ -369,7 +382,7 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
                 logger.error(f"[PLANNER] ❌ Failed to save artifacts: {io_e}")
         
         return {
-            "phase": "coder",  # Route directly to coder
+            "phase": "orchestrator",  # Return to orchestrator for quality gate check
             "artifacts": merged_artifacts,
             "messages": [AIMessage(content="Planning and scaffolding complete. Ready for coding.")],
             "stream_events": result.get("stream_events", [])
@@ -377,7 +390,7 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"[PLANNER] ❌ Planner failed: {e}")
         return {
-            "phase": "error",
+            "phase": "orchestrator",  # Even errors go through orchestrator for handling
             "error_log": state.get("error_log", []) + [f"Planner error: {str(e)}"],
             "messages": [AIMessage(content=f"Planning failed: {e}")],
             "stream_events": []
@@ -795,7 +808,7 @@ ACTUAL FILE STRUCTURE (Disk State):
     return {
         "messages": [AIMessage(content=f"Coder {'completed' if implementation_complete else 'partially done'}: {len(current_completed)} files written")],
         "stream_events": result.get("stream_events", []) if result else [],
-        "phase": "validator" if implementation_complete else "coder",  # Deterministic routing
+        "phase": "orchestrator",  # Return to orchestrator for quality gate check
         "completed_files": current_completed,
         "implementation_complete": implementation_complete,
         "agent_status": {"status": "complete" if implementation_complete else "in_progress"}
@@ -919,7 +932,7 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
         return {
             "validation_passed": validation_passed,
             "stream_events": result.get("stream_events", []) if result else [],
-            "phase": "complete" if validation_passed else "fixer",  # Deterministic routing
+            "phase": "orchestrator",  # Return to orchestrator for quality gate check
             "error_log": error_log,
             "artifacts": merged_artifacts,
             "pending_fix_context": None,
@@ -935,7 +948,7 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
         logger.error(f"[VALIDATOR] ❌ Validator failed: {e}")
         return {
             "validation_passed": False,
-            "phase": "error",
+            "phase": "orchestrator",  # Even errors go through orchestrator for handling
             "error_log": state.get("error_log", []) + [f"Validator error: {str(e)}"],
             "messages": [AIMessage(content=f"Validation error: {e}")],
             "stream_events": []
@@ -1176,7 +1189,7 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
             
             return {
                 "fix_attempts": fix_attempts,
-                "phase": "validator",  # Route back to validator
+                "phase": "orchestrator",  # Return to orchestrator for quality gate check
                 "pending_fix_context": pending_fix_context,
                 "fix_request": None,
                 "agent_status": {"status": "fixed", "attempt": fix_attempts},
@@ -1188,7 +1201,7 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
             logger.error(f"[FIXER] ❌ Fixer failed: {e}")
             return {
                 "fix_attempts": fix_attempts,
-                "phase": "error",
+                "phase": "orchestrator",  # Even errors go through orchestrator
                 "error_log": state.get("error_log", []) + [f"Fixer error: {str(e)}"],
                 "messages": [AIMessage(content=f"Fix error: {e}")],
                 "stream_events": []
@@ -1201,84 +1214,282 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
 
 async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
     """
-    MASTER ORCHESTRATOR NODE
-    Decides which agent to call next based on global state.
+    MASTER ORCHESTRATOR NODE - Production-Grade Deterministic Routing
+    
+    Uses DeterministicRouter for 95% of decisions (fast, no LLM cost).
+    Falls back to LLM only for ambiguous states:
+    - Loop detection (>5 consecutive calls)
+    - Wait escalations (>5 lock timeouts)
+    - Explicit orchestrator escalations from nodes
+    - Unknown/error states
+    
+    Design Philosophy:
+    - Deterministic routing for predictable flow
+    - Quality gates enforce invariants
+    - LLM only for true ambiguity
+    - Clear audit trail
     """
     logger.info("[ORCHESTRATOR] 🧠 Starting orchestrator node...")
+    logger.info(f"[ORCHESTRATOR] Current phase: {state.get('phase')}")
+    logger.info(f"[ORCHESTRATOR] Artifacts keys: {list(state.get('artifacts', {}).keys())}")
+    logger.info(f"[ORCHESTRATOR] Implementation complete: {state.get('implementation_complete')}")
+    logger.info(f"[ORCHESTRATOR] Validation passed: {state.get('validation_passed')}")
     
     # ================================================================
-    # LOOP DETECTION: Track consecutive calls and inform orchestrator
+    # STEP 1: INITIALIZE DETERMINISTIC ROUTER
+    # ================================================================
+    router = DeterministicRouter()
+    
+    # ================================================================
+    # STEP 2: INITIALIZE LOOP DETECTION
     # ================================================================
     loop_detection = state.get("loop_detection", {
         "last_node": None,
         "consecutive_calls": 0,
         "loop_detected": False,
-        "loop_message": ""
+        "loop_message": "",
+        "wait_attempts": 0
     })
     
-    # Check if we're looping (same phase called 3+ times consecutively)
-    current_phase = state.get("phase", "planning")
-    loop_warning = ""
+    # ================================================================
+    # STEP 3: GET ROUTING DECISION (DETERMINISTIC OR LLM)
+    # ================================================================
+    routing_decision = router.route(state)
     
-    if loop_detection.get("last_node") == current_phase:
+    logger.info(f"[ORCHESTRATOR] Routing decision: {routing_decision.next_phase} (LLM required: {routing_decision.requires_llm})")
+    
+    # ================================================================
+    # STEP 3.5: LOOP DETECTION (Check AFTER we know where we're going)
+    # ================================================================
+    # Check for infinite loops using the NEXT phase we're routing to
+    is_loop, loop_warning = router.check_loop_detection(state, routing_decision.next_phase)
+    
+    if is_loop:
+        # HARD STOP: Force chat after 5 consecutive calls
+        logger.error(f"[ORCHESTRATOR] 🛑 INFINITE LOOP DETECTED: {routing_decision.next_phase} called {loop_detection.get('consecutive_calls', 0) + 1} times")
+        return {
+            "phase": "chat",
+            "loop_detection": {**loop_detection, "loop_detected": True, "loop_message": loop_warning, "consecutive_calls": loop_detection.get("consecutive_calls", 0) + 1},
+            "messages": [AIMessage(content=f"I'm stuck in a loop trying to route to {routing_decision.next_phase}. I need your help to continue. {loop_warning}")],
+            "stream_events": []
+        }
+    
+    if loop_warning:
+        # Log warning but continue (will escalate after 5 tries)
+        logger.warning(f"[ORCHESTRATOR] ⚠️ {loop_warning}")
+    logger.info(f"[ORCHESTRATOR] Reason: {routing_decision.reason}")
+    
+    # ================================================================
+    # STEP 4: LLM FALLBACK FOR AMBIGUOUS STATES
+    # ================================================================
+    if routing_decision.requires_llm:
+        logger.info("[ORCHESTRATOR] 🤖 Calling LLM for ambiguous state resolution...")
+        
+        # Use existing LLM orchestrator logic for truly ambiguous cases
+        llm_decision = await _llm_orchestrator_fallback(state, routing_decision)
+        
+        # Override routing decision with LLM result
+        routing_decision.next_phase = llm_decision
+        routing_decision.reason = f"LLM decided: {llm_decision}"
+        
+        logger.info(f"[ORCHESTRATOR] LLM override: {llm_decision}")
+    
+    # ================================================================
+    # STEP 5: UPDATE LOOP DETECTION
+    # ================================================================
+    if routing_decision.next_phase == loop_detection.get("last_node"):
         loop_detection["consecutive_calls"] = loop_detection.get("consecutive_calls", 0) + 1
-        
-        # HARD STOP: Force exit at 5 consecutive calls (don't wait for LLM to decide)
-        if loop_detection["consecutive_calls"] >= 5:
-            logger.error(f"[ORCHESTRATOR] 🛑 HARD STOP: {current_phase} loop detected ({loop_detection['consecutive_calls']} times). Forcing chat.")
-            return {
-                "phase": "chat",
-                "loop_detection": loop_detection,
-                "messages": [AIMessage(content=f"I'm stuck in a loop trying to {current_phase}. I need your help to continue.")],
-                "stream_events": []
-            }
-        
-        if loop_detection["consecutive_calls"] >= 3:
-            loop_detection["loop_detected"] = True
-            loop_detection["loop_message"] = (
-                f"⚠️ LOOP WARNING: {current_phase} called {loop_detection['consecutive_calls']} times. "
-                f"Consider asking user for help."
-            )
-            loop_warning = loop_detection["loop_message"]
-            logger.warning(f"[ORCHESTRATOR] {loop_warning}")
     else:
-        # Different node - reset counter
         loop_detection = {
-            "last_node": current_phase,
+            "last_node": routing_decision.next_phase,
             "consecutive_calls": 1,
             "loop_detected": False,
-            "loop_message": ""
+            "loop_message": "",
+            "wait_attempts": loop_detection.get("wait_attempts", 0)  # Preserve wait counter
         }
     
     # ================================================================
-    # LLM REASONING: Let the orchestrator decide based on full state
-    # REMOVED: _simple_route() fast path - it caused loops and fragility
-    # The LLM should ALWAYS reason, that's the whole point of an orchestrator
+    # STEP 6: STEP TRACKING
     # ================================================================
+    try:
+        from app.services.step_tracking import record_step
+        import asyncio
+        asyncio.create_task(record_step(
+            agent="orchestrator",
+            phase=state.get("phase", "unknown"),
+            action=f"route_to_{routing_decision.next_phase}",
+            content={
+                "decision": routing_decision.next_phase,
+                "reason": routing_decision.reason,
+                "used_llm": routing_decision.requires_llm,
+                "gate_passed": routing_decision.gate_result.passed if routing_decision.gate_result else None,
+                "loop_detected": loop_detection.get("loop_detected", False)
+            },
+        ))
+    except Exception:
+        pass  # Non-fatal
+    
+    # ================================================================
+    # STEP 7: RETURN ROUTING DECISION
+    # ================================================================
+    return {
+        "phase": routing_decision.next_phase,
+        "loop_detection": loop_detection,
+        "current_step": state.get("current_step", 0) + 1,
+        "stream_events": [],
+        "routing_metadata": {
+            "reason": routing_decision.reason,
+            "used_llm": routing_decision.requires_llm,
+            "gate_result": routing_decision.gate_result.gate_name if routing_decision.gate_result else None
+        }
+    }
+
+
+async def _llm_orchestrator_fallback(state: AgentGraphState, routing_decision) -> str:
+    """
+    LLM fallback for ambiguous states.
+    
+    Only called when deterministic routing fails (5% of cases):
+    - Loops detected
+    - Wait escalations
+    - Unknown states
+    - Error recovery
+    
+    Args:
+        state: Current agent graph state
+        routing_decision: The routing decision that triggered LLM fallback
+        
+    Returns:
+        Next phase decision from LLM
+    """
+    logger.info("[LLM_FALLBACK] Starting LLM orchestrator for ambiguous state...")
+    
+    # Build context for LLM
     artifacts = state.get("artifacts", {})
     project_path = artifacts.get("project_path", ".")
-    
-    logger.info(f"[ORCHESTRATOR] 🧠 Calling LLM for decision...")
-    
-    # 1. Build Dynamic Context
     phase = state.get("phase", "planning")
     completed_files = state.get("completed_files", [])
     validation_passed = state.get("validation_passed", False)
     fix_attempts = state.get("fix_attempts", 0)
     error_log = state.get("error_log", [])
+    loop_detection = state.get("loop_detection", {})
     
-    # Check if plan exists (for context, not hard rule)
-    from pathlib import Path
-    artifacts = state.get("artifacts", {})
-    project_path = artifacts.get("project_path")
-    plan_exists = False
-    project_scaffolded = False  # NEW: Check for actual project files
+    # Determine why we're in LLM fallback
+    escalation_reason = routing_decision.metadata.get("escalated_from", "unknown")
+    wait_count = routing_decision.metadata.get("wait_count", 0)
     
-    if project_path:
-        plan_path = Path(project_path) / ".ships" / "implementation_plan.md"
-        plan_exists = plan_path.exists()
+    system_prompt = f"""<role>
+You are the Master Orchestrator LLM Fallback. You handle AMBIGUOUS STATES that deterministic routing cannot resolve.
+
+CRITICAL: You are only called for edge cases (5% of decisions). Most routing is deterministic.
+</role>
+
+<why_am_i_here>
+Escalation Reason: {escalation_reason}
+Wait Attempts: {wait_count}
+Loop Detection: {loop_detection.get('loop_detected', False)}
+Routing Issue: {routing_decision.reason}
+</why_am_i_here>
+
+<current_state>
+PHASE: {phase}
+FILES COMPLETED: {len(completed_files)}
+VALIDATION_PASSED: {validation_passed}
+FIX ATTEMPTS: {fix_attempts}/{state.get('max_fix_attempts', 3)}
+LOOP WARNING: {loop_detection.get('loop_message', 'None')}
+RECENT ERRORS: {error_log[-3:] if error_log else 'None'}
+</current_state>
+
+<your_options>
+- "planner" - Re-plan the project (use if fundamentally stuck)
+- "coder" - Continue coding (use if just need more implementation time)
+- "validator" - Run validation (use if code complete, need to check)
+- "fixer" - Fix errors (use if validation failed)
+- "chat" - Ask user for help (use if truly stuck or need clarification)
+- "complete" - Mark as done (use if everything passed)
+</your_options>
+
+<decision_rules>
+1. If waiting for locks >5 times → "chat" (escalate to user)
+2. If loop detected → "chat" (ask user for guidance)
+3. If max fix attempts → "chat" (cannot auto-fix)
+4. If validation passed → "complete"
+5. If validation failed AND fix_attempts < max → "fixer"
+6. Otherwise → use best judgment
+</decision_rules>
+
+Return JSON ONLY:
+{{
+  "decision": "planner" | "coder" | "validator" | "fixer" | "chat" | "complete",
+  "reasoning": "Why you chose this"
+}}"""
+    
+    # Call LLM
+    try:
+        orchestrator = AgentFactory.create_orchestrator(override_system_prompt=system_prompt)
         
-        # Check if scaffolding was explicitly marked complete in artifacts
+        messages_with_context = [
+            HumanMessage(content=f"Analyze the ambiguous state and decide next step. Respond with JSON.")
+        ]
+        
+        result = await orchestrator.ainvoke({"messages": messages_with_context})
+        last_message = result["messages"][-1]
+        
+        # Extract content
+        content = last_message.content
+        if isinstance(content, list):
+            response = " ".join([str(c) for c in content if isinstance(c, (str, dict))])
+            if isinstance(content[0], dict) and "text" in content[0]:
+                response = " ".join([c.get("text", "") for c in content])
+        else:
+            response = str(content)
+        
+        logger.info(f"[LLM_FALLBACK] Raw Response: {response[:200]}...")
+        
+        # Parse JSON
+        import json as json_module
+        import re as re_module
+        
+        decision = "chat"  # Safe default
+        json_match = re_module.search(r'\{[\s\S]*\}', response)
+        
+        if json_match:
+            try:
+                parsed = json_module.loads(json_match.group())
+                raw_decision = parsed.get("decision", "chat").lower()
+                logger.info(f"[LLM_FALLBACK] Parsed Decision: {parsed}")
+                
+                # Map to phase names
+                if "planner" in raw_decision: decision = "planner"
+                elif "coder" in raw_decision: decision = "coder"
+                elif "validator" in raw_decision: decision = "validator"
+                elif "fixer" in raw_decision: decision = "fixer"
+                elif "chat" in raw_decision: decision = "chat"
+                elif "finish" in raw_decision or "complete" in raw_decision: decision = "complete"
+            except Exception as e:
+                logger.error(f"[LLM_FALLBACK] JSON parse failed: {e}")
+                decision = "chat"  # Safe default
+        else:
+            # Fallback string matching
+            response_lower = response.lower()
+            if "planner" in response_lower: decision = "planner"
+            elif "coder" in response_lower: decision = "coder"
+            elif "validator" in response_lower: decision = "validator"
+            elif "fixer" in response_lower: decision = "fixer"
+            elif "chat" in response_lower: decision = "chat"
+            elif "finish" in response_lower or "complete" in response_lower: decision = "complete"
+        
+        logger.info(f"[LLM_FALLBACK] Final Decision: {decision}")
+        return decision
+        
+    except Exception as e:
+        logger.error(f"[LLM_FALLBACK] ❌ LLM orchestrator failed: {e}")
+        return "chat"  # Safe default - escalate to user
+
+
+# ============================================================================
+# COMPLETION NODE - Auto-launch preview
+# ============================================================================
         # OR if package.json exists (which implies scaffolding is done)
         scaffolding_done = artifacts.get("scaffolding_complete", False)
         if not scaffolding_done and (Path(project_path) / "package.json").exists():
@@ -1834,15 +2045,28 @@ def create_agent_graph(checkpointer: Optional[MemorySaver] = None) -> StateGraph
     graph.add_edge("chat", "chat_cleanup")
     graph.add_edge("chat_cleanup", END)
     
-    # ORCHESTRATOR ROUTING
+    # ORCHESTRATOR ROUTING (Production-Grade Deterministic)
     def route_orchestrator(state: AgentGraphState):
+        """
+        Hub-and-spoke routing from orchestrator to next agent.
+        
+        The orchestrator_node sets the "phase" value, this function
+        reads it and routes to the appropriate node.
+        
+        Deterministic routing is handled in orchestrator_node via
+        DeterministicRouter (95% of cases).
+        
+        LLM fallback is used only for ambiguous states (5% of cases).
+        """
         decision = state.get("phase")
+        
+        logger.info(f"[GRAPH_ROUTER] Routing decision: {decision}")
         
         # Handle waiting state - retry same agent
         if decision == "waiting":
-            # Get last agent from loop detection or agent_status
+            # Get last agent from loop detection
             last_phase = state.get("loop_detection", {}).get("last_node", "coder")
-            logger.info(f"[ROUTER] Waiting state detected, retrying {last_phase}")
+            logger.info(f"[GRAPH_ROUTER] Waiting state detected, retrying {last_phase}")
             return last_phase if last_phase in ["coder", "fixer"] else "coder"
         
         # Route chat to chat_setup first
@@ -2039,9 +2263,14 @@ async def stream_pipeline(
         # yield user message to UI immediately for responsiveness
         yield block_mgr.create_block(BlockType.TEXT, "chat", user_request) + "\n"
         
+        logger.info(f"[STREAM] 🚀 Starting graph.astream() with thread_id={thread_id}")
+        
         # NEW STREAMING LOGIC: Watch for 'stream_events' updates
         # stream_mode="updates" yields the actual dict returned by nodes
+        chunk_count = 0
         async for chunk in graph.astream(initial_state, config=config, stream_mode="updates", subgraphs=True):
+            chunk_count += 1
+            logger.info(f"[STREAM] 📦 Chunk {chunk_count}: {type(chunk)} - {list(chunk.keys()) if isinstance(chunk, dict) else 'tuple/other'}")
             
             # Subgraph updates come as (namespace, update_dict)
             if isinstance(chunk, tuple) and len(chunk) == 2:

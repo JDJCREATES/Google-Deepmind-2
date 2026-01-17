@@ -10,6 +10,10 @@ interface UseChatLogicProps {
 }
 
 export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
+  // Refs (must be first to maintain hook order)
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const currentThinkingSectionRef = useRef<string | null>(null);
+
   // Global Agent Runs Store
   const { 
     activeRunId, 
@@ -30,17 +34,6 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
   // Local UI state for input
   const [inputValue, setInputValue] = useState('');
   
-  // Computed state from active run
-  const activeRun = runs.find(r => r.id === activeRunId);
-  const messages = activeRun?.messages || [];
-  
-  // We determine if agent is running based on the run status
-  const isAgentRunning = activeRun?.status === 'running' || activeRun?.status === 'planning' || activeRun?.status === 'pending';
-  
-  // Refs
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { refreshFileTree, openFile } = useFileSystem();
-  
   // Streaming state
   const { 
     toolEvents, addToolEvent, clearToolEvents,
@@ -50,6 +43,15 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
     setAwaitingConfirmation,
     resetStreaming  // Add reset function
   } = useStreamingStore();
+
+  const { refreshFileTree, openFile } = useFileSystem();
+  
+  // Computed state from active run
+  const activeRun = runs.find(r => r.id === activeRunId);
+  const messages = activeRun?.messages || [];
+  
+  // We determine if agent is running based on the run status
+  const isAgentRunning = activeRun?.status === 'running' || activeRun?.status === 'planning' || activeRun?.status === 'pending';
 
   // Reset streaming state when switching runs
   useEffect(() => {

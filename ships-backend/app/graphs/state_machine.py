@@ -1,5 +1,5 @@
 """
-ShipS* State Machine Enforcement
+ShipS* State Machine Enforcement with Quality Gates
 
 HARD RULES enforced as LOGIC, NOT INTELLIGENCE.
 
@@ -11,12 +11,16 @@ These are invariants that CANNOT be violated:
 
 This module provides deterministic state transitions
 and guards that apply BEFORE any agent decisions.
+
+Integrated with Quality Gates system for production-grade enforcement.
 """
 
-from typing import Optional, List, Dict, Any, Literal
+from typing import Optional, List, Dict, Any, Literal, Tuple
 from enum import Enum
 from dataclasses import dataclass
 from datetime import datetime
+from app.graphs.quality_gates import GateEvaluator, GateResult
+from app.core.logger import logger
 
 
 class PipelinePhase(str, Enum):
