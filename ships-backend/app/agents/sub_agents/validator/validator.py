@@ -42,6 +42,8 @@ from app.agents.tools.validator.layers import (
     DependencyLayer, ScopeLayer, TypeScriptLayer, BuildLayer,
 )
 
+from app.streaming.stream_events import emit_event
+
 
 class Validator(BaseAgent):
     """
@@ -353,6 +355,13 @@ Output ONLY: pass or fail, with specific violations if failing."""
         Returns:
             Dict with 'validation_report' artifact
         """
+        events = []
+        events.append(emit_event(
+            "agent_start",
+            "validator",
+            "Validating implementation...",
+            {"phase": "validating"}
+        ))
         artifacts = state.get("artifacts", {})
         parameters = state.get("parameters", {})
         
@@ -384,5 +393,7 @@ Output ONLY: pass or fail, with specific violations if failing."""
             "passed": report.status == ValidationStatus.PASS,
             "failure_layer": report.failure_layer.value,
             "recommended_action": report.recommended_action.value,
-            "violation_count": report.total_violations
+            "recommended_action": report.recommended_action.value,
+            "violation_count": report.total_violations,
+            "stream_events": events,
         }

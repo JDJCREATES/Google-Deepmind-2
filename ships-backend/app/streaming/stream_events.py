@@ -12,6 +12,37 @@ class BlockType(str, Enum):
     THINKING = "thinking"   # Internal chain-of-thought
     TOOL_USE = "tool_use"   # Tool execution status
     ERROR = "error"         # Error messages
+    PREFLIGHT = "preflight" # Preflight checks (Fixer/Validator)
+
+
+def emit_event(
+    event_type: str,
+    agent: str,
+    content: str = "",
+    metadata: Dict[str, Any] = None
+) -> Dict[str, Any]:
+    """
+    Create a UI-safe streaming event.
+    
+    This is the ONLY way agents should emit events to the frontend.
+    All values are JSON-serializable primitives.
+    
+    Args:
+        event_type: "agent_start", "thinking", "file_written", "error", etc.
+        agent: "planner", "coder", "validator", "fixer"
+        content: Human-readable message
+        metadata: Optional dict with extra data (file paths, counts, etc.)
+        
+    Returns:
+        Dict ready to be JSON serialized and streamed
+    """
+    return {
+        "type": event_type,
+        "agent": agent,
+        "content": content,
+        "metadata": metadata or {},
+        "timestamp": int(time.time() * 1000)
+    }
 
 class StreamBlock:
     """

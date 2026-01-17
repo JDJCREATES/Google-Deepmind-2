@@ -56,6 +56,8 @@ from app.agents.sub_agents.planner.components import (
     DependencyPlanner, TestDesigner, RiskAssessor,
 )
 
+from app.streaming.stream_events import emit_event
+
 
 
 class Planner(BaseAgent):
@@ -631,6 +633,55 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
         Returns:
             Dict with 'artifacts' key containing all plan artifacts
         """
+        logger.info("[PLANNER] 🚀 Invoking Planner...")
+        print("[PLANNER] Invoked.")
+        
+        events = []
+        events.append(emit_event(
+            "agent_start", 
+            "planner", 
+            "Designing implementation plan...",
+            {"phase": "planning"}
+        ))
+        
+        # 1. State extraction
+        intent = state.get("intent", {})
+        # If no intent, maybe user_request is raw text?
+        if not intent or not intent.get("goal"):
+            # Try to build intent from last user message if missing
+            msgs = state.get("messages", [])
+            last_msg = msgs[-1].content if msgs else ""
+            intent = {"goal": last_msg, "context": {}}
+        
+        # 2. Plan Generation
+        # (This uses the LLM to generate the manifest)
+        
+        # Emit thinking start
+        events.append(emit_event("thinking", "planner", "Analyzing requirements..."))
+        
+        plan_artifacts = await self.plan(intent)
+        
+        # 3. Artifact Persistence
+        # (Already done in self.plan? No, self.plan returns them)
+        if self.artifact_manager:
+            for name, content in plan_artifacts.items():
+                await self.artifact_manager.save_artifact(name, content)
+        
+        # 4. Scaffolding (Optional - if Planner creates folders directly)
+        # Assuming self.plan handles logic.
+        
+        # Emit plan created event
+        tasks = plan_artifacts.get("task_list", [])
+        events.append(emit_event(
+            "plan_created", 
+            "planner", 
+            "Implementation plan created.",
+            {"task_count": len(tasks)}
+        ))
+        
+        # SCAFFOLDING LOGIC CONTINUES BELOW...
+        # We need to bridge 'plan_artifacts' to the 'artifacts' var expected below
+        artifacts = plan_artifacts
         from langgraph.prebuilt import create_react_agent
         from app.agents.tools.planner import PLANNER_TOOLS
         from app.prompts import AGENT_PROMPTS
@@ -1032,4 +1083,7 @@ IMPORTANT:
             logger.info(f"[PLANNER] 💾 Wrote 7 artifacts to {dot_ships}")
         
 
-        return {"artifacts": plan_artifacts}
+        return {
+            "artifacts": plan_artifacts, 
+            "stream_events": events
+        }

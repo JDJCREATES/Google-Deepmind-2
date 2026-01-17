@@ -58,6 +58,8 @@ from app.agents.sub_agents.coder.components import (
     TestAuthor, PreflightChecker, CodeTools,
 )
 
+from app.streaming.stream_events import emit_event
+
 # Collective Intelligence integration
 from app.services.knowledge import CoderKnowledge
 
@@ -609,6 +611,16 @@ Use these type definitions. Do NOT read from disk.
         Returns:
             Dict with 'artifacts' key containing all coder artifacts
         """
+        logger.info("[CODER] 🚀 Invoking Coder...")
+        print("[CODER] Invoked.")
+        
+        events = []
+        events.append(emit_event(
+            "agent_start", 
+            "coder", 
+            "Starting coding implementation...",
+            {"phase": "coding"}
+        ))
         from langgraph.prebuilt import create_react_agent
         from app.agents.tools.coder import CODER_TOOLS
         from app.prompts import AGENT_PROMPTS
@@ -968,6 +980,7 @@ IMPORTANT:
                 "success": True,
                 "implementation_complete": implementation_complete,
                 "completed_files": final_files_written,
+                "stream_events": events,
             }
             
         except Exception as e:

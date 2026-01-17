@@ -43,6 +43,8 @@ from app.agents.sub_agents.validator.models import (
     ValidationStatus, ViolationSeverity,
 )
 
+from app.streaming.stream_events import emit_event
+
 
 class Fixer(BaseAgent):
     """
@@ -483,6 +485,13 @@ Output your reasoning, then use tools to implement the fix."""
         Returns:
             Dict with fix results
         """
+        events = []
+        events.append(emit_event(
+            "agent_start",
+            "fixer",
+            "Applying fixes...",
+            {"phase": "fixing"}
+        ))
         from langgraph.prebuilt import create_react_agent
         from app.agents.tools.fixer import FIXER_TOOLS
         from app.prompts import AGENT_PROMPTS
@@ -503,7 +512,9 @@ Output your reasoning, then use tools to implement the fix."""
                 "requires_user_help": True,
                 "artifacts": {"reason": "Max fix attempts exceeded. Need human guidance."},
                 "recommended_action": "ask_user",
+                "recommended_action": "ask_user",
                 "next_agent": "user",
+                "stream_events": events,
             }
         
         # Get recent errors for context
@@ -590,6 +601,7 @@ When done, respond with:
                     "artifacts": {"escalation_reason": escalation_reason},
                     "recommended_action": "ask_user",
                     "next_agent": "user",
+                    "stream_events": events,
                 }
             
             return {
@@ -601,7 +613,9 @@ When done, respond with:
                 },
                 "status": "fixed",
                 "recommended_action": "validate",
+                "recommended_action": "validate",
                 "next_agent": "validator",
+                "stream_events": events,
             }
             
         except Exception as e:
