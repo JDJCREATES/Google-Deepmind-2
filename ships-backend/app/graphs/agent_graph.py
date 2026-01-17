@@ -1986,20 +1986,93 @@ async def stream_pipeline(
         "recursion_limit": 100,  # Agent needs iterations for multi-step tasks
     }
     
-    # Use stream_mode="messages" for token-by-token streaming
-    # This yields (message_chunk, metadata) tuples as the LLM generates
+    # ====================================================================
+    # STRUCTURED STREAMING PROTOCOL (Cursor-Like)
+    # ====================================================================
+    from app.streaming.stream_events import StreamBlockManager, BlockType
+    
+    block_mgr = StreamBlockManager()
     accumulated_usage = {"input": 0, "output": 0}
+    
     try:
         async for event in graph.astream(initial_state, config=config, stream_mode="messages", subgraphs=True):
-            # Track token usage from message chunks
-            if isinstance(event, tuple) and len(event) == 2:
+            if isinstance(event, tuple):
                 chunk, metadata = event
+                langgraph_node = metadata.get("langgraph_node", "")
+                
+                # 1. Track Usage
                 if hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
-                    # Accumulate usage
                     usage = chunk.usage_metadata
                     accumulated_usage["input"] += usage.get("input_tokens", 0)
                     accumulated_usage["output"] += usage.get("output_tokens", 0)
-            yield event
+
+                # 2. Handle Plan Output (Special Case)
+                # If we are in planner node and see "Implementation Plan", start a PLAN block
+                if langgraph_node == "planner" and isinstance(chunk.content, str) and "# Implementation Plan" in chunk.content:
+                    output = block_mgr.start_block(
+                        BlockType.PLAN, 
+                        title="Creating Implementation Plan"
+                    )
+                    if output: yield output + "\n"
+
+                # 3. Handle Tool Calls (Commands/File Ops)
+                if hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
+                    for tc in chunk.tool_call_chunks:
+                        # Start block if new tool call
+                        if tc.get("index") is not None and not block_mgr.active_block or block_mgr.active_block.type != BlockType.COMMAND:
+                            tool_name = tc.get("name", "tool")
+                            # Map tool names to friendly titles
+                            title_map = {
+                                "run_command": "Running Terminal Command",
+                                "write_file_to_disk": "Writing File",
+                                "replace_file_content": "Editing File",
+                                "apply_source_edits": "Applying Code Edits",
+                                "read_file_content": "Reading File"
+                            }
+                            title = title_map.get(tool_name, f"Using {tool_name}")
+                            output = block_mgr.start_block(BlockType.COMMAND, title=title, tool=tool_name)
+                            if output: yield output + "\n"
+                        
+                        # Append args as content delta
+                        if tc.get("args"):
+                            output = block_mgr.append_delta(tc["args"])
+                            if output: yield output + "\n"
+
+                # 4. Handle Text Content (Thinking/Response)
+                elif hasattr(chunk, "content") and chunk.content and isinstance(chunk.content, str):
+                    # Determine block type based on node
+                    target_type = BlockType.TEXT
+                    title = None
+                    
+                    if langgraph_node == "planner":
+                        target_type = BlockType.THINKING
+                        title = "Planning..."
+                    elif langgraph_node == "coder":
+                        target_type = BlockType.CODE
+                        # title = "Writing Code..." # Keep generic unless specific
+                        
+                    # Ensure we are in the right block type
+                    # (Unless we are already in a PLAN block, which consumes text)
+                    if not (block_mgr.active_block and block_mgr.active_block.type == BlockType.PLAN):
+                        switch_output = block_mgr.ensure_block_type(target_type, title)
+                        if switch_output: yield switch_output + "\n"
+                    
+                    # Yield content delta
+                    output = block_mgr.append_delta(chunk.content)
+                    if output: yield output + "\n"
+                    
+        # Clean up any open blocks at the end
+        final_output = block_mgr.end_current_block()
+        if final_output: yield final_output + "\n"
+            
+    except Exception as e:
+        logger.error(f"[STREAM] Error in pipeline: {e}")
+        # Emit error block
+        err_output = block_mgr.start_block(BlockType.ERROR, title="Stream Error")
+        if err_output: yield err_output + "\n"
+        yield block_mgr.append_delta(str(e)) + "\n"
+        yield block_mgr.end_current_block() + "\n"
+        raise e
     finally:
         # ====================================================================
         # STEP TRACKING: Complete the run when pipeline finishes

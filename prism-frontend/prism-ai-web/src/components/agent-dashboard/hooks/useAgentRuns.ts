@@ -8,7 +8,7 @@
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { AgentRun, Screenshot, RunStatus, AgentType, CreateRunRequest, ChatMessage, ThinkingSectionData } from '../types';
+import type { AgentRun, Screenshot, RunStatus, AgentType, CreateRunRequest, ChatMessage, ThinkingSectionData, StreamBlock } from '../types';
 
 // ============================================================================
 // Types
@@ -44,6 +44,10 @@ interface AgentRunsState {
   addRunMessage: (runId: string, message: ChatMessage) => void;
   updateRunMessage: (runId: string, messageId: string, updates: Partial<ChatMessage>) => void;
   appendRunMessageContent: (runId: string, messageId: string, contentDelta: string) => void;
+  // Structured Streaming
+  upsertRunMessageBlock: (runId: string, messageId: string, block: StreamBlock) => void;
+  appendRunMessageBlockContent: (runId: string, messageId: string, blockId: string, contentDelta: string) => void;
+  
   updateRunThinking: (runId: string, sectionId: string, content: string) => void;
   addRunThinkingSection: (runId: string, section: ThinkingSectionData) => void;
   setRunThinkingSectionLive: (runId: string, sectionId: string, isLive: boolean) => void;
@@ -276,6 +280,51 @@ export const useAgentRuns = create<AgentRunsState>()(
               thinkingSections: (run.thinkingSections || []).map((s) =>
                 s.id === sectionId ? { ...s, content: s.content + content } : s
               ),
+            }
+          : run
+      ),
+    })),
+
+  // Structured Streaming Actions
+  upsertRunMessageBlock: (runId, messageId, block) =>
+    set((state) => ({
+      runs: state.runs.map((run) =>
+        run.id === runId
+          ? {
+              ...run,
+              messages: (run.messages || []).map((msg) => {
+                if (msg.id !== messageId) return msg;
+                const blocks = msg.blocks || [];
+                const idx = blocks.findIndex(b => b.id === block.id);
+                if (idx === -1) {
+                  return { ...msg, blocks: [...blocks, block] };
+                }
+                // Update existing block (excluding content if not provided)
+                const newBlocks = [...blocks];
+                newBlocks[idx] = { ...newBlocks[idx], ...block, content: block.content || newBlocks[idx].content };
+                return { ...msg, blocks: newBlocks };
+              }),
+            }
+          : run
+      ),
+    })),
+
+  appendRunMessageBlockContent: (runId, messageId, blockId, contentDelta) =>
+    set((state) => ({
+      runs: state.runs.map((run) =>
+        run.id === runId
+          ? {
+              ...run,
+              messages: (run.messages || []).map((msg) => {
+                if (msg.id !== messageId) return msg;
+                const blocks = msg.blocks || [];
+                const idx = blocks.findIndex(b => b.id === blockId);
+                if (idx === -1) return msg;
+                
+                const newBlocks = [...blocks];
+                newBlocks[idx] = { ...newBlocks[idx], content: newBlocks[idx].content + contentDelta };
+                return { ...msg, blocks: newBlocks };
+              }),
             }
           : run
       ),

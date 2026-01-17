@@ -1,13 +1,8 @@
-export interface Message {
-  id: string;
-  content: string;
-  sender: 'user' | 'ai' | 'system';
-  timestamp: Date;
-  centered?: boolean;
-}
+import { BlockRenderer } from './BlockStreamRenderer';
+import type { ChatMessage as ChatMessageType } from '../agent-dashboard/types';
 
 interface ChatMessageProps {
-  message: Message;
+  message: ChatMessageType;
 }
 
 export default function ChatMessage({ message }: ChatMessageProps) {
@@ -25,6 +20,20 @@ export default function ChatMessage({ message }: ChatMessageProps) {
   if (!isUser) {
     const isSystem = message.sender === 'system';
     
+    // Structured Streaming: Render Blocks
+    if (message.blocks && message.blocks.length > 0) {
+        return (
+            <div className={`message ${isSystem ? 'message-system' : 'message-ai'}`}>
+                <div className="message-content no-bubble" style={{ width: '100%' }}>
+                    {message.blocks.map(block => (
+                        <BlockRenderer key={block.id} block={block} />
+                    ))}
+                </div>
+            </div>
+        );
+    }
+    
+    // Legacy / Text Fallback
     return (
       <div className={`message ${isSystem ? 'message-system' : 'message-ai'}`}>
         <div className="message-content no-bubble">
@@ -39,10 +48,9 @@ export default function ChatMessage({ message }: ChatMessageProps) {
       <div className="message-bubble">
         <div className="message-content">{message.content}</div>
         <div className="message-time">
-          {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </div>
       </div>
     </div>
   );
 }
-

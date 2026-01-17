@@ -8,27 +8,35 @@
  */
 
 export interface AgentChunk {
-  type: 'message' | 'phase' | 'error' | 'tool_start' | 'tool_result' | 'files_created' | 'terminal_output' | 'complete' | 'plan_created' | 'plan_review' | 'thinking_start' | 'thinking';
+  // Legacy types (kept for backward compatibility if needed)
+  type: 'message' | 'phase' | 'error' | 'tool_start' | 'tool_result' | 'files_created' | 'terminal_output' | 'complete' | 'plan_created' | 'plan_review' | 'thinking_start' | 'thinking' |
+        // NEW STRUCTURED TYPES
+        'block_start' | 'block_delta' | 'block_end';
+  
+  // Structured Block Fields
+  id?: string;
+  block_type?: 'text' | 'code' | 'command' | 'plan' | 'thinking' | 'tool_use' | 'error';
+  title?: string;
+  timestamp?: number;
+  final_content?: string;
+  duration_ms?: number;
+  
+  // Legacy Helper Fields
   node?: string;
   content?: string;
   phase?: 'idle' | 'planning' | 'coding' | 'validating' | 'fixing' | 'done' | 'error';
-  // Tool fields
+  // ... other fields ...
   tool?: string;
   success?: boolean;
   file?: string;
   preview?: string;
-  preview_url?: string; // For auto-launch
-  // Files created (for explorer refresh)
+  preview_url?: string;
   files?: string[];
-  // Terminal output fields
   command?: string;
   output?: string;
   stderr?: string;
   exit_code?: number;
-  duration_ms?: number;
   execution_mode?: string;
-  // Thinking section fields
-  title?: string;
 }
 
 // Artifact context sent to backend

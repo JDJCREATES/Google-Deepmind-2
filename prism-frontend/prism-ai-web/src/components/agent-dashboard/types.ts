@@ -24,6 +24,16 @@ export interface Screenshot {
   description: string;
 }
 
+// Structured UI Block (Cursor-like)
+export interface StreamBlock {
+  id: string;
+  type: 'text' | 'code' | 'command' | 'plan' | 'thinking' | 'tool_use' | 'error';
+  title?: string;
+  content: string;
+  isComplete: boolean;
+  metadata?: any;
+}
+
 // Chat Message
 export interface ChatMessage {
   id: string;
@@ -31,6 +41,8 @@ export interface ChatMessage {
   sender: 'user' | 'ai' | 'system';
   timestamp: Date;
   centered?: boolean;
+  // Blocks for structured streaming
+  blocks?: StreamBlock[];
 }
 
 // Thinking Section Data

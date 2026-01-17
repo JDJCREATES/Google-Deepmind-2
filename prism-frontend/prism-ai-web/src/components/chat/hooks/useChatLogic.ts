@@ -3,7 +3,7 @@ import { useAgentRuns } from '../../agent-dashboard/hooks/useAgentRuns';
 import { useStreamingStore } from '../../../store/streamingStore';
 import { useFileSystem } from '../../../store/fileSystem';
 import { agentService, type AgentChunk } from '../../../services/agentService';
-import type { ChatMessage as ChatMessageType, ThinkingSectionData } from '../../agent-dashboard/types';
+import type { ChatMessage as ChatMessageType, ThinkingSectionData, StreamBlock } from '../../agent-dashboard/types';
 
 interface UseChatLogicProps {
   electronProjectPath: string | null;
@@ -22,6 +22,8 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
     addRunThinkingSection,
     updateRunThinking,
     setRunThinkingSectionLive,
+    upsertRunMessageBlock,
+    appendRunMessageBlockContent,
     setLoading
   } = useAgentRuns();
 
@@ -126,8 +128,41 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
       prompt,
       electronProjectPath, 
       (chunk: AgentChunk) => {
-        // Phase
-        if (chunk.type === 'phase' && chunk.phase) {
+        // Structured Streaming Events
+        if (chunk.type === 'block_start' && chunk.block_type) {
+             const block: StreamBlock = {
+                 id: chunk.id!,
+                 type: chunk.block_type,
+                 title: chunk.title,
+                 content: '',
+                 isComplete: false,
+                 metadata: { ...chunk, timestamp: Date.now() } // Store extra metadata
+             };
+             if (targetRunId) upsertRunMessageBlock(targetRunId, aiMessageId, block);
+             
+             // Also update activity indicator based on block type
+             if (chunk.block_type === 'thinking') setActivity(chunk.title || 'Thinking...', 'thinking');
+             else if (chunk.block_type === 'code') setActivity('Writing code...', 'writing');
+             else if (chunk.block_type === 'command') setActivity(chunk.title || 'Running command...', 'command');
+             else if (chunk.block_type === 'plan') setActivity('Creating plan...', 'thinking');
+        } 
+        else if (chunk.type === 'block_delta' && chunk.id) {
+             if (targetRunId) appendRunMessageBlockContent(targetRunId, aiMessageId, chunk.id, chunk.content || '');
+        } 
+        else if (chunk.type === 'block_end' && chunk.id) {
+             if (targetRunId) upsertRunMessageBlock(targetRunId, aiMessageId, { 
+                id: chunk.id, 
+                type: 'text', // Dummy type, will be merged
+                content: '', // Dummy content
+                isComplete: true,
+                final_content: chunk.final_content
+             } as StreamBlock);
+             
+             // Clear activity if thinking ended? Maybe leave it for phase update
+        }
+
+        // Legacy Events (Phase)
+        else if (chunk.type === 'phase' && chunk.phase) {
           setPhase(chunk.phase);
           if (chunk.phase === 'planning') setActivity('Planning approach...');
           else if (chunk.phase === 'coding') setActivity('Writing code...');

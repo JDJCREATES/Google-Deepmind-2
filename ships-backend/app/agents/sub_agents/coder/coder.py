@@ -923,29 +923,51 @@ IMPORTANT:
                         tc_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
                         tc_args = tc.get("args", {}) if isinstance(tc, dict) else getattr(tc, "args", {})
                         
-                        if tc_name == "write_file_to_disk":
-                            path = tc_args.get("file_path", "") if isinstance(tc_args, dict) else ""
-                            if path:
-                                files_written.append(path)
+                        # Track all file modification tools
+                        if tc_name in ["write_file_to_disk", "write_to_file"]:
+                            path = tc_args.get("file_path", tc_args.get("TargetFile", ""))
+                            if path: files_written.append(path)
                         
-                        # Also track batch writes
                         elif tc_name == "write_files_batch":
                             files_arg = tc_args.get("files", []) if isinstance(tc_args, dict) else []
                             for file_entry in files_arg:
                                 if isinstance(file_entry, dict):
                                     path = file_entry.get("path", file_entry.get("file_path", ""))
-                                    if path:
-                                        files_written.append(path)
+                                    if path: files_written.append(path)
+                        
+                        elif tc_name in ["replace_file_content", "multi_replace_file_content"]:
+                            path = tc_args.get("TargetFile", tc_args.get("file_path", ""))
+                            if path: files_written.append(path)
+                        
+                        elif tc_name == "apply_source_edits":
+                            # Check common argument names for source file
+                            path = tc_args.get("source_file", tc_args.get("path", tc_args.get("file_path", "")))
+                            if path: files_written.append(path)
             
+            # Normalize paths to be relative to project root
+            final_files_written = []
+            for f in files_written:
+                if project_path:
+                    try:
+                        # robust relative path calculation
+                        rel_path = os.path.relpath(f, project_path)
+                        if not rel_path.startswith(".."):
+                             final_files_written.append(rel_path.replace("\\", "/"))
+                             continue
+                    except ValueError:
+                        pass
+                # fallback or already relative
+                final_files_written.append(str(f).replace("\\", "/"))
+
             return {
                 "artifacts": {
-                    "files_written": files_written,
+                    "files_written": final_files_written,
                     "message_count": len(new_messages),
                 },
                 "status": "complete" if implementation_complete else "in_progress",
                 "success": True,
                 "implementation_complete": implementation_complete,
-                "completed_files": files_written,
+                "completed_files": final_files_written,
             }
             
         except Exception as e:
