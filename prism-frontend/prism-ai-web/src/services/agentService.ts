@@ -161,12 +161,16 @@ export const agentService = {
           if (!line.trim()) continue;
           try {
             const chunk = JSON.parse(line);
+            console.log('[AgentService] 📥 Chunk received:', chunk.type, chunk);
             onChunk(chunk);
           } catch (e) {
             console.error("Error parsing JSON chunk:", e, line);
+            console.error("Problematic line:", line);
           }
         }
       }
+      
+      console.log('[AgentService] Stream completed');
     } catch (error) {
       console.error("Agent run error:", error);
       onError(error);

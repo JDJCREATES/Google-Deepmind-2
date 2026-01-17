@@ -1,7 +1,6 @@
 import ChatMessage from './ChatMessage';
 import { ToolProgress, PhaseIndicator } from '../streaming';
 import { ActivityIndicator } from '../streaming/ActivityIndicator';
-import { ThinkingSection } from '../streaming/ThinkingSection';
 import { PlanReviewActions } from '../streaming/PlanReviewActions';
 import { useChatLogic } from './hooks/useChatLogic';
 import { useStreamingStore } from '../../store/streamingStore';
@@ -24,7 +23,6 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
     handleSendMessage,
     handleKeyPress,
     messages,
-    thinkingSections,
     toolEvents,
     activeRun,
     activeRunId,
@@ -62,23 +60,8 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
          {isAgentRunning && agentPhase !== 'idle' && agentPhase !== 'done' && (
            <PhaseIndicator phase={agentPhase} />
          )}
-
-         {/* Thinking Sections */}
-         {thinkingSections.length > 0 && (
-           <div className="thinking-sections-container">
-             {thinkingSections.map((section) => (
-               <ThinkingSection
-                 key={section.id}
-                 title={section.title}
-                 node={section.node}
-                 content={section.content}
-                 isLive={section.isLive}
-               />
-             ))}
-           </div>
-         )}
          
-         {/* Messages */}
+         {/* Messages - All content (including thinking) rendered as StreamBlocks */}
          {messages.length === 0 && !activeRunId && (
             <div className="message-centered">
                <div className="welcome-content">Ready to Ship[s]?</div>

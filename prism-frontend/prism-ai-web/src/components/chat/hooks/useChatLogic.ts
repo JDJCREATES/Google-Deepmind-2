@@ -33,13 +33,11 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
   // Computed state from active run
   const activeRun = runs.find(r => r.id === activeRunId);
   const messages = activeRun?.messages || [];
-  const thinkingSections = activeRun?.thinkingSections || [];
   
   // We determine if agent is running based on the run status
   const isAgentRunning = activeRun?.status === 'running' || activeRun?.status === 'planning' || activeRun?.status === 'pending';
   
   // Refs
-  const currentThinkingSectionRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { refreshFileTree, openFile } = useFileSystem();
   
@@ -66,7 +64,7 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
   // Auto-scroll when new content arrives
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length, thinkingSections.length, toolEvents.length, activeRun?.agentMessage]);
+  }, [messages.length, toolEvents.length, activeRun?.agentMessage]);
 
   const handleSendMessage = async () => {
     if (!inputValue.trim()) return;
@@ -116,6 +114,7 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
       content: '', 
       sender: 'ai',
       timestamp: new Date(),
+      blocks: [], // Initialize for StreamBlock protocol
     };
     addRunMessage(targetRunId, initialAiMessage);
 
@@ -128,7 +127,11 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
       prompt,
       electronProjectPath, 
       (chunk: AgentChunk) => {
-        // Structured Streaming Events
+        // ============================================================
+        // UNIFIED STREAMING: StreamBlock Protocol Only
+        // ============================================================
+        
+        // Block Start - Create new block in message
         if (chunk.type === 'block_start' && chunk.block_type) {
              const block: StreamBlock = {
                  id: chunk.id!,
@@ -136,41 +139,47 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
                  title: chunk.title,
                  content: '',
                  isComplete: false,
-                 metadata: { ...chunk, timestamp: Date.now() } // Store extra metadata
+                 metadata: { ...chunk, timestamp: Date.now() }
              };
              if (targetRunId) upsertRunMessageBlock(targetRunId, aiMessageId, block);
              
-             // Also update activity indicator based on block type
+             // Update activity indicator based on block type
              if (chunk.block_type === 'thinking') setActivity(chunk.title || 'Thinking...', 'thinking');
              else if (chunk.block_type === 'code') setActivity('Writing code...', 'writing');
              else if (chunk.block_type === 'command') setActivity(chunk.title || 'Running command...', 'command');
              else if (chunk.block_type === 'plan') setActivity('Creating plan...', 'thinking');
         } 
+        
+        // Block Delta - Append content to existing block
         else if (chunk.type === 'block_delta' && chunk.id) {
              if (targetRunId) appendRunMessageBlockContent(targetRunId, aiMessageId, chunk.id, chunk.content || '');
         } 
+        
+        // Block End - Mark block as complete
         else if (chunk.type === 'block_end' && chunk.id) {
              if (targetRunId) upsertRunMessageBlock(targetRunId, aiMessageId, { 
                 id: chunk.id, 
-                type: 'text', // Dummy type, will be merged
-                content: '', // Dummy content
+                type: 'text',
+                content: '',
                 isComplete: true,
                 final_content: chunk.final_content
              } as StreamBlock);
-             
-             // Clear activity if thinking ended? Maybe leave it for phase update
-        }
-
-        // Legacy Events (Phase)
-        else if (chunk.type === 'phase' && chunk.phase) {
-          setPhase(chunk.phase);
-          if (chunk.phase === 'planning') setActivity('Planning approach...');
-          else if (chunk.phase === 'coding') setActivity('Writing code...');
-          else if (chunk.phase === 'validating') setActivity('Verifying changes...');
-          else if (chunk.phase === 'fixing') setActivity('Fixing issues...');
         }
         
-        // Tool Start
+        // Phase updates (for activity indicator only, not duplicate rendering)
+        else if (chunk.type === 'phase' && chunk.phase) {
+          setPhase(chunk.phase);
+          if (chunk.phase === 'planning') setActivity('Planning approach...', 'thinking');
+          else if (chunk.phase === 'coding') setActivity('Writing code...', 'writing');
+          else if (chunk.phase === 'validating') setActivity('Verifying changes...', 'thinking');
+          else if (chunk.phase === 'fixing') setActivity('Fixing issues...', 'thinking');
+        }
+        
+        // ============================================================
+        // ESSENTIAL UI UPDATES (Non-Message Components)
+        // ============================================================
+        
+        // Tool tracking - for ToolProgress component at bottom
         else if (chunk.type === 'tool_start') {
           const toolName = chunk.tool || 'unknown';
           let activityText = `Running ${toolName}...`;
@@ -188,7 +197,6 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
           }
           
           setActivity(activityText, type);
-
           addToolEvent({
             id: `${Date.now()}-${chunk.tool}`,
             type: 'tool_start',
@@ -198,10 +206,9 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
           });
         }
         
-        // Tool Result
+        // Tool result tracking
         else if (chunk.type === 'tool_result') {
           setActivity('Thinking...', 'thinking');
-
           addToolEvent({
             id: `${Date.now()}-${chunk.tool}-result`,
             type: 'tool_result',
@@ -220,37 +227,12 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
           }
         }
         
-        // Files Created
+        // Files created tracking
         else if (chunk.type === 'files_created') {
           filesCreated = true;
         }
         
-        // Plan Created
-        else if (chunk.type === 'plan_created') {
-          const summary = (chunk as any).summary || 'Plan created';
-          const taskCount = (chunk as any).task_count || 0;
-          const folderCount = (chunk as any).folders || 0;
-          
-          const planText = `📋 **${summary}**\n• ${taskCount} tasks defined\n• ${folderCount} folders to create`;
-          
-          // Replace content of AI message with plan
-          if (targetRunId) {
-             updateRunMessage(targetRunId, aiMessageId, { content: planText });
-          }
-          
-          // Show Accept/Reject buttons
-          setAwaitingConfirmation(true, `Ready to implement: ${summary}`);
-          setActivity('Plan ready - awaiting your approval', 'thinking');
-        }
-        
-        // Plan Review (HITL)
-        else if (chunk.type === 'plan_review') {
-          const summary = chunk.content || 'Ready to proceed with implementation.';
-          setAwaitingConfirmation(true, summary);
-          setActivity('Awaiting your approval...', 'thinking');
-        }
-        
-        // Terminal Output
+        // Terminal output (separate terminal component)
         else if (chunk.type === 'terminal_output') {
           const output = chunk.output || '';
           const stderr = chunk.stderr || '';
@@ -259,81 +241,6 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
           appendTerminalOutput(fullOutput);
           setShowTerminal(true);
         }
-        
-        // Thinking Section Start
-        else if (chunk.type === 'thinking_start') {
-          const sectionId = `${chunk.node}-${Date.now()}`;
-          
-          if (targetRunId) {
-              if (currentThinkingSectionRef.current) {
-                  setRunThinkingSectionLive(targetRunId, currentThinkingSectionRef.current, false);
-              }
-
-              const newSection: ThinkingSectionData = {
-                id: sectionId,
-                title: chunk.title || `Processing (${chunk.node})`,
-                node: chunk.node || 'agent',
-                content: '',
-                isLive: true
-              };
-              addRunThinkingSection(targetRunId, newSection);
-              currentThinkingSectionRef.current = sectionId;
-          }
-        }
-        
-        // Thinking Content
-        else if (chunk.type === 'thinking' && chunk.content) {
-          if (targetRunId) {
-              let sectionId = currentThinkingSectionRef.current;
-              
-              // Auto-create section if none exists
-              if (!sectionId) {
-                const node = chunk.node || 'agent';
-                sectionId = `${node}-${Date.now()}`;
-                const titleMap: Record<string, string> = {
-                  'orchestrator': '🧠 Analyzing Request',
-                  'planner': '📝 Planning Implementation',
-                  'coder': '💻 Writing Code',
-                  'validator': '✓ Validating Build',
-                  'fixer': '🔧 Fixing Issues',
-                  'chat': '💬 Responding',
-                };
-                const newSection: ThinkingSectionData = {
-                  id: sectionId,
-                  title: titleMap[node.toLowerCase()] || `Processing (${node})`,
-                  node: node,
-                  content: '',
-                  isLive: true
-                };
-                addRunThinkingSection(targetRunId, newSection);
-                currentThinkingSectionRef.current = sectionId;
-              }
-              
-              updateRunThinking(targetRunId, sectionId, chunk.content + '\n');
-          }
-        }
-        
-        // AI Message
-        else if (chunk.type === 'message' && chunk.content) {
-          const content = chunk.content;
-          const skipPatterns = ['ACTION REQUIRED', 'MANDATORY FIRST STEP', 'SCAFFOLDING CHECK'];
-          
-          if (!skipPatterns.some(p => content.includes(p))) {
-            if (targetRunId) {
-                // Append content properly
-                appendRunMessageContent(targetRunId, aiMessageId, content);
-            }
-          }
-        }
-        
-        // Error
-         else if (chunk.type === 'error') {
-           setPhase('error');
-           if (targetRunId) {
-               const errorMsg = `\n🛑 Error: ${chunk.content}`;
-               appendRunMessageContent(targetRunId, aiMessageId, errorMsg);
-           }
-         }
          
          // Run Complete - Capture screenshot and create preview
          else if (chunk.type === 'complete') {
@@ -394,7 +301,6 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
     handleSendMessage,
     handleKeyPress,
     messages,
-    thinkingSections,
     toolEvents,
     activeRun,
     activeRunId,

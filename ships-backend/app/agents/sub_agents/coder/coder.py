@@ -24,6 +24,10 @@ import json
 import re
 import uuid
 
+# Use centralized logging
+from app.core.logger import get_logger, dev_log, truncate_for_log
+logger = get_logger("coder")
+
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.base.base_agent import BaseAgent

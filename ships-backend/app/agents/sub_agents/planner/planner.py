@@ -237,7 +237,7 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
         # ================================================================
         # FILE SYSTEM AWARENESS: Inject real file tree (from system)
         # ================================================================
-        context["file_tree"] = environment.get("file_tree", {})
+        context["file_tree"] = context["environment"].get("file_tree", {})
         if context["file_tree"].get("success"):
             logger.info(f"[PLANNER] 🌳 Using system-injected file tree with {context['file_tree'].get('stats', {}).get('files', 0)} files")
         
@@ -674,12 +674,20 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
         # Assuming self.plan handles logic.
         
         # Emit plan created event
-        tasks = plan_artifacts.get("task_list", [])
+        # Emit plan created event
+        task_list_obj = plan_artifacts.get("task_list")
+        if hasattr(task_list_obj, "tasks") and isinstance(task_list_obj.tasks, list):
+            task_count = len(task_list_obj.tasks)
+        elif isinstance(task_list_obj, list):
+            task_count = len(task_list_obj)
+        else:
+             task_count = 0
+
         events.append(emit_event(
             "plan_created", 
             "planner", 
             "Implementation plan created.",
-            {"task_count": len(tasks)}
+            {"task_count": task_count}
         ))
         
         # SCAFFOLDING LOGIC CONTINUES BELOW...

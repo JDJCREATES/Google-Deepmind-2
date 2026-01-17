@@ -309,7 +309,8 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
                         "previous_plan": plan_data,  # Pass for incremental editing
                         "retry_reason": "plan_incomplete"
                     },
-                    "messages": [AIMessage(content=f"Plan needs revision. Issues: {', '.join(validation.missing_items[:3])}")]
+                    "messages": [AIMessage(content=f"Plan needs revision. Issues: {', '.join(validation.missing_items[:3])}")],
+                    "stream_events": []
                 }
             else:
                 logger.info(f"[PLANNER] ✅ Plan validated (score: {validation.score})")
@@ -368,16 +369,18 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
                 logger.error(f"[PLANNER] ❌ Failed to save artifacts: {io_e}")
         
         return {
-            "phase": "plan_ready",
+            "phase": "coder",  # Route directly to coder
             "artifacts": merged_artifacts,
-            "messages": [AIMessage(content="Planning and scaffolding complete. Ready for coding.")]
+            "messages": [AIMessage(content="Planning and scaffolding complete. Ready for coding.")],
+            "stream_events": result.get("stream_events", [])
         }
     except Exception as e:
         logger.error(f"[PLANNER] ❌ Planner failed: {e}")
         return {
             "phase": "error",
             "error_log": state.get("error_log", []) + [f"Planner error: {str(e)}"],
-            "messages": [AIMessage(content=f"Planning failed: {e}")]
+            "messages": [AIMessage(content=f"Planning failed: {e}")],
+            "stream_events": []
         }
 
 
@@ -549,10 +552,27 @@ async def coder_node(state: AgentGraphState) -> Dict[str, Any]:
                 break
         
         if not active_file and pending_files:
-             logger.warning(f"[CODER] ⚠️ All {len(pending_files)} pending files are LOCKED after {wait_timeout}s. Yielding.")
+             # Increment wait counter in loop detection
+             loop_info = state.get("loop_detection", {})
+             wait_count = loop_info.get("wait_attempts", 0) + 1
+             
+             logger.warning(f"[CODER] ⚠️ All {len(pending_files)} pending files are LOCKED after {wait_timeout}s. Wait attempt {wait_count}/5")
+             
+             # After 5 waits, route to orchestrator to decide
+             if wait_count >= 5:
+                 logger.error(f"[CODER] ❌ Max wait attempts reached. Routing to orchestrator.")
+                 return {
+                     "phase": "orchestrator",
+                     "messages": [AIMessage(content=f"Unable to acquire file locks after {wait_count} attempts. Escalating to orchestrator.")],
+                     "stream_events": [],
+                     "loop_detection": {**loop_info, "wait_attempts": 0, "escalated_from": "coder"}
+                 }
+             
              return {
-                 "phase": "waiting", # Wait for locks to free
-                 "messages": [AIMessage(content="Waiting for file locks to release.")]
+                 "phase": "waiting",
+                 "messages": [AIMessage(content="Waiting for file locks to release.")],
+                 "stream_events": [],
+                 "loop_detection": {**loop_info, "wait_attempts": wait_count, "last_node": "coder"}
              }
 
     # 4. Build Dynamic System Prompt
@@ -774,9 +794,10 @@ ACTUAL FILE STRUCTURE (Disk State):
 
     return {
         "messages": [AIMessage(content=f"Coder {'completed' if implementation_complete else 'partially done'}: {len(current_completed)} files written")],
-        # NOTE: Removed "phase" - let orchestrator LLM decide next step
+        "stream_events": result.get("stream_events", []) if result else [],
+        "phase": "validator" if implementation_complete else "coder",  # Deterministic routing
         "completed_files": current_completed,
-        "implementation_complete": implementation_complete,  # Orchestrator uses this to reason
+        "implementation_complete": implementation_complete,
         "agent_status": {"status": "complete" if implementation_complete else "in_progress"}
     }
 
@@ -897,10 +918,11 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
         
         return {
             "validation_passed": validation_passed,
-            # NOTE: Removed "phase" - let orchestrator LLM decide next step based on results
+            "stream_events": result.get("stream_events", []) if result else [],
+            "phase": "complete" if validation_passed else "fixer",  # Deterministic routing
             "error_log": error_log,
             "artifacts": merged_artifacts,
-            "pending_fix_context": None,  # Clear after capture attempt
+            "pending_fix_context": None,
             "agent_status": {
                 "status": "pass" if validation_passed else "fail",
                 "failure_layer": failure_layer,
@@ -915,7 +937,8 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
             "validation_passed": False,
             "phase": "error",
             "error_log": state.get("error_log", []) + [f"Validator error: {str(e)}"],
-            "messages": [AIMessage(content=f"Validation error: {e}")]
+            "messages": [AIMessage(content=f"Validation error: {e}")],
+            "stream_events": []
         }
 
 
@@ -942,7 +965,8 @@ async def chat_cleanup(state: AgentGraphState) -> Dict[str, Any]:
     artifacts = state.get("artifacts", {})
     return {
         "phase": "complete",
-        "artifacts": {**artifacts, "structured_intent": None}
+        "artifacts": {**artifacts, "structured_intent": None},
+        "stream_events": []
     }
 
 
@@ -971,7 +995,8 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
             "phase": "chat",  # Ask user for help, NOT planner (that causes rebuilds)
             "fix_attempts": fix_attempts,
             "error_log": state.get("error_log", []) + ["Fixer max attempts exceeded - needs user guidance"],
-            "messages": [AIMessage(content="I've tried to fix this issue multiple times but am still stuck. Let me explain what's happening and get your input.")]
+            "messages": [AIMessage(content="I've tried to fix this issue multiple times but am still stuck. Let me explain what's happening and get your input.")],
+            "stream_events": []
         }
     
     # Invoke the Fixer
@@ -1038,10 +1063,26 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
                 )
             elif error_files:
                  # All files locked
-                 logger.warning(f"[FIXER] ⚠️ All error files locked after {wait_timeout}s. Yielding.")
+                 loop_info = state.get("loop_detection", {})
+                 wait_count = loop_info.get("wait_attempts", 0) + 1
+                 
+                 logger.warning(f"[FIXER] ⚠️ All error files locked after {wait_timeout}s. Wait attempt {wait_count}/5")
+                 
+                 # After 5 waits, route to orchestrator
+                 if wait_count >= 5:
+                     logger.error(f"[FIXER] ❌ Max wait attempts reached. Routing to orchestrator.")
+                     return {
+                         "phase": "orchestrator",
+                         "messages": [AIMessage(content=f"Unable to acquire file locks after {wait_count} attempts. Escalating.")],
+                         "stream_events": [],
+                         "loop_detection": {**loop_info, "wait_attempts": 0, "escalated_from": "fixer"}
+                     }
+                 
                  return {
                      "phase": "waiting",
-                     "messages": [AIMessage(content="Waiting for files to unlock.")]
+                     "messages": [AIMessage(content="Waiting for files to unlock.")],
+                     "stream_events": [],
+                     "loop_detection": {**loop_info, "wait_attempts": wait_count, "last_node": "fixer"}
                  }
 
     # Use centralized context scoping (prevents token bloat from full state spread)
@@ -1095,7 +1136,8 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
                     "phase": "chat",  # Ask user, NOT planner
                     "fix_attempts": fix_attempts,
                     "error_log": state.get("error_log", []) + [f"Needs help: {reason}"],
-                    "messages": [AIMessage(content=f"I need your help: {reason}")]
+                    "messages": [AIMessage(content=f"I need your help: {reason}")],
+                    "stream_events": []
                 }
             
             # ===== COLLECTIVE INTELLIGENCE: Store fix context for capture =====
@@ -1134,11 +1176,12 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
             
             return {
                 "fix_attempts": fix_attempts,
-                "phase": "validating",  # Go back to validation after fix
+                "phase": "validator",  # Route back to validator
                 "pending_fix_context": pending_fix_context,
-                "fix_request": None,  # Clear fix_request after consuming
+                "fix_request": None,
                 "agent_status": {"status": "fixed", "attempt": fix_attempts},
-                "messages": [AIMessage(content=f"Fix applied (attempt {fix_attempts})")]
+                "messages": [AIMessage(content=f"Fix applied (attempt {fix_attempts})")],
+                "stream_events": result.get("stream_events", []) if result else []
             }
             
         except Exception as e:
@@ -1147,7 +1190,8 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
                 "fix_attempts": fix_attempts,
                 "phase": "error",
                 "error_log": state.get("error_log", []) + [f"Fixer error: {str(e)}"],
-                "messages": [AIMessage(content=f"Fix error: {e}")]
+                "messages": [AIMessage(content=f"Fix error: {e}")],
+                "stream_events": []
             }
     finally:
         if active_fix_file:
@@ -1186,6 +1230,7 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
                 "phase": "chat",
                 "loop_detection": loop_detection,
                 "messages": [AIMessage(content=f"I'm stuck in a loop trying to {current_phase}. I need your help to continue.")],
+                "stream_events": []
             }
         
         if loop_detection["consecutive_calls"] >= 3:
@@ -1406,7 +1451,8 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
                 **artifacts, 
                 "pending_intent": current_intent.model_dump() if hasattr(current_intent, 'model_dump') else {},
                 "asked_for_clarification": True  # Prevent re-asking loop
-            }
+            },
+            "stream_events": []
         }
     elif current_intent and current_intent.is_ambiguous and already_asked:
         # Already asked - just proceed with best guess
@@ -1448,7 +1494,8 @@ Please clarify before I proceed."""
                 return {
                     "phase": "chat",
                     "messages": [AIMessage(content=clarification_msg)],
-                    "artifacts": {**artifacts, "pending_new_intent": current_intent.model_dump() if hasattr(current_intent, 'model_dump') else {}}
+                    "artifacts": {**artifacts, "pending_new_intent": current_intent.model_dump() if hasattr(current_intent, 'model_dump') else {}},
+                    "stream_events": []
                 }
 
     # 7. Build Decision Prompt
@@ -1627,36 +1674,10 @@ Analyze state and decide next step. Respond with JSON.""")
     return {
         "phase": decision,  # This drives the routing
         "loop_detection": loop_detection,
-        "current_step": state.get("current_step", 0) + 1
+        "current_step": state.get("current_step", 0) + 1,
+        "stream_events": []
     }
 
-
-
-# ============================================================================
-# ROUTING FUNCTIONS
-# ============================================================================
-
-def route_after_validation(state: AgentGraphState) -> Literal["fixer", "complete"]:
-    """Route after validation based on pass/fail."""
-    if state.get("validation_passed", False):
-        return "complete"
-    return "fixer"
-
-
-def route_after_fix(state: AgentGraphState) -> Literal["planner", "validator", "error"]:
-    """Route after fix based on result."""
-    fix_attempts = state.get("fix_attempts", 0)
-    max_attempts = state.get("max_fix_attempts", 3)
-    
-    if fix_attempts >= max_attempts:
-        return "error"
-    
-    # Check if replan needed (would be set by fixer)
-    phase = state.get("phase", "validating")
-    if phase == "planning":
-        return "planner"
-    
-    return "validator"
 
 
 # ============================================================================
@@ -1681,7 +1702,8 @@ async def complete_node(state: AgentGraphState) -> Dict[str, Any]:
         logger.warning("[COMPLETE] ❌ No project path set, cannot launch preview")
         return {
             "phase": "complete",
-            "result": {"success": True, "preview_url": None}
+            "result": {"success": True, "preview_url": None},
+            "stream_events": []
         }
     
     from pathlib import Path
@@ -1758,7 +1780,8 @@ async def complete_node(state: AgentGraphState) -> Dict[str, Any]:
             "preview_url": preview_url,
             "project_path": project_path,
             "run_complete_event": run_complete_event  # For Electron git checkpoint
-        }
+        },
+        "stream_events": []
     }
 
 
@@ -1814,12 +1837,25 @@ def create_agent_graph(checkpointer: Optional[MemorySaver] = None) -> StateGraph
     # ORCHESTRATOR ROUTING
     def route_orchestrator(state: AgentGraphState):
         decision = state.get("phase")
-        # Route "chat" to "chat_setup" first
+        
+        # Handle waiting state - retry same agent
+        if decision == "waiting":
+            # Get last agent from loop detection or agent_status
+            last_phase = state.get("loop_detection", {}).get("last_node", "coder")
+            logger.info(f"[ROUTER] Waiting state detected, retrying {last_phase}")
+            return last_phase if last_phase in ["coder", "fixer"] else "coder"
+        
+        # Route chat to chat_setup first
         if decision == "chat":
             return "chat_setup"
+        
+        # Valid phases
         if decision in ["planner", "coder", "validator", "fixer", "complete"]:
             return decision
-        return "complete" # Default fallback
+        
+        # Default: complete if unrecognized
+        logger.warning(f"[ROUTER] Unrecognized phase '{decision}', routing to complete")
+        return "complete"
         
     graph.add_conditional_edges(
         "orchestrator",
@@ -1870,7 +1906,6 @@ async def run_full_pipeline(
         "current_task_index": 0,
         "validation_passed": False,
         "fix_attempts": 0,
-        "max_fix_attempts": 3,
         "max_fix_attempts": 3,
         "result": None,
         # Modern State Init
@@ -2001,6 +2036,9 @@ async def stream_pipeline(
     accumulated_usage = {"input": 0, "output": 0}
     
     try:
+        # yield user message to UI immediately for responsiveness
+        yield block_mgr.create_block(BlockType.TEXT, "chat", user_request) + "\n"
+        
         # NEW STREAMING LOGIC: Watch for 'stream_events' updates
         # stream_mode="updates" yields the actual dict returned by nodes
         async for chunk in graph.astream(initial_state, config=config, stream_mode="updates", subgraphs=True):
@@ -2011,6 +2049,7 @@ async def stream_pipeline(
                 
                 # Check if this update contains stream events
                 if isinstance(update, dict) and "stream_events" in update:
+                    logger.info(f"[STREAM] 🌊 Processing {len(update['stream_events'])} events from {namespace}")
                     for event in update["stream_events"]:
                         event_type = event.get("type")
                         agent = event.get("agent")
@@ -2061,6 +2100,29 @@ async def stream_pipeline(
                             output_events.append(block_mgr.start_block(BlockType.ERROR, "Error"))
                             output_events.append(block_mgr.append_delta(content))
                             output_events.append(block_mgr.end_current_block())
+                        
+                        # Additional event types
+                        elif event_type == "validation_complete":
+                            status = "✓ Passed" if meta.get("passed") else "✗ Failed"
+                            output_events.append(block_mgr.start_block(BlockType.TEXT, f"Validation {status}"))
+                            if content:
+                                output_events.append(block_mgr.append_delta(content))
+                            output_events.append(block_mgr.end_current_block())
+                        
+                        elif event_type == "fix_applied":
+                            output_events.append(block_mgr.start_block(BlockType.TEXT, "Fix Applied"))
+                            if content:
+                                output_events.append(block_mgr.append_delta(content))
+                            output_events.append(block_mgr.end_current_block())
+                        
+                        elif event_type == "file_read":
+                            # Silently track, don't create UI block for every file read
+                            pass
+                        
+                        else:
+                            # Fallback: log unhandled event types for debugging
+                            if event_type not in ["status_update", "progress"]:
+                                logger.debug(f"[STREAM] Unhandled event type: {event_type}")
 
                         # Yield all generated block events
                         for evt in output_events:

@@ -7,9 +7,10 @@
 
 import React, { useEffect, useState } from 'react';
 import { useAgentRuns } from './hooks/useAgentRuns';
+import { useStreamingStore } from '../../store/streamingStore';
 import { RunCard } from './components/RunCard/RunCard';
-import type { CreateRunRequest } from './types';
-import { agentService } from '../../services/agentService';
+import type { CreateRunRequest, StreamBlock } from './types';
+import { agentService, type AgentChunk } from '../../services/agentService';
 import './AgentDashboard.css';
 
 export const AgentDashboard: React.FC = () => {
@@ -21,8 +22,19 @@ export const AgentDashboard: React.FC = () => {
     createRun,
     setError,
     activeRunId,
-    setActiveRun
+    setActiveRun,
+    addRunMessage,
+    upsertRunMessageBlock,
+    appendRunMessageBlockContent
   } = useAgentRuns();
+  
+  const { 
+    setActivity, 
+    setPhase, 
+    clearToolEvents,
+    setAwaitingConfirmation,
+    resetStreaming 
+  } = useStreamingStore();
   
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newRunPrompt, setNewRunPrompt] = useState('');
@@ -74,19 +86,76 @@ export const AgentDashboard: React.FC = () => {
       setShowCreateModal(false);
       
       // Auto-trigger the agent with the prompt
-      // This provides immediate feedback - the user doesn't need to re-type
       console.log('[AgentDashboard] Auto-triggering agent for new run:', newRun.id);
       
-      // Use the project path from the created run (now stored in backend)
-      
-      // Start the agent (async, don't await)
+      // Reset UI state
+      resetStreaming();
+      setPhase('planning');
+      clearToolEvents();
+      setActivity('Initializing...', 'thinking');
+      setAwaitingConfirmation(false);
+
+      // Add User Message so it appears in chat
+      addRunMessage(newRun.id, {
+        id: Date.now().toString(),
+        content: prompt,
+        sender: 'user',
+        timestamp: new Date()
+      });
+
+      // Create AI placeholder message
+      const aiMessageId = (Date.now() + 1).toString();
+      addRunMessage(newRun.id, {
+        id: aiMessageId,
+        content: '',
+        sender: 'ai',
+        timestamp: new Date()
+      });
+
+      // Start the agent
       agentService.runAgent(
         prompt,
         newRun.projectPath,
-        (chunk) => {
-          // Chunk handling happens in ChatInterface via useChatLogic
-          // The streaming store is shared, so updates will flow there
-          console.log('[AgentDashboard] Agent chunk:', chunk.type);
+        (chunk: AgentChunk) => {
+          // Structured Streaming Events
+          if (chunk.type === 'block_start' && chunk.block_type) {
+             const block: StreamBlock = {
+                 id: chunk.id!,
+                 type: chunk.block_type,
+                 title: chunk.title,
+                 content: '',
+                 isComplete: false,
+                 metadata: { ...chunk, timestamp: Date.now() }
+             };
+             upsertRunMessageBlock(newRun.id, aiMessageId, block);
+             
+             // Update activity indicator
+             if (chunk.block_type === 'thinking') setActivity(chunk.title || 'Thinking...', 'thinking');
+             else if (chunk.block_type === 'code') setActivity('Writing code...', 'writing');
+             else if (chunk.block_type === 'command') setActivity(chunk.title || 'Running command...', 'command');
+             else if (chunk.block_type === 'plan') setActivity('Creating plan...', 'thinking');
+          } 
+          else if (chunk.type === 'block_delta' && chunk.id) {
+             appendRunMessageBlockContent(newRun.id, aiMessageId, chunk.id, chunk.content || '');
+          } 
+          else if (chunk.type === 'block_end' && chunk.id) {
+             upsertRunMessageBlock(newRun.id, aiMessageId, { 
+                id: chunk.id, 
+                type: 'text', // merged by UI
+                content: '', 
+                isComplete: true, 
+                final_content: chunk.final_content 
+             } as StreamBlock);
+          }
+          // Legacy phase updates
+          else if (chunk.type === 'phase' && chunk.phase) {
+             setPhase(chunk.phase);
+             setActivity(`Phase: ${chunk.phase}`);
+          }
+          else if (chunk.type === 'error') {
+             console.error("Stream Error:", chunk);
+             // Could update UI to show error block
+          }
         },
         (error) => {
           console.error('[AgentDashboard] Agent error:', error);

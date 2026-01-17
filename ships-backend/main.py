@@ -330,7 +330,7 @@ async def run_agent(request: Request, body: PromptRequest):
                 # DEBUG: Log chunks to verify flow (User requested)
                 try:
                     # Log first 100 chars of chunk to avoid flooding but prove flow
-                    logger.debug(f"[STREAM] Sending chunk: {chunk[:100].strip()}...")
+                    logger.info(f"[STREAM] Sending chunk: {chunk[:100].strip()}...")
                 except:
                     pass
                     

@@ -128,6 +128,18 @@ class StreamBlockManager:
 
     def ensure_block_type(self, block_type: BlockType, title: Optional[str] = None) -> Optional[str]:
         """Ensure the active block is of specific type. If not, start new one."""
+        if self.active_block and not self.active_block.is_complete and self.active_block.type == block_type:
+            return None
+        return self.start_block(block_type, title)
+
+    def create_block(self, block_type: BlockType, title: Optional[str] = None, content: str = "") -> str:
+        """Create a complete block in one step (Start -> Content -> End)."""
+        events = []
+        events.append(self.start_block(block_type, title))
+        if content:
+            events.append(self.append_delta(content))
+        events.append(self.end_current_block())
+        return "\n".join(filter(None, events))
         if self.active_block and self.active_block.type == block_type:
             return None
         return self.start_block(block_type, title)
