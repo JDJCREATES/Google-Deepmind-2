@@ -393,25 +393,30 @@ class DeterministicRouter:
         # Priority: Check what just completed to determine next phase
         
         # Just finished planning? (scaffolding_complete or plan exists)
+        # Priority: Check completion flags in REVERSE order of operations (Fix/Valid -> Code -> Plan)
+        # This prevents getting stuck in earlier phases (e.g. infinite Planning->Coding loop)
+        
         artifacts = state.get("artifacts", {})
-        if artifacts.get("scaffolding_complete") or artifacts.get("plan"):
-            logger.info("[DETERMINISTIC_ROUTER] Returning from planner - routing from planning state")
-            return self._route_from_planning(state)
-        
-        # Just finished coding? (implementation_complete flag)
-        if state.get("implementation_complete"):
-            logger.info("[DETERMINISTIC_ROUTER] Returning from coder - routing from coding state")
-            return self._route_from_coding(state)
-        
-        # Just finished validation? (validation_passed flag exists)
-        if "validation_passed" in state:
-            logger.info("[DETERMINISTIC_ROUTER] Returning from validator - routing from validating state")
-            return self._route_from_validating(state)
         
         # Just finished fixing? (fix_attempts incremented)
         if state.get("fix_attempts", 0) > 0:
             logger.info("[DETERMINISTIC_ROUTER] Returning from fixer - routing from fixing state")
             return self._route_from_fixing(state)
+
+        # Just finished validation? (validation_passed flag exists)
+        if "validation_passed" in state:
+            logger.info("[DETERMINISTIC_ROUTER] Returning from validator - routing from validating state")
+            return self._route_from_validating(state)
+
+        # Just finished coding? (implementation_complete flag)
+        if artifacts.get("implementation_complete"):
+            logger.info("[DETERMINISTIC_ROUTER] Returning from coder - routing from coding state")
+            return self._route_from_coding(state)
+        
+        # Just finished planning? (scaffolding_complete or plan exists)
+        if artifacts.get("scaffolding_complete") or artifacts.get("plan"):
+            logger.info("[DETERMINISTIC_ROUTER] Returning from planner - routing from planning state")
+            return self._route_from_planning(state)
         
         # Fallback: Start from planning if no clear state
         logger.warning("[DETERMINISTIC_ROUTER] Could not infer state from context - starting from planning")

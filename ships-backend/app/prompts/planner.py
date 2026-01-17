@@ -49,7 +49,11 @@ Prevention > Detection > Repair. Good planning prevents 80% of errors.
 {structure_section}
 
 ## Step 4: SCAFFOLD (If New Project)
-{scaffold_section}
+- **CRITICAL**: You MUST scaffold into a NAMED SUBFOLDER (e.g., `todo-frontend/`), NOT the current directory (`.`).
+- Select a clear name for the subfolder based on the project intent (e.g. `frontend`, `backend`, `dashboard`).
+- **MODIFY** the provided scaffold command to use your chosen folder name instead of `.`.
+  - Template Command: {scaffold_section}
+  - YOUR ACTION: Run command targeting `{{subfolder_name}}`.
 
 ## Step 4.5: CREATE FOLDERS (Batch)
 Use `create_directories([...])` to create ALL folders in ONE call.
@@ -95,16 +99,17 @@ Machine-readable tasks with acceptance criteria:
 ```
 
 ### 5c. Folder Map Plan (`.ships/folder_map_plan.json`)  
-Complete file structure with descriptions:
+Complete file structure with descriptions. **ALL PATHS MUST START WITH THE SUBFOLDER NAME**.
 ```json
 {{
   "entries": [
-    {{"path": "index.html", "is_directory": false, "description": "Entry point for Vite/browser"}},
-    {{"path": "src/main.tsx", "is_directory": false, "description": "React entry point"}},
-    {{"path": "src/App.tsx", "is_directory": false, "description": "Main app component"}}
+    {{"path": "my-subfolder/index.html", "is_directory": false, "description": "Entry point for Vite/browser"}},
+    {{"path": "my-subfolder/src/main.tsx", "is_directory": false, "description": "React entry point"}},
+    {{"path": "my-subfolder/src/App.tsx", "is_directory": false, "description": "Main app component"}}
   ]
 }}
 ```
+**CRITICAL**: Do NOT list files in root (`.`) unless strictly necessary (like `.ships/`). The app source MUST be in the subfolder.
 **CRITICAL**: For Vite projects, ALWAYS include `index.html` in the root - builds WILL FAIL without it!
 
 
@@ -140,7 +145,7 @@ You MUST use this format (JSON ONLY):
 {{
   "reasoning": "Detailed architectural reasoning and justification...",
   "summary": "Brief executive summary...",
-  "decision_notes": ["Key decision 1", "Key decision 2"],
+  "decision_notes": ["Chosen subfolder: todo-frontend"],
   "tasks": [ ... ],
   "folders": [ ... ],
   ...

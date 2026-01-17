@@ -910,6 +910,14 @@ IMPORTANT:
                 pre_model_hook=pre_model_hook,  # Trim before each LLM call
             )
             
+            # Emit thinking event before LLM call
+            events.append(emit_event(
+                "thinking",
+                "coder",
+                "Analyzing code requirements and file structure...",
+                {"files_expected": len(expected_outputs) if expected_outputs else 0}
+            ))
+            
             result = await coder_agent.ainvoke(
                 {"messages": [HumanMessage(content=coder_prompt)]},
                 config={"recursion_limit": 20}  # Reduced from 50 - rarely need more
@@ -920,14 +928,26 @@ IMPORTANT:
             implementation_complete = False
             files_written = []
             
+            # DEBUG: Log message types to diagnose tracking issue
+            logger.debug(f"[CODER] Processing {len(new_messages)} messages for file tracking")
+            for i, msg in enumerate(new_messages):
+                msg_type = type(msg).__name__
+                has_tool_calls = hasattr(msg, 'tool_calls') and bool(msg.tool_calls)
+                tool_name = getattr(msg, 'name', None)
+                logger.debug(f"[CODER]   Message {i}: {msg_type}, tool_calls={has_tool_calls}, name={tool_name}")
+            
+            # IMPROVED: Track files from both AIMessage.tool_calls AND ToolMessage responses
+            from langchain_core.messages import AIMessage, ToolMessage
+            
             for msg in new_messages:
+                # Check completion status
                 if hasattr(msg, 'content') and msg.content:
                     content = str(msg.content).lower()
                     if "implementation complete" in content:
                         implementation_complete = True
                 
-                # Track tool calls for file writes
-                if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                # Method 1: Track from AIMessage tool_calls (what LLM requested)
+                if isinstance(msg, AIMessage) and hasattr(msg, 'tool_calls') and msg.tool_calls:
                     for tc in msg.tool_calls:
                         # Handle both dict and TypedDict access patterns
                         tc_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
@@ -936,23 +956,59 @@ IMPORTANT:
                         # Track all file modification tools
                         if tc_name in ["write_file_to_disk", "write_to_file"]:
                             path = tc_args.get("file_path", tc_args.get("TargetFile", ""))
-                            if path: files_written.append(path)
+                            if path:
+                                files_written.append(path)
+                                # Emit file_written event
+                                events.append(emit_event(
+                                    "file_written",
+                                    "coder",
+                                    path,
+                                    {"action": "write"}
+                                ))
                         
                         elif tc_name == "write_files_batch":
                             files_arg = tc_args.get("files", []) if isinstance(tc_args, dict) else []
                             for file_entry in files_arg:
                                 if isinstance(file_entry, dict):
                                     path = file_entry.get("path", file_entry.get("file_path", ""))
-                                    if path: files_written.append(path)
+                                    if path:
+                                        files_written.append(path)
+                                        # Emit file_written event
+                                        events.append(emit_event(
+                                            "file_written",
+                                            "coder",
+                                            path,
+                                            {"action": "batch_write"}
+                                        ))
                         
                         elif tc_name in ["replace_file_content", "multi_replace_file_content"]:
                             path = tc_args.get("TargetFile", tc_args.get("file_path", ""))
-                            if path: files_written.append(path)
+                            if path:
+                                files_written.append(path)
+                                # Emit file_written event
+                                events.append(emit_event(
+                                    "file_written",
+                                    "coder",
+                                    path,
+                                    {"action": "edit"}
+                                ))
                         
                         elif tc_name == "apply_source_edits":
                             # Check common argument names for source file
                             path = tc_args.get("source_file", tc_args.get("path", tc_args.get("file_path", "")))
                             if path: files_written.append(path)
+                
+                # Method 2: Track from ToolMessage responses (what actually executed)
+                elif isinstance(msg, ToolMessage):
+                    tool_name = getattr(msg, 'name', '')
+                    # Parse tool response for file paths
+                    if tool_name in ["write_file_to_disk", "write_files_batch", "apply_source_edits"]:
+                        # Tool response content often contains the file path
+                        if hasattr(msg, 'artifact') and isinstance(msg.artifact, dict):
+                            if 'file_path' in msg.artifact:
+                                files_written.append(msg.artifact['file_path'])
+                            elif 'files' in msg.artifact:
+                                files_written.extend(msg.artifact['files'])
             
             # Normalize paths to be relative to project root
             final_files_written = []
@@ -968,6 +1024,43 @@ IMPORTANT:
                         pass
                 # fallback or already relative
                 final_files_written.append(str(f).replace("\\", "/"))
+            
+            # FALLBACK: If no files tracked from messages, scan disk for changed files
+            # This happens when tool execution doesn't properly record in messages
+            if not final_files_written and project_path:
+                logger.warning(f"[CODER] ⚠️ No files tracked from messages - scanning disk for changes")
+                try:
+                    from pathlib import Path
+                    project_root = Path(project_path)
+                    
+                    # Get all source files from folder_map if available
+                    folder_map = parameters.get("folder_map", {})
+                    if folder_map and "entries" in folder_map:
+                        for entry in folder_map["entries"]:
+                            if not entry.get("is_directory") and entry.get("path"):
+                                file_path = project_root / entry["path"]
+                                if file_path.exists() and file_path.is_file():
+                                    rel_path = str(entry["path"]).replace("\\", "/")
+                                    final_files_written.append(rel_path)
+                                    logger.info(f"[CODER] 📁 Tracked existing file from disk: {rel_path}")
+                except Exception as scan_err:
+                    logger.debug(f"[CODER] Disk scan failed: {scan_err}")
+
+            # Emit agent_complete event
+            if implementation_complete:
+                events.append(emit_event(
+                    "agent_complete",
+                    "coder",
+                    f"Implementation complete. {len(final_files_written)} files created/updated.",
+                    {"files_count": len(final_files_written), "complete": True}
+                ))
+            else:
+                events.append(emit_event(
+                    "agent_complete",
+                    "coder",
+                    f"Partial implementation. {len(final_files_written)} files created.",
+                    {"files_count": len(final_files_written), "complete": False}
+                ))
 
             return {
                 "artifacts": {

@@ -94,7 +94,7 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
 
     if (!targetRunId) return;
 
-    // 2. Add User Message
+    // 2. Add User Message (Optimistic - backend also streams it but as a block)
     const userMessage: ChatMessageType = {
       id: Date.now().toString(),
       content: prompt,
@@ -132,7 +132,8 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
         // ============================================================
         // UNIFIED STREAMING: StreamBlock Protocol Only
         // ============================================================
-        
+        console.log('[DEBUG] 📨 Stream Chunk:', chunk);
+
         // Block Start - Create new block in message
         if (chunk.type === 'block_start' && chunk.block_type) {
              const block: StreamBlock = {
@@ -144,6 +145,12 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
                  metadata: { ...chunk, timestamp: Date.now() }
              };
              if (targetRunId) upsertRunMessageBlock(targetRunId, aiMessageId, block);
+             
+             // Update Activity Indicator
+             if (chunk.block_type === 'thinking') setActivity('Thinking...', 'thinking');
+             else if (chunk.block_type === 'code') setActivity('Writing code...', 'writing');
+             else if (chunk.block_type === 'command') setActivity(chunk.title || 'Running command...', 'command');
+             else if (chunk.block_type === 'plan') setActivity('Creating plan...', 'thinking');
              
              // Update activity indicator based on block type
              if (chunk.block_type === 'thinking') setActivity(chunk.title || 'Thinking...', 'thinking');

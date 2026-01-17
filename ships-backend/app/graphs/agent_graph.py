@@ -278,11 +278,16 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
         "plan_content": artifacts.get("plan_content", ""),
     }
     
-    # Build structured intent for the planner (keeping original logic for structured_intent)
-    structured_intent = {
-        "description": user_request,
-        "id": f"intent_{os.path.basename(project_path) if project_path else 'default'}",
-    }
+    # Build structured intent ONLY if not already provided by Orchestrator
+    if not structured_intent or not structured_intent.get("task_type"):
+        structured_intent = {
+            "description": user_request,
+            "id": f"intent_{os.path.basename(project_path) if project_path else 'default'}",
+            "task_type": "feature", # Default
+            "scope": "feature"
+        }
+        
+    planner_state["artifacts"]["structured_intent"] = structured_intent
     
     try:
         # Invoke the Planner (now uses create_react_agent for scaffolding)
@@ -646,9 +651,22 @@ ACTUAL FILE STRUCTURE (Disk State):
         "project_structure": real_file_tree,
         "project_path": project_path,
     }
+    # Load folder_map for coder's fallback file tracking
+    folder_map_data = None
+    ships_dir = Path(project_path) / ".ships" if project_path else None
+    if ships_dir and ships_dir.exists():
+        folder_map_path = ships_dir / "folder_map_plan.json"
+        if folder_map_path.exists():
+            try:
+                import json
+                folder_map_data = json.loads(folder_map_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+    
     coder_state["parameters"] = {
         "user_request": user_request.content if hasattr(user_request, 'content') else str(user_request),
         "project_path": project_path,
+        "folder_map": folder_map_data or {},
     }
     coder_state["completed_files"] = unique_completed
     
@@ -810,8 +828,14 @@ ACTUAL FILE STRUCTURE (Disk State):
         "stream_events": result.get("stream_events", []) if result else [],
         "phase": "orchestrator",  # Return to orchestrator for quality gate check
         "completed_files": current_completed,
-        "implementation_complete": implementation_complete,
-        "agent_status": {"status": "complete" if implementation_complete else "in_progress"}
+        "active_file": None,
+        "artifacts": {
+            **artifacts,
+            "implementation_complete": implementation_complete,
+            "last_coder_files": current_completed
+        },
+        # Reset waiting/loop counters on success
+        "loop_detection": {**state.get("loop_detection", {}), "wait_attempts": 0} if implementation_complete else state.get("loop_detection")
     }
 
 
@@ -1214,34 +1238,80 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
 
 async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
     """
-    MASTER ORCHESTRATOR NODE - Production-Grade Deterministic Routing
+    MASTER ORCHESTRATOR NODE - Production-Grade Routing with Intent Analysis
     
-    Uses DeterministicRouter for 95% of decisions (fast, no LLM cost).
-    Falls back to LLM only for ambiguous states:
-    - Loop detection (>5 consecutive calls)
-    - Wait escalations (>5 lock timeouts)
-    - Explicit orchestrator escalations from nodes
-    - Unknown/error states
-    
-    Design Philosophy:
-    - Deterministic routing for predictable flow
-    - Quality gates enforce invariants
-    - LLM only for true ambiguity
-    - Clear audit trail
+    Responsibilities:
+    1. INTENT ANALYSIS: Run mini-agent to classify what user wants.
+    2. ROUTING: Decide which agent should run next.
+    3. QUALITY GATING: Check if previous step met criteria.
+    4. LOOP DETECTION: Prevent infinite loops.
     """
     logger.info("[ORCHESTRATOR] 🧠 Starting orchestrator node...")
-    logger.info(f"[ORCHESTRATOR] Current phase: {state.get('phase')}")
-    logger.info(f"[ORCHESTRATOR] Artifacts keys: {list(state.get('artifacts', {}).keys())}")
-    logger.info(f"[ORCHESTRATOR] Implementation complete: {state.get('implementation_complete')}")
-    logger.info(f"[ORCHESTRATOR] Validation passed: {state.get('validation_passed')}")
     
+    phase = state.get("phase", "planning")
+    messages = state.get("messages", [])
+    artifacts = state.get("artifacts", {})
+    
+    logger.info(f"[ORCHESTRATOR] Current phase: {phase}")
+    
+    # Get latest user request
+    user_request = ""
+    for m in reversed(messages):
+        if isinstance(m, HumanMessage):
+            user_request = m.content
+            break
+            
+    # ========================================================================
+    # STEP 1: INTENT CLASSIFICATION (The "Mini Agent")
+    # ========================================================================
+    # We run this if we have a NEW request (e.g. at start of run) or if "structured_intent" is missing
+    structured_intent = artifacts.get("structured_intent")
+    
+    # If we are in 'chat_setup' or don't have intent yet, run classification
+    if (not structured_intent or phase == "chat_setup") and user_request:
+        try:
+            from app.agents.mini_agents.intent_classifier import IntentClassifier
+            
+            logger.info(f"[ORCHESTRATOR] 🕵️ Running Intent Classifier on: {user_request[:50]}...")
+            intent_agent = IntentClassifier()
+            
+            # Use current project context if known
+            folder_map = artifacts.get("folder_map")
+            
+            structured_intent_obj = await intent_agent.classify(
+                user_request=user_request,
+                folder_map=folder_map
+            )
+            
+            structured_intent = structured_intent_obj.model_dump()
+            
+            # SAVE INTENT TO ARTIFACTS
+            artifacts["structured_intent"] = structured_intent
+            state["artifacts"] = artifacts # Update local ref
+            
+            logger.info(f"[ORCHESTRATOR] ✅ Intent Classified: {structured_intent.get('scope')} / {structured_intent.get('task_type')}")
+            
+            # CRITICAL: If scope is 'feature' or 'fix', ensure we mark scaffolding as complete/skipped
+            # This prevents the Router/Planner from trying to scaffold a new app
+            if structured_intent.get("scope") in ["feature", "component", "file", "layer"]:
+                if not artifacts.get("scaffolding_complete"):
+                     logger.info("[ORCHESTRATOR] 🩹 Auto-marking scaffolding as skipped for Feature/Fix request")
+                     artifacts["scaffolding_complete"] = True
+                     artifacts["scaffolding_skipped"] = True
+                     artifacts["scaffolding_reason"] = f"Intent scope is {structured_intent.get('scope')}"
+            
+        except Exception as e:
+            logger.error(f"[ORCHESTRATOR] ⚠️ Intent classification failed: {e}")
+            # Fallback intent
+            structured_intent = {"scope": "feature", "task_type": "feature", "description": user_request}
+
     # ================================================================
-    # STEP 1: INITIALIZE DETERMINISTIC ROUTER
+    # STEP 2: INITIALIZE DETERMINISTIC ROUTER
     # ================================================================
     router = DeterministicRouter()
     
     # ================================================================
-    # STEP 2: INITIALIZE LOOP DETECTION
+    # STEP 3: INITIALIZE LOOP DETECTION
     # ================================================================
     loop_detection = state.get("loop_detection", {
         "last_node": None,
@@ -1252,14 +1322,14 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
     })
     
     # ================================================================
-    # STEP 3: GET ROUTING DECISION (DETERMINISTIC OR LLM)
+    # STEP 4: GET ROUTING DECISION (DETERMINISTIC OR LLM)
     # ================================================================
     routing_decision = router.route(state)
     
     logger.info(f"[ORCHESTRATOR] Routing decision: {routing_decision.next_phase} (LLM required: {routing_decision.requires_llm})")
     
     # ================================================================
-    # STEP 3.5: LOOP DETECTION (Check AFTER we know where we're going)
+    # STEP 4.5: LOOP DETECTION (Check AFTER we know where we're going)
     # ================================================================
     # Check for infinite loops using the NEXT phase we're routing to
     is_loop, loop_warning = router.check_loop_detection(state, routing_decision.next_phase)
@@ -1280,7 +1350,7 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
     logger.info(f"[ORCHESTRATOR] Reason: {routing_decision.reason}")
     
     # ================================================================
-    # STEP 4: LLM FALLBACK FOR AMBIGUOUS STATES
+    # STEP 5: LLM FALLBACK FOR AMBIGUOUS STATES
     # ================================================================
     if routing_decision.requires_llm:
         logger.info("[ORCHESTRATOR] 🤖 Calling LLM for ambiguous state resolution...")
@@ -1295,7 +1365,7 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
         logger.info(f"[ORCHESTRATOR] LLM override: {llm_decision}")
     
     # ================================================================
-    # STEP 5: UPDATE LOOP DETECTION
+    # STEP 6: UPDATE LOOP DETECTION
     # ================================================================
     if routing_decision.next_phase == loop_detection.get("last_node"):
         loop_detection["consecutive_calls"] = loop_detection.get("consecutive_calls", 0) + 1
@@ -1309,7 +1379,7 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
         }
     
     # ================================================================
-    # STEP 6: STEP TRACKING
+    # STEP 7: STEP TRACKING
     # ================================================================
     try:
         from app.services.step_tracking import record_step
@@ -1323,20 +1393,22 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
                 "reason": routing_decision.reason,
                 "used_llm": routing_decision.requires_llm,
                 "gate_passed": routing_decision.gate_result.passed if routing_decision.gate_result else None,
-                "loop_detected": loop_detection.get("loop_detected", False)
+                "loop_detected": loop_detection.get("loop_detected", False),
+                "intent": structured_intent.get("task_type") if structured_intent else "uknown"
             },
         ))
     except Exception:
         pass  # Non-fatal
     
     # ================================================================
-    # STEP 7: RETURN ROUTING DECISION
+    # STEP 8: RETURN ROUTING DECISION
     # ================================================================
     return {
         "phase": routing_decision.next_phase,
         "loop_detection": loop_detection,
         "current_step": state.get("current_step", 0) + 1,
         "stream_events": [],
+        "artifacts": artifacts, # Return updated artifacts with intent
         "routing_metadata": {
             "reason": routing_decision.reason,
             "used_llm": routing_decision.requires_llm,
@@ -2261,7 +2333,8 @@ async def stream_pipeline(
     
     try:
         # yield user message to UI immediately for responsiveness
-        yield block_mgr.create_block(BlockType.TEXT, "chat", user_request) + "\n"
+        # REMOVED DUPLICATE ECHO: Frontend adds user message locally.
+        # yield block_mgr.create_block(BlockType.TEXT, "chat", user_request) + "\n"
         
         logger.info(f"[STREAM] 🚀 Starting graph.astream() with thread_id={thread_id}")
         
@@ -2272,90 +2345,149 @@ async def stream_pipeline(
             chunk_count += 1
             logger.info(f"[STREAM] 📦 Chunk {chunk_count}: {type(chunk)} - {list(chunk.keys()) if isinstance(chunk, dict) else 'tuple/other'}")
             
+            events_to_process = []
+            node_name = "unknown"
+            
             # Subgraph updates come as (namespace, update_dict)
             if isinstance(chunk, tuple) and len(chunk) == 2:
                 namespace, update = chunk
-                
-                # Check if this update contains stream events
-                if isinstance(update, dict) and "stream_events" in update:
-                    logger.info(f"[STREAM] 🌊 Processing {len(update['stream_events'])} events from {namespace}")
-                    for event in update["stream_events"]:
-                        event_type = event.get("type")
-                        agent = event.get("agent")
-                        content = event.get("content", "")
-                        meta = event.get("metadata", {})
-                        
-                        output_events = []
-                        
-                        # ====================================================
-                        # TRANSLATOR: Agent Event -> Frontend Block Protocol
-                        # ====================================================
-                        
-                        if event_type == "agent_start":
-                            if agent == "planner":
-                                output_events.append(block_mgr.start_block(BlockType.PLAN, "Developing Implementation Plan"))
-                                # Also start a thinking section
-                                output_events.append(block_mgr.start_block(BlockType.THINKING, "Analyzing request..."))
-                            elif agent == "coder":
-                                output_events.append(block_mgr.start_block(BlockType.CODE, f"Implementing {meta.get('phase', 'changes')}"))
-                            elif agent == "validator":
-                                output_events.append(block_mgr.start_block(BlockType.TEXT, "Validating Changes..."))
-                            elif agent == "fixer":
-                                output_events.append(block_mgr.start_block(BlockType.PREFLIGHT, "Applying Fixes..."))
-
-                        elif event_type == "thinking":
-                            # Ensure we are in a thinking block
-                            if not block_mgr.active_block or block_mgr.active_block.type != BlockType.THINKING:
-                                output_events.append(block_mgr.start_block(BlockType.THINKING, "Thinking..."))
-                            if content:
-                                output_events.append(block_mgr.append_delta(content))
-                                
-                        elif event_type == "plan_created":
-                            # Close any open block
-                            output_events.append(block_mgr.end_current_block())
-                            # Create a summary block
-                            output_events.append(block_mgr.start_block(BlockType.TEXT, f"Plan Created: {content}"))
-                            output_events.append(block_mgr.end_current_block())
+                node_name = namespace
+                if isinstance(update, dict):
+                    if "stream_events" in update:
+                        events_to_process = update["stream_events"]
+                    else:
+                        # FALLBACK: Try to parse standard LangGraph "messages"
+                        # This handles intermediate streaming from subgraphs (Planner, Coder)
+                        # keys are often 'agent' -> 'messages' or just 'messages'
+                        messages = []
+                        if "messages" in update:
+                            messages = update["messages"]
+                        elif "agent" in update and "messages" in update["agent"]:
+                            messages = update["agent"]["messages"]
+                        elif "tools" in update and "messages" in update["tools"]:
+                            messages = update["tools"]["messages"]
                             
-                        elif event_type == "file_written":
-                            # Momentary block for file op
-                            output_events.append(block_mgr.start_block(BlockType.COMMAND, f"Writing {content}"))
-                            output_events.append(block_mgr.end_current_block())
+                        if messages:
+                            # We found messages! Translate them to events on the fly.
+                            from langchain_core.messages import AIMessage, ToolMessage
+                            latest_msg = messages[-1] if isinstance(messages, list) else messages
                             
-                        elif event_type == "agent_complete":
-                            output_events.append(block_mgr.end_current_block())
+                            if isinstance(latest_msg, AIMessage):
+                                # Streaming tokens or final content
+                                # For now, we see complete messages in "updates" mode usually
+                                content = latest_msg.content
+                                if content:
+                                    events_to_process.append({
+                                        "type": "thinking", 
+                                        "content": content,
+                                        "agent": node_name
+                                    })
                             
-                        elif event_type == "error":
-                            output_events.append(block_mgr.start_block(BlockType.ERROR, "Error"))
-                            output_events.append(block_mgr.append_delta(content))
-                            output_events.append(block_mgr.end_current_block())
-                        
-                        # Additional event types
-                        elif event_type == "validation_complete":
-                            status = "✓ Passed" if meta.get("passed") else "✗ Failed"
-                            output_events.append(block_mgr.start_block(BlockType.TEXT, f"Validation {status}"))
-                            if content:
-                                output_events.append(block_mgr.append_delta(content))
-                            output_events.append(block_mgr.end_current_block())
-                        
-                        elif event_type == "fix_applied":
-                            output_events.append(block_mgr.start_block(BlockType.TEXT, "Fix Applied"))
-                            if content:
-                                output_events.append(block_mgr.append_delta(content))
-                            output_events.append(block_mgr.end_current_block())
-                        
-                        elif event_type == "file_read":
-                            # Silently track, don't create UI block for every file read
-                            pass
-                        
+                            elif isinstance(latest_msg, ToolMessage):
+                                # Tool finished
+                                events_to_process.append({
+                                    "type": "tool_result",
+                                    "content": f"Tool {latest_msg.name} completed",
+                                    "metadata": {"output": str(latest_msg.content)[:100]}
+                                })
                         else:
-                            # Fallback: log unhandled event types for debugging
-                            if event_type not in ["status_update", "progress"]:
-                                logger.debug(f"[STREAM] Unhandled event type: {event_type}")
+                            logger.debug(f"[STREAM] 🔍 Tuple from {namespace} has keys: {list(update.keys())}")
+                else:
+                    logger.debug(f"[STREAM] ⚠️ Tuple from {namespace} update is not dict: {type(update)}")
+            
+            # Main graph updates come as dict {node_name: update_dict}
+            elif isinstance(chunk, dict):
+                for node_name, update in chunk.items():
+                    if isinstance(update, dict) and "stream_events" in update:
+                        events_to_process = update["stream_events"]
+                        break  # Process first node with events
+            
+            if events_to_process:
+                logger.info(f"[STREAM] 🌊 Processing {len(events_to_process)} events from {node_name}")
+                for event in events_to_process:
+                    event_type = event.get("type")
+                    agent = event.get("agent")
+                    content = event.get("content", "")
+                    meta = event.get("metadata", {})
+                    
+                    output_events = []
+                    
+                    # ====================================================
+                    # TRANSLATOR: Agent Event -> Frontend Block Protocol
+                    # ====================================================
+                    
+                    if event_type == "agent_start":
+                        if agent == "planner":
+                            output_events.append(block_mgr.start_block(BlockType.PLAN, "Developing Implementation Plan"))
+                            # Also start a thinking section
+                            output_events.append(block_mgr.start_block(BlockType.THINKING, "Analyzing request..."))
+                        elif agent == "coder":
+                            output_events.append(block_mgr.start_block(BlockType.CODE, f"Implementing {meta.get('phase', 'changes')}"))
+                        elif agent == "validator":
+                            output_events.append(block_mgr.start_block(BlockType.TEXT, "Validating Changes..."))
+                        elif agent == "fixer":
+                            output_events.append(block_mgr.start_block(BlockType.PREFLIGHT, "Applying Fixes..."))
 
-                        # Yield all generated block events
-                        for evt in output_events:
-                            if evt: yield evt + "\n"
+                    elif event_type == "thinking":
+                        # Ensure we are in a thinking block
+                        if not block_mgr.active_block or block_mgr.active_block.type != BlockType.THINKING:
+                            output_events.append(block_mgr.start_block(BlockType.THINKING, "Thinking..."))
+                        if content:
+                            output_events.append(block_mgr.append_delta(content))
+                            
+                    elif event_type == "plan_created":
+                        # Close any open block
+                        output_events.append(block_mgr.end_current_block())
+                        # Create a summary block
+                        output_events.append(block_mgr.start_block(BlockType.TEXT, f"Plan Created: {content}"))
+                        output_events.append(block_mgr.end_current_block())
+                        
+                    elif event_type == "file_written":
+                        # Momentary block for file op
+                        output_events.append(block_mgr.start_block(BlockType.COMMAND, f"Writing {content}"))
+                        output_events.append(block_mgr.end_current_block())
+                        
+                    elif event_type == "tool_result":
+                        # If tool result content is interesting, show it
+                        # For now, we prefer file_written/read events, but this is a good fallback
+                        tool_name = meta.get("tool", "Tool")
+                        output_events.append(block_mgr.create_block(BlockType.COMMAND, f"{tool_name} Result: {content}", content))
+                        
+                    elif event_type == "agent_complete":
+                        output_events.append(block_mgr.end_current_block())
+                        
+                    elif event_type == "error":
+                        output_events.append(block_mgr.start_block(BlockType.ERROR, "Error"))
+                        output_events.append(block_mgr.append_delta(content))
+                        output_events.append(block_mgr.end_current_block())
+                    
+                    # Additional event types
+                    elif event_type == "validation_complete":
+                        status = "✓ Passed" if meta.get("passed") else "✗ Failed"
+                        output_events.append(block_mgr.start_block(BlockType.TEXT, f"Validation {status}"))
+                        if content:
+                            output_events.append(block_mgr.append_delta(content))
+                        output_events.append(block_mgr.end_current_block())
+                    
+                    elif event_type == "fix_applied":
+                        output_events.append(block_mgr.start_block(BlockType.TEXT, "Fix Applied"))
+                        if content:
+                            output_events.append(block_mgr.append_delta(content))
+                        output_events.append(block_mgr.end_current_block())
+                    
+                    elif event_type == "file_read":
+                        # Silently track, don't create UI block for every file read
+                        pass
+                    
+                    else:
+                        # Fallback: log unhandled event types for debugging
+                        if event_type not in ["status_update", "progress"]:
+                            logger.debug(f"[STREAM] Unhandled event type: {event_type}")
+
+                    # Yield all generated block events
+                    for evt in output_events:
+                        if evt: yield evt + "\n"
+                        
         final_output = block_mgr.end_current_block()
         if final_output: yield final_output + "\n"
             

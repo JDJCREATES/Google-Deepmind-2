@@ -492,6 +492,14 @@ Output your reasoning, then use tools to implement the fix."""
             "Applying fixes...",
             {"phase": "fixing"}
         ))
+        
+        events.append(emit_event(
+            "thinking",
+            "fixer",
+            "Analyzing validation errors and generating fix plan...",
+            {}
+        ))
+        
         from langgraph.prebuilt import create_react_agent
         from app.agents.tools.fixer import FIXER_TOOLS
         from app.prompts import AGENT_PROMPTS
@@ -593,8 +601,21 @@ When done, respond with:
                             path = tc.get("args", {}).get("file_path", "")
                             if path:
                                 files_patched.append(path)
+                                # Emit fix_applied event
+                                events.append(emit_event(
+                                    "fix_applied",
+                                    "fixer",
+                                    path,
+                                    {"action": "patch"}
+                                ))
             
             if needs_escalate:
+                events.append(emit_event(
+                    "agent_complete",
+                    "fixer",
+                    f"Escalating: {escalation_reason}",
+                    {"escalated": True}
+                ))
                 return {
                     "success": False,
                     "requires_user_help": True,
@@ -603,6 +624,13 @@ When done, respond with:
                     "next_agent": "user",
                     "stream_events": events,
                 }
+            
+            events.append(emit_event(
+                "agent_complete",
+                "fixer",
+                f"Fixes applied to {len(files_patched)} files",
+                {"files_count": len(files_patched), "complete": True}
+            ))
             
             return {
                 "success": True,

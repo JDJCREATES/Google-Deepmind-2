@@ -90,6 +90,23 @@ export const BlockRenderer: React.FC<BlockProps> = ({ block }) => {
                     </div>
                 </div>
             )
+        case 'preflight':
+            return (
+                <div className="block-preflight" style={{
+                    backgroundColor: 'rgba(251, 191, 36, 0.1)',
+                    border: '1px solid rgba(251, 191, 36, 0.4)',
+                    borderRadius: '8px',
+                    padding: '12px',
+                    margin: '8px 0'
+                }}>
+                    <div style={{ color: '#FCD34D', fontWeight: 'bold', marginBottom: '8px' }}>
+                        🔧 {block.title || 'Preflight Checks'}
+                    </div>
+                    <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>
+                        {block.content}
+                    </div>
+                </div>
+            )
         case 'error':
              return (
                 <div className="block-error" style={{

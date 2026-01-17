@@ -123,7 +123,39 @@ class Planner(BaseAgent):
         base_prompt = build_planner_prompt(self.current_project_type)
         
         # Append task granularity rules (these are project-agnostic)
-        task_rules = """
+
+        # DETECT EXISTING PROJECT from environment
+        environment = self.environment if hasattr(self, 'environment') else {}
+        file_tree = environment.get("file_tree", {})
+        project_has_files = False
+        
+        # Check if file tree has files or if we can see package.json in the tree
+        if file_tree and "children" in file_tree:
+            project_has_files = True
+        
+        scaffold_warning = ""
+        if project_has_files:
+            scaffold_warning = """
+# CRITICAL: EXISTING PROJECT DETECTED
+You are operating on an **EXISTING PROJECT**.
+- **DO NOT SCAFFOLD** a new app (no `create-react-app`, `create-vite`, etc.).
+- **DO NOT** create a new root subfolder unless explicitly asked to "create a NEW app".
+- **DO NOT** overwrite existing configuration unless asked.
+- **DO** simply add the requested feature files to the EXISTING structure.
+- **DO** update `package.json` only if adding dependencies.
+"""
+        else:
+             # Only show subfolder rule if NEW project
+             scaffold_warning = """
+# CRITICAL: NEW PROJECT DETECTED
+You are creating a **NEW PROJECT from scratch**.
+- You MUST scaffold into a **NAMED SUBFOLDER** (e.g. `todo-frontend/`), NOT root (`.`).
+- Prefix all file paths in `folder_map_plan.json` with this subfolder.
+"""
+
+        # Append task granularity rules (these are project-agnostic)
+        task_rules = f"""
+{scaffold_warning}
 
 # TASK GRANULARITY REQUIREMENTS (CRITICAL)
 
@@ -233,6 +265,9 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
             "constraints": constraints or {},
             "environment": environment or {},
         }
+        
+        # Save environment to self for _get_system_prompt
+        self.environment = context["environment"]
         
         # ================================================================
         # FILE SYSTEM AWARENESS: Inject real file tree (from system)

@@ -90,11 +90,24 @@ def update_task_status(
                 "available_tasks": [t.get("id") for t in tasks[:10]]
             }
         
-        # Atomic write: write to temp, then rename
+        # Atomic write: write to temp, then rename (with retry for Windows locking)
         temp_path = task_list_path.with_suffix(".tmp")
         with open(temp_path, "w", encoding="utf-8") as f:
             json.dump(task_data, f, indent=2)
-        temp_path.replace(task_list_path)
+        
+        # Retry on Windows file locking errors
+        for attempt in range(3):
+            try:
+                temp_path.replace(task_list_path)
+                break
+            except OSError as e:
+                if attempt < 2:
+                    import time
+                    time.sleep(0.05 * (attempt + 1))
+                else:
+                    logger.error(f"[ARTIFACT] ❌ Failed to update task: {e}")
+                    temp_path.unlink(missing_ok=True)
+                    return {"success": False, "error": str(e)}
         
         logger.info(f"[ARTIFACT] ✅ Task {task_id} updated to '{status}'")
         

@@ -27,7 +27,7 @@ export interface Screenshot {
 // Structured UI Block (Cursor-like)
 export interface StreamBlock {
   id: string;
-  type: 'text' | 'code' | 'command' | 'plan' | 'thinking' | 'tool_use' | 'error';
+  type: 'text' | 'code' | 'command' | 'plan' | 'thinking' | 'tool_use' | 'error' | 'preflight';
   title?: string;
   content: string;
   isComplete: boolean;

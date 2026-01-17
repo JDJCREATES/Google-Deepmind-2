@@ -362,6 +362,14 @@ Output ONLY: pass or fail, with specific violations if failing."""
             "Validating implementation...",
             {"phase": "validating"}
         ))
+        
+        events.append(emit_event(
+            "thinking",
+            "validator",
+            "Running validation checks...",
+            {"layer_count": 4}
+        ))
+        
         artifacts = state.get("artifacts", {})
         parameters = state.get("parameters", {})
         
@@ -384,6 +392,29 @@ Output ONLY: pass or fail, with specific violations if failing."""
             plan_id=parameters.get("plan_id"),
             project_path=project_path  # Pass to enable BuildLayer npm run build
         )
+        
+        # Emit validation result event
+        if report.status == ValidationStatus.PASS:
+            events.append(emit_event(
+                "validation_complete",
+                "validator",
+                "✓ Validation passed",
+                {"passed": True, "violation_count": 0}
+            ))
+        else:
+            events.append(emit_event(
+                "validation_complete",
+                "validator",
+                f"✗ Validation failed at {report.failure_layer.value} layer",
+                {"passed": False, "violation_count": report.total_violations, "layer": report.failure_layer.value}
+            ))
+        
+        events.append(emit_event(
+            "agent_complete",
+            "validator",
+            f"Validation {'passed' if report.status == ValidationStatus.PASS else 'failed'}",
+            {"complete": True}
+        ))
         
         return {
             "artifacts": {
