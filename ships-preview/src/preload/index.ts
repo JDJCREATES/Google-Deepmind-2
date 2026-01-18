@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electron', {
     selectProjectFolder: () => ipcRenderer.invoke('select-project-folder'),
     getLastProject: () => ipcRenderer.invoke('get-last-project'),
     clearProject: () => ipcRenderer.invoke('clear-project'),
+    openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
     
     // === Build (Legacy) ===
     runBuild: (projectPath: string) => ipcRenderer.invoke('run-build', projectPath),

@@ -97,98 +97,120 @@ class Scoper:
         else:
             # Fallback: Generate granular tasks from description
             description = intent.get("description", "")
+            scope = intent.get("scope", "feature")
             
-            # Always create foundational tasks
-            tasks_to_create = [
-                Task(
+            # EDIT MODE FALLBACK (Safe)
+            if scope != "project":
+                logger.info(f"[SCOPER] ⚠️ LLM plan missing/invalid. Using 'Edit Mode' fallback for scope '{scope}'")
+                task_list.add_task(Task(
                     id="task_001",
-                    title="Create Core Types and Interfaces",
-                    description=f"Define TypeScript types for: {description[:100]}",
-                    complexity=TaskComplexity.TINY,
+                    title="Implement Requested Changes",
+                    description=f"Modify codebase to address: {description}",
+                    complexity=TaskComplexity.SMALL,
                     priority=TaskPriority.HIGH,
                     status=TaskStatus.PENDING,
                     estimated_minutes=30,
                     acceptance_criteria=[
-                        AcceptanceCriterion(description="All types are defined in src/types/"),
-                        AcceptanceCriterion(description="Types are exported and importable")
+                        AcceptanceCriterion(description="Changes implemented according to request"),
+                        AcceptanceCriterion(description="Existing functionality preserved")
                     ],
-                    expected_outputs=[
-                        ExpectedOutput(file_path="src/types/index.ts", description="Type definitions")
-                    ],
+                    expected_outputs=[] 
+                ))
+            else:
+                # NEW PROJECT FALLBACK (Legacy behavior)
+                logger.info("[SCOPER] ⚠️ LLM plan missing/invalid. Using 'New Project' fallback.")
+                
+                # Always create foundational tasks
+                tasks_to_create = [
+                    Task(
+                        id="task_001",
+                        title="Create Core Types and Interfaces",
+                        description=f"Define TypeScript types for: {description[:100]}",
+                        complexity=TaskComplexity.TINY,
+                        priority=TaskPriority.HIGH,
+                        status=TaskStatus.PENDING,
+                        estimated_minutes=30,
+                        acceptance_criteria=[
+                            AcceptanceCriterion(description="All types are defined in src/types/"),
+                            AcceptanceCriterion(description="Types are exported and importable")
+                        ],
+                        expected_outputs=[
+                            ExpectedOutput(file_path="src/types/index.ts", description="Type definitions")
+                        ],
 
-                ),
-                Task(
-                    id="task_002",
-                    title="Create State Management Hook",
-                    description=f"Implement state logic for: {description[:100]}",
-                    complexity=TaskComplexity.SMALL,
-                    priority=TaskPriority.HIGH,
-                    status=TaskStatus.PENDING,
-                    estimated_minutes=45,
-                    acceptance_criteria=[
-                        AcceptanceCriterion(description="Hook manages component state"),
-                        AcceptanceCriterion(description="State updates trigger re-renders")
-                    ],
-                    expected_outputs=[
-                        ExpectedOutput(file_path="src/hooks/useApp.ts", description="Main state hook")
-                    ],
+                    ),
+                    Task(
+                        id="task_002",
+                        title="Create State Management Hook",
+                        description=f"Implement state logic for: {description[:100]}",
+                        complexity=TaskComplexity.SMALL,
+                        priority=TaskPriority.HIGH,
+                        status=TaskStatus.PENDING,
+                        estimated_minutes=45,
+                        acceptance_criteria=[
+                            AcceptanceCriterion(description="Hook manages component state"),
+                            AcceptanceCriterion(description="State updates trigger re-renders")
+                        ],
+                        expected_outputs=[
+                            ExpectedOutput(file_path="src/hooks/useApp.ts", description="Main state hook")
+                        ],
 
-                ),
-                Task(
-                    id="task_003",
-                    title="Create Main UI Component",
-                    description=f"Build the primary UI for: {description[:100]}",
-                    complexity=TaskComplexity.SMALL,
-                    priority=TaskPriority.HIGH,
-                    status=TaskStatus.PENDING,
-                    estimated_minutes=60,
-                    acceptance_criteria=[
-                        AcceptanceCriterion(description="Component renders without errors"),
-                        AcceptanceCriterion(description="UI matches expected design")
-                    ],
-                    expected_outputs=[
-                        ExpectedOutput(file_path="src/components/Main.tsx", description="Main component")
-                    ],
+                    ),
+                    Task(
+                        id="task_003",
+                        title="Create Main UI Component",
+                        description=f"Build the primary UI for: {description[:100]}",
+                        complexity=TaskComplexity.SMALL,
+                        priority=TaskPriority.HIGH,
+                        status=TaskStatus.PENDING,
+                        estimated_minutes=60,
+                        acceptance_criteria=[
+                            AcceptanceCriterion(description="Component renders without errors"),
+                            AcceptanceCriterion(description="UI matches expected design")
+                        ],
+                        expected_outputs=[
+                            ExpectedOutput(file_path="src/components/Main.tsx", description="Main component")
+                        ],
 
-                ),
-                Task(
-                    id="task_004",
-                    title="Integrate Components in App",
-                    description="Wire up all components in App.tsx",
-                    complexity=TaskComplexity.TINY,
-                    priority=TaskPriority.HIGH,
-                    status=TaskStatus.PENDING,
-                    estimated_minutes=20,
-                    acceptance_criteria=[
-                        AcceptanceCriterion(description="App renders main component"),
-                        AcceptanceCriterion(description="Application runs in browser")
-                    ],
-                    expected_outputs=[
-                        ExpectedOutput(file_path="src/App.tsx", description="App composition")
-                    ],
+                    ),
+                    Task(
+                        id="task_004",
+                        title="Integrate Components in App",
+                        description="Wire up all components in App.tsx",
+                        complexity=TaskComplexity.TINY,
+                        priority=TaskPriority.HIGH,
+                        status=TaskStatus.PENDING,
+                        estimated_minutes=20,
+                        acceptance_criteria=[
+                            AcceptanceCriterion(description="App renders main component"),
+                            AcceptanceCriterion(description="Application runs in browser")
+                        ],
+                        expected_outputs=[
+                            ExpectedOutput(file_path="src/App.tsx", description="App composition")
+                        ],
 
-                ),
-                Task(
-                    id="task_005",
-                    title="Apply Styling",
-                    description="Add CSS styling for visual appearance",
-                    complexity=TaskComplexity.TINY,
-                    priority=TaskPriority.MEDIUM,
-                    status=TaskStatus.PENDING,
-                    estimated_minutes=30,
-                    acceptance_criteria=[
-                        AcceptanceCriterion(description="Styles are applied"),
-                        AcceptanceCriterion(description="Layout looks professional")
-                    ],
-                    expected_outputs=[
-                        ExpectedOutput(file_path="src/index.css", description="Global styles")
-                    ],
+                    ),
+                    Task(
+                        id="task_005",
+                        title="Apply Styling",
+                        description="Add CSS styling for visual appearance",
+                        complexity=TaskComplexity.TINY,
+                        priority=TaskPriority.MEDIUM,
+                        status=TaskStatus.PENDING,
+                        estimated_minutes=30,
+                        acceptance_criteria=[
+                            AcceptanceCriterion(description="Styles are applied"),
+                            AcceptanceCriterion(description="Layout looks professional")
+                        ],
+                        expected_outputs=[
+                            ExpectedOutput(file_path="src/index.css", description="Global styles")
+                        ],
 
-                ),
-            ]
-            
-            for task in tasks_to_create:
-                task_list.add_task(task)
+                    ),
+                ]
+                
+                for task in tasks_to_create:
+                    task_list.add_task(task)
         
         return {"task_list": task_list}
 

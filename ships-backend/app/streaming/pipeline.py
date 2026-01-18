@@ -197,13 +197,40 @@ async def stream_pipeline(
                             preview_manager.current_project_path = new_path
                             logger.info(f"[PIPELINE] 🔄 Synced preview_manager path to: {new_path}")
 
-                    # 2. CAPTURE CUSTOM EVENTS
+                    # 2. CAPTURE CUSTOM EVENTS (from agents)
                     if "stream_events" in output:
                         import json
                         for custom_event in output["stream_events"]:
-                            # Yield as raw JSON event line
-                            yield json.dumps(custom_event) + "\n"
-                            # logger.debug(f"[STREAM] 📤 Emitted custom event: {custom_event.get('type')}")
+                            # Convert agent events to StreamBlocks
+                            event_type = custom_event.get("type", "")
+                            agent = custom_event.get("agent", "")
+                            content_text = custom_event.get("content", "")
+                            metadata = custom_event.get("metadata", {})
+                            
+                            # Map agent event types to block types
+                            if event_type in ["thinking", "reasoning"]:
+                                block_type = BlockType.THINKING
+                                title = f"{agent.capitalize()}: Analyzing..."
+                            elif event_type in ["file_written", "files_created"]:
+                                block_type = BlockType.CODE
+                                file_count = metadata.get("count", 1)
+                                title = f"Created {file_count} file{'s' if file_count != 1 else ''}"
+                            elif event_type == "error":
+                                block_type = BlockType.ERROR
+                                title = f"{agent.capitalize()}: Error"
+                            elif event_type in ["validation_complete", "validation_passed"]:
+                                block_type = BlockType.PREFLIGHT
+                                title = "Validation Complete"
+                            elif event_type in ["plan_created", "planning"]:
+                                block_type = BlockType.PLAN
+                                title = "Implementation Plan"
+                            else:
+                                # Default to text block for unknown types
+                                block_type = BlockType.TEXT
+                                title = f"{agent.capitalize()}: {event_type.replace('_', ' ').title()}"
+                            
+                            # Create a complete block (start + content + end)
+                            yield block_mgr.create_block(block_type, title, content_text) + "\n"
 
             
             # Log debug info (commented out to reduce noise)

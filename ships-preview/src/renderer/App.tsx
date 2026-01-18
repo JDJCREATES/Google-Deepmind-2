@@ -12,6 +12,7 @@ declare global {
       clearProject: () => Promise<void>;
       runBuild: (path: string) => Promise<void>;
       focusWindow: () => Promise<boolean>;
+      openExternal: (url: string) => Promise<void>;
     }
   }
 }
@@ -301,6 +302,23 @@ function App() {
       );
   }
 
+  // Ref for the webview to validly modify it
+  const webviewRef = useRef<any>(null);
+
+  // Auto-reload webview when backend re-confirms (even if URL is same)
+  useEffect(() => {
+    if (webviewRef.current && projectUrl && backendConnected) {
+       try {
+         // If we are connected and URL is set, ensure we are not on an error page
+         // We can force a reload to be safe if the backend just came back up
+         console.log("Backend confirmed - reloading webview to ensure freshness");
+         webviewRef.current.reload(); 
+       } catch (e) {
+         // Webview might not be ready
+       }
+    }
+  }, [backendConnected]); // Trigger when backend connection status flips to true
+
   if (projectUrl) {
       return (
           <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -317,32 +335,57 @@ function App() {
              }}>
                 <span style={{ marginRight: '8px' }}>📡</span>
                 {projectUrl}
-                <button 
-                  onClick={async () => {
-                    // Open in external browser for debugging
-                    if (window.electron?.openExternal) {
-                      await window.electron.openExternal(projectUrl);
-                    }
-                  }}
-                  style={{
-                    marginLeft: 'auto',
-                    background: 'transparent',
-                    border: '1px solid #555',
-                    color: '#aaa',
-                    padding: '4px 8px',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    fontSize: '11px'
-                  }}
-                >
-                  Open in Browser
-                </button>
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+                    <button 
+                      onClick={() => {
+                        if (webviewRef.current) {
+                            webviewRef.current.reload();
+                        }
+                      }}
+                      style={{
+                        background: 'transparent',
+                        border: '1px solid #555',
+                        color: '#aaa',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontSize: '11px',
+                        display: 'flex', 
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      <VscRefresh /> Reload
+                    </button>
+                    <button 
+                      onClick={async () => {
+                        // Open in external browser for debugging
+                        if (window.electron?.openExternal) {
+                          await window.electron.openExternal(projectUrl);
+                        }
+                      }}
+                      style={{
+                        background: 'transparent',
+                        border: '1px solid #555',
+                        color: '#aaa',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontSize: '11px'
+                      }}
+                    >
+                      Open in Browser
+                    </button>
+                </div>
              </div>
              <webview 
+                ref={webviewRef}
                 src={projectUrl} 
                 style={{ width: '100%', flex: 1, border: 'none' }}
                 // @ts-ignore
                 allowpopups="true"
+                // Listen for failures to help debug
+                onDidFailLoad={(e: any) => console.log('Webview failed to load:', e)}
              />
           </div>
       )

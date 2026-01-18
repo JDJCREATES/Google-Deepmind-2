@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 
 
 import { join } from 'path';
@@ -45,6 +45,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1000,
     height: 800,
+    autoHideMenuBar: true, // Hide default menu bar
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       nodeIntegration: false,
@@ -441,10 +442,24 @@ ipcMain.handle('focus-window', async () => {
 });
 
 /**
- * Open a preview URL - sends it to the renderer to display in preview panel
- */
-/**
  * Open a preview URL - opens in default system browser
+ */
+ipcMain.handle('open-external', async (_event, url: string) => {
+  console.log(`[SHELL] Opening external URL: ${url}`);
+  try {
+      if (url && (url.startsWith('http') || url.startsWith('https'))) {
+          await shell.openExternal(url);
+          return { success: true };
+      }
+      return { success: false, error: 'Invalid URL' };
+  } catch (e: any) {
+      console.error(`[SHELL] Failed to open external URL: ${e}`);
+      return { success: false, error: e.message };
+  }
+});
+
+/**
+ * Open a preview URL in the preview panel (internal)
  */
 ipcMain.handle('open-preview', async (_event, projectPath: string) => {
   console.log(`[PREVIEW] Opening preview for project: ${projectPath}`);
