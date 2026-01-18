@@ -25,6 +25,9 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from app.agents.base.base_agent import BaseAgent
 from app.graphs.state import AgentState
 from app.artifacts import ArtifactManager
+from app.core.logger import get_logger
+
+logger = get_logger("fixer")
 
 from app.agents.sub_agents.fixer.models import (
     FixPlan, FixPatch, FixChange, FixTestBundle, FixTest,
@@ -650,7 +653,6 @@ When done, respond with:
                     "message_count": len(new_messages),
                 },
                 "status": "fixed",
-                "recommended_action": "validate",
                 "recommended_action": "validate",
                 "next_agent": "validator",
                 "stream_events": events,

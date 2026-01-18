@@ -203,12 +203,12 @@ async def stream_pipeline(
                         for custom_event in output["stream_events"]:
                             # Yield as raw JSON event line
                             yield json.dumps(custom_event) + "\n"
-                            logger.debug(f"[STREAM] 📤 Emitted custom event: {custom_event.get('type')}")
+                            # logger.debug(f"[STREAM] 📤 Emitted custom event: {custom_event.get('type')}")
 
             
-            # Log debug info
-            if event_type not in ["on_chat_model_stream", "on_chat_model_start"]:
-                 logger.debug(f"[STREAM] Event: {event_type} - {event_name}")
+            # Log debug info (commented out to reduce noise)
+            # if event_type not in ["on_chat_model_stream", "on_chat_model_start"]:
+            #      logger.debug(f"[STREAM] Event: {event_type} - {event_name}")
 
         final = block_mgr.end_current_block()
         if final: yield final + "\n"

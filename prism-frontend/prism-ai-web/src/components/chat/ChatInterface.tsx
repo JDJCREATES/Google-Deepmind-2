@@ -84,6 +84,7 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
       {/* Tool Progress - Sticky above input, shows files created/commands run */}
       {toolEvents.length > 0 && (
         <div className="tool-progress-container">
+          {console.log('[ChatInterface] Rendering ToolProgress with', toolEvents.length, 'events:', toolEvents)}
           <ToolProgress 
             events={toolEvents} 
             onFileClick={(filePath) => {

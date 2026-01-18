@@ -432,7 +432,6 @@ Output ONLY: pass or fail, with specific violations if failing."""
             "passed": report.status == ValidationStatus.PASS,
             "failure_layer": report.failure_layer.value,
             "recommended_action": report.recommended_action.value,
-            "recommended_action": report.recommended_action.value,
             "violation_count": report.total_violations,
             "stream_events": events,
         }

@@ -135,10 +135,11 @@ class DeterministicRouter:
         decision.metadata["loop_detection"] = loop_info
         
         if is_loop:
+            # ESCALATE TO ORCHESTRATOR LLM - let it decide what to do
             return RoutingDecision(
-                next_phase="chat",
-                reason=f"Loop detected: {loop_msg}",
-                requires_llm=False,
+                next_phase="orchestrator",
+                reason=f"Loop detected: {loop_msg} - escalating to orchestrator for decision",
+                requires_llm=True,
                 metadata={"loop_warning": loop_msg, "loop_detection": loop_info}
             )
         return decision
@@ -262,25 +263,17 @@ class DeterministicRouter:
         entry_gate = self.gate_evaluator.can_enter_state(state, "fixing")
         
         if not entry_gate.passed:
-            # Can't fix (max attempts exceeded)
+            # Can't fix (max attempts exceeded or other issues)
             logger.error(f"[DETERMINISTIC_ROUTER] Fixing entry gate FAILED: {entry_gate.checks_failed}")
             
-            if "fix_attempts_valid" in entry_gate.checks_failed:
-                # Max fix attempts exceeded - escalate to user
-                return RoutingDecision(
-                    next_phase="chat",
-                    reason="Max fix attempts exceeded - need user guidance",
-                    gate_result=entry_gate,
-                    requires_llm=False,
-                    metadata={"escalation_reason": "max_fix_attempts"}
-                )
-            
-            # Other failure - escalate to LLM
+            # ALWAYS escalate gate failures to orchestrator LLM
+            # Let it decide whether to ask user, retry differently, or escalate
             return RoutingDecision(
                 next_phase="orchestrator",
-                reason="Validation failed but cannot enter fixing state",
+                reason=f"Cannot enter fixing state: {', '.join(entry_gate.checks_failed)} - escalating to orchestrator",
                 gate_result=entry_gate,
-                requires_llm=True
+                requires_llm=True,
+                metadata={"failed_gate_checks": entry_gate.checks_failed}
             )
         
         # Proceed to fixing
@@ -473,16 +466,11 @@ class DeterministicRouter:
         loop_info["last_node"] = last_node
         loop_info["consecutive_calls"] = consecutive_count
 
-        # Warn after 3 consecutive calls
-        if consecutive_count >= 3:
+        # TRIGGER ON FIRST LOOP DETECTION (2 consecutive calls)
+        # Let orchestrator LLM decide what to do early
+        if consecutive_count >= 2:
             warning = f"Loop detected: {next_phase} called {consecutive_count} times consecutively"
-            logger.warning(f"[DETERMINISTIC_ROUTER] ⚠️ {warning}")
-            
-            # Force escalation after 5 consecutive calls
-            if consecutive_count >= 5:
-                logger.error(f"[DETERMINISTIC_ROUTER] 🚨 INFINITE LOOP: {next_phase} called {consecutive_count} times")
-                return True, warning, loop_info
-            
-            return False, warning, loop_info
+            logger.warning(f"[DETERMINISTIC_ROUTER] ⚠️ {warning} - triggering escalation")
+            return True, warning, loop_info
         
         return False, None, loop_info

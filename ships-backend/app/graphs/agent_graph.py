@@ -503,7 +503,12 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
         
         # 4. Handle Result
         if result.get("requires_user_help"):
-             return {"phase": "chat", "messages": [AIMessage(content=f"Help needed: {result.get('artifacts', {}).get('reason')}")], "stream_events": []}
+             return {
+                 "phase": "chat",
+                 "fix_attempts": fix_attempts,  # Track attempts even when asking for help
+                 "messages": [AIMessage(content=f"Help needed: {result.get('artifacts', {}).get('reason')}")],
+                 "stream_events": []
+             }
 
         # 5. Git Checkpoint
         _try_git_checkpoint(project_path, "fix_applied", f"Fix attempt #{fix_attempts}")
@@ -522,7 +527,13 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
         
     except Exception as e:
         logger.error(f"[FIXER] ❌ Fixer failed: {e}")
-        return {"phase": "orchestrator", "messages": [AIMessage(content=f"Fixer Error: {e}")]}
+        # CRITICAL: Must return fix_attempts to track loop iterations
+        return {
+            "phase": "orchestrator",
+            "fix_attempts": fix_attempts,  # Increment counter even on failure
+            "messages": [AIMessage(content=f"Fixer Error: {e}")],
+            "stream_events": []
+        }
     finally:
         if active_fix_file:
              lock_manager.release(project_path, active_fix_file, "fixer_node")
