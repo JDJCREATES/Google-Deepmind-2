@@ -22,6 +22,9 @@ import hashlib
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+import logging
+logger = logging.getLogger("ships.agent")
+
 from app.agents.base.base_agent import BaseAgent
 from app.graphs.state import AgentState
 from app.artifacts import ArtifactManager

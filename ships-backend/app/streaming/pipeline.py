@@ -164,7 +164,9 @@ async def stream_pipeline(
             elif event_type == "on_tool_end":
                 output = event_data.get("output", "")
                 output_str = str(output)[:500] + "..." if len(str(output)) > 500 else str(output)
-                yield block_mgr.end_current_block() + "\n"
+                end_block = block_mgr.end_current_block()
+                if end_block:
+                     yield end_block + "\n"
                 if output_str:
                     yield block_mgr.create_block(BlockType.CMD_OUTPUT, f"{event_name} Output", output_str) + "\n"
 
