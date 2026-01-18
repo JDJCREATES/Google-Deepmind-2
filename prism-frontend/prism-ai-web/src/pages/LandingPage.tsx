@@ -87,13 +87,8 @@ export default function LandingPage() {
           <button 
             className="landing-submit-btn" 
             onClick={handleStart}
-            disabled={isRestoringProject}
           >
-            {isRestoringProject ? (
-              <span style={{ fontSize: '14px' }}>⏳</span>
-            ) : (
-              <PiShippingContainerFill size={24} color="white" />
-            )}
+            <PiShippingContainerFill size={24} />
           </button>
         </div>
 

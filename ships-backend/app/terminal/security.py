@@ -39,6 +39,7 @@ ALLOWED_COMMANDS: List[AllowedCommand] = [
     AllowedCommand(prefix="type", description="Read file contents (Windows)", max_timeout=10, requires_approval=False),
     AllowedCommand(prefix="find", description="Find files", max_timeout=30, requires_approval=False),
     AllowedCommand(prefix="findstr", description="Search text in files (Windows)", max_timeout=30, requires_approval=False),
+    AllowedCommand(prefix="cd", description="Change directory (Context only)", max_timeout=10, requires_approval=False),
 ]
 
 

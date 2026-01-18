@@ -34,6 +34,8 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
     openFile
   } = useChatLogic({ electronProjectPath });
   
+  console.log('[ChatInterface] Component render. toolEvents.length:', toolEvents.length, 'toolEvents:', toolEvents);
+  
   // HITL state - reactive subscription
   const { awaitingConfirmation, planSummary, setAwaitingConfirmation } = useStreamingStore();
   

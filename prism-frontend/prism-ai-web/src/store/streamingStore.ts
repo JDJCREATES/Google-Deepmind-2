@@ -71,9 +71,11 @@ export const useStreamingStore = create<StreamingState>()(
       planSummary: '',
       
       addToolEvent: (event) => 
-        set((state) => ({ 
-          toolEvents: [...state.toolEvents, event] 
-        })),
+        set((state) => {
+          const newToolEvents = [...state.toolEvents, event];
+          console.log('[streamingStore] addToolEvent called. New array length:', newToolEvents.length, 'Event:', event);
+          return { toolEvents: newToolEvents };
+        }),
       
       clearToolEvents: () => 
         set({ toolEvents: [] }),

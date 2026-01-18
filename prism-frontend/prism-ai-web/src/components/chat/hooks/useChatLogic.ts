@@ -211,26 +211,30 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
           }
           
           setActivity(activityText, type);
-          addToolEvent({
+          const toolEvent = {
             id: `${Date.now()}-${chunk.tool}`,
             type: 'tool_start',
             tool: chunk.tool || 'unknown',
             file: chunk.file,
             timestamp: Date.now()
-          });
+          };
+          console.log('[useChatLogic] tool_start event captured:', toolEvent);
+          addToolEvent(toolEvent);
         }
         
         // Tool result tracking
         else if (chunk.type === 'tool_result') {
           setActivity('Thinking...', 'thinking');
-          addToolEvent({
+          const toolEvent = {
             id: `${Date.now()}-${chunk.tool}-result`,
             type: 'tool_result',
             tool: chunk.tool || 'unknown',
             file: chunk.file,
             success: chunk.success,
             timestamp: Date.now()
-          });
+          };
+          console.log('[useChatLogic] tool_result event captured:', toolEvent);
+          addToolEvent(toolEvent);
           
           if (chunk.tool === 'write_file_to_disk' || chunk.tool === 'edit_file_content') {
             filesCreated = true;
