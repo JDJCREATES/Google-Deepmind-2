@@ -202,8 +202,8 @@ contextBridge.exposeInMainWorld('electron', {
     /**
      * Create a preview window for a run
      */
-    createRunPreview: (runId: string) =>
-        ipcRenderer.invoke('runs:createPreview', { runId }),
+    createRunPreview: (runId: string, projectPath?: string) =>
+        ipcRenderer.invoke('runs:createPreview', { runId, projectPath }),
     
     /**
      * Refresh a run's preview window

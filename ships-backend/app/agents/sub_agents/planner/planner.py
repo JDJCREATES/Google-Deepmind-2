@@ -58,6 +58,12 @@ from app.agents.sub_agents.planner.components import (
 
 from app.streaming.stream_events import emit_event
 
+# Persistence Imports (Moved from agent_graph.py)
+from sqlalchemy import update
+from app.database import get_session_factory
+from app.models import AgentRun
+from app.services.git_checkpointer import get_checkpointer
+
 
 
 class Planner(BaseAgent):
@@ -1127,6 +1133,37 @@ IMPORTANT:
                 logger.error(f"[PLANNER] ❌ Failed to write implementation_plan.md: {plan_write_err}")
             
             logger.info(f"[PLANNER] 💾 Wrote 7 artifacts to {dot_ships}")
+
+            # ================================================================
+            # PERSISTENCE (DB & GIT)
+            # ================================================================
+            # 1. Update Project Path in DB (if run_id exists)
+            run_id = state.get("artifacts", {}).get("run_id") or state.get("run_id")
+            if run_id and project_path:
+                try:
+                    run_uuid = uuid.UUID(run_id) if isinstance(run_id, str) else run_id
+                    session_factory = get_session_factory()
+                    async with session_factory() as session:
+                        await session.execute(
+                            update(AgentRun)
+                            .where(AgentRun.id == run_uuid)
+                            .values(project_path=project_path)
+                        )
+                        await session.commit()
+                        logger.info(f"[PLANNER] 💾 Persisted project_path='{project_path}' to DB for run {run_uuid}")
+                except Exception as db_err:
+                    logger.error(f"[PLANNER] Failed to persist project path to DB: {db_err}")
+
+            # 2. Git Checkpoint
+            if project_path:
+                try:
+                    milestone = "scaffolding_complete" if plan_artifacts.get("scaffolding_complete") else "plan_ready"
+                    checkpointer = get_checkpointer(project_path)
+                    commit_hash = checkpointer.checkpoint(milestone)
+                    if commit_hash:
+                        logger.info(f"[PLANNER] 📸 Git checkpoint: {commit_hash[:8]}")
+                except Exception as cp_err:
+                    logger.debug(f"[PLANNER] Git checkpoint skipped: {cp_err}")
         
 
         return {

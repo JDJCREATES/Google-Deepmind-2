@@ -128,3 +128,31 @@ class LockManager:
 
 # Global instance
 lock_manager = LockManager.get_instance()
+
+async def acquire_lock_with_retries(
+    lock_manager: LockManager,
+    project_path: str,
+    files_to_lock: list[str],
+    agent_id: str,
+    timeout_seconds: int = 60
+) -> Optional[str]:
+    """
+    Helper to acquire a lock on ANY of the provided files, with retries.
+    Returns the file path that was locked, or None if timeout.
+    """
+    import asyncio
+    
+    start_wait = time.time()
+    
+    while (time.time() - start_wait) < timeout_seconds:
+        for f in files_to_lock:
+            if not lock_manager.is_locked(project_path, f):
+                if lock_manager.acquire(project_path, f, agent_id):
+                    logger.info(f"[LOCKS] 🔒 {agent_id} acquired lock for: {f}")
+                    return f
+        
+        await asyncio.sleep(2)
+        
+    logger.warning(f"[LOCKS] ⚠️ Failed to acquire lock for {agent_id} on {files_to_lock} after {timeout_seconds}s")
+    return None
+

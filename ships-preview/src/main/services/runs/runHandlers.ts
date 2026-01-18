@@ -103,10 +103,10 @@ export function registerRunHandlers(projectPath: string): void {
   // Preview Window Management
   // ========================================
 
-  ipcMain.handle('runs:createPreview', async (_, args: { runId: string }) => {
+  ipcMain.handle('runs:createPreview', async (_, args: { runId: string; projectPath?: string }) => {
     try {
       if (!previewManager) throw new Error('Preview manager not initialized');
-      const preview = await previewManager.createPreviewWindow(args.runId);
+      const preview = await previewManager.createPreviewWindow(args.runId, args.projectPath);
       return { 
         success: true, 
         preview: {

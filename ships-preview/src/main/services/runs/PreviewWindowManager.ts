@@ -123,8 +123,9 @@ export class PreviewWindowManager {
   /**
    * Create a new preview window for a run
    */
-  async createPreviewWindow(runId: string): Promise<PreviewWindow> {
+  async createPreviewWindow(runId: string, projectPath?: string): Promise<PreviewWindow> {
     const sanitizedId = this.sanitizeRunId(runId);
+    const targetPath = projectPath || this.projectPath;
     
     // Check limits
     if (this.windows.size >= CONFIG.MAX_WINDOWS) {
@@ -196,8 +197,9 @@ export class PreviewWindowManager {
     });
     
     try {
-      // Start dev server
-      preview.devServer = await this.startDevServer(port);
+      // Start dev server with specific CWD
+      console.log(`[PreviewWindowManager] Starting dev server for run ${sanitizedId} from: ${targetPath}`);
+      preview.devServer = await this.startDevServer(port, targetPath);
       
       // Wait for server to be ready
       const isReady = await this.waitForServer(url, CONFIG.SERVER_STARTUP_TIMEOUT);
@@ -232,15 +234,72 @@ export class PreviewWindowManager {
   }
 
   /**
+   * Detect the correct start command based on project files
+   */
+  private detectStartCommand(cwd: string, port: number): { command: string, args: string[] } {
+    const { existsSync, readFileSync } = require('fs');
+    const { join } = require('path');
+    
+    // 1. NodeJS (package.json)
+    if (existsSync(join(cwd, 'package.json'))) {
+      try {
+        const pkg = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf-8'));
+        const scripts = pkg.scripts || {};
+        
+        const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+        
+        // Priority: dev -> start -> serve
+        if (scripts.dev) {
+            // Vite/Next/etc usually accept --port
+            // Note: "--" is needed for npm to pass args to script
+            return { command: npmCmd, args: ['run', 'dev', '--', '--port', String(port)] };
+        }
+        if (scripts.start) {
+            return { command: npmCmd, args: ['run', 'start', '--', '--port', String(port)] };
+        }
+        return { command: npmCmd, args: ['run', 'dev'] }; // Fallback
+      } catch (e) {
+        console.warn('Failed to parse package.json:', e);
+      }
+    }
+    
+    // 2. Python (FastAPI/Flask)
+    if (existsSync(join(cwd, 'requirements.txt')) || existsSync(join(cwd, 'pyproject.toml'))) {
+       const hasMain = existsSync(join(cwd, 'main.py'));
+       const hasApp = existsSync(join(cwd, 'app.py'));
+       
+       // Try Uvicorn (Standard for FastAPI)
+       // We use 'python -m' to use the active environment python
+       if (hasMain) {
+           return { command: 'python', args: ['-m', 'uvicorn', 'main:app', '--reload', '--port', String(port)] };
+       }
+       // Try Flask
+       if (hasApp) {
+           return { command: 'python', args: ['-m', 'flask', 'run', '--port', String(port)] };
+       }
+    }
+    
+    // 3. Go
+    if (existsSync(join(cwd, 'go.mod'))) {
+        return { command: 'go', args: ['run', '.', '--port', String(port)] };
+    }
+    
+    // Default fallback
+    const defaultNpm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    return { command: defaultNpm, args: ['run', 'dev', '--', '--port', String(port)] };
+  }
+
+  /**
    * Start a dev server on the specified port
    */
-  private async startDevServer(port: number): Promise<ChildProcess> {
+  private async startDevServer(port: number, cwd: string): Promise<ChildProcess> {
     return new Promise((resolve, reject) => {
       try {
-        const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-        
-        const devServer = spawn(npmCommand, ['run', 'dev', '--', '--port', String(port)], {
-          cwd: this.projectPath,
+        const { command, args } = this.detectStartCommand(cwd, port);
+        console.log(`[PreviewWindowManager] Detected command: ${command} ${args.join(' ')}`);
+
+        const devServer = spawn(command, args, {
+          cwd: cwd,
           shell: true,
           env: { 
             ...process.env, 

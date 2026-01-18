@@ -29,7 +29,7 @@ declare global {
       rollbackRunBranch: (commitHash: string) => Promise<{ success: boolean; error?: string }>;
 
       // Agent Runs - Preview Management
-      createRunPreview: (runId: string) => Promise<{ success: boolean; preview?: any; error?: string }>;
+      createRunPreview: (runId: string, projectPath?: string) => Promise<{ success: boolean; preview?: any; error?: string }>;
       getActiveRunPreviews: () => Promise<{ success: boolean; previews?: any[]; error?: string }>;
       refreshRunPreview: (runId: string) => Promise<{ success: boolean; error?: string }>;
       closeRunPreview: (runId: string) => Promise<{ success: boolean; error?: string }>;

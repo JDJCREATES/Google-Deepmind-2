@@ -231,7 +231,7 @@ class PromptRequest(BaseModel):
 
 from fastapi.responses import StreamingResponse
 import json
-from app.graphs.agent_graph import stream_pipeline
+from app.streaming.pipeline import stream_pipeline
 
 import re
 

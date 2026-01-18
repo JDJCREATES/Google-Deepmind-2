@@ -76,13 +76,71 @@ class MultiPreviewManager:
                 continue
         return None
     
+    def _detect_command(self, project_path: str, port: int) -> tuple[str | list[str], bool]:
+        """
+        Detect the correct start command based on project files.
+        Returns (command, is_shell_needed).
+        """
+        import shutil
+        
+        # 1. NodeJS
+        pkg_json = Path(project_path) / "package.json"
+        if pkg_json.exists():
+            npm_path = shutil.which('npm') or 'npm'
+            
+            if os.name == 'nt':
+                return f'"{npm_path}" run dev -- --port {port}', True
+            else:
+                return [npm_path, "run", "dev", "--", "--port", str(port)], False
+                
+        # 2. Python (FastAPI/Flask)
+        if (Path(project_path) / "requirements.txt").exists() or (Path(project_path) / "pyproject.toml").exists():
+            has_main = (Path(project_path) / "main.py").exists()
+            has_app = (Path(project_path) / "app.py").exists()
+            python_path = shutil.which('python') or 'python'
+            
+            if has_main:
+                # FastAPI/Uvicorn
+                if os.name == 'nt':
+                    return f'"{python_path}" -m uvicorn main:app --reload --port {port}', True
+                else:
+                    return [python_path, "-m", "uvicorn", "main:app", "--reload", "--port", str(port)], False
+            
+            if has_app:
+                # Flask
+                if os.name == 'nt':
+                    return f'"{python_path}" -m flask run --port {port}', True
+                else:
+                    return [python_path, "-m", "flask", "run", "--port", str(port)], False
+
+        # 3. Go
+        if (Path(project_path) / "go.mod").exists():
+            go_path = shutil.which('go') or 'go'
+            if os.name == 'nt':
+                 return f'"{go_path}" run . --port {port}', True
+            else:
+                 return [go_path, "run", ".", "--port", str(port)], False
+
+        # Fallback to NPM
+        npm_path = shutil.which('npm') or 'npm'
+        if os.name == 'nt':
+            return f'"{npm_path}" run dev -- --port {port}', True
+        else:
+            return [npm_path, "run", "dev", "--", "--port", str(port)], False
+
     def _check_npm_installed(self, project_path: str) -> bool:
         """Check if node_modules exists, run npm install if not."""
         node_modules = Path(project_path) / "node_modules"
         package_json = Path(project_path) / "package.json"
         
         if not package_json.exists():
-            logger.warning(f"[PREVIEW] No package.json in {project_path}")
+            # Allow if Python or Go project
+            if (Path(project_path) / "requirements.txt").exists() or \
+               (Path(project_path) / "pyproject.toml").exists() or \
+               (Path(project_path) / "go.mod").exists():
+               return True
+               
+            logger.warning(f"[PREVIEW] No package.json/requirements.txt in {project_path}")
             return False
         
         if not node_modules.exists():
@@ -168,23 +226,12 @@ class MultiPreviewManager:
         )
         
         try:
-            import shutil
-            npm_path = shutil.which('npm')
+            # Detect command based on project type
+            cmd, use_shell = self._detect_command(project_path, port)
             
-            if not npm_path:
-                return {"status": "error", "message": "npm not found in PATH"}
+            creation_flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             
-            # Build command
-            if os.name == 'nt':
-                cmd = f'"{npm_path}" run dev -- --port {port}'
-                use_shell = True
-                creation_flags = subprocess.CREATE_NO_WINDOW
-            else:
-                cmd = [npm_path, "run", "dev", "--", "--port", str(port)]
-                use_shell = False
-                creation_flags = 0
-            
-            logger.info(f"[PREVIEW] 🚀 Starting dev server: port={port}, path={project_path}")
+            logger.info(f"[PREVIEW] 🚀 Starting dev server: port={port}, path={project_path}, cmd={cmd}")
             
             instance.process = subprocess.Popen(
                 cmd,

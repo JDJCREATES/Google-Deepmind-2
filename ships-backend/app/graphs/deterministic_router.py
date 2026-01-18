@@ -372,60 +372,63 @@ class DeterministicRouter:
         
         This happens when:
         1. Agents return to orchestrator after completing work (normal flow)
-        2. Agents explicitly escalate for LLM decision (rare)
+        2. Agents explicitly escalate for decision (rare)
+        3. Loops or stuck states are detected
         
-        We infer the actual state from context and route accordingly.
+        We enforce deterministic rules to avoid expensive LLM calls.
         """
-        # Check if this is an explicit escalation
         loop_info = state.get("loop_detection", {})
         escalated_from = loop_info.get("escalated_from")
+        fix_attempts = state.get("fix_attempts", 0)
         
+        # RULE 1: Max Fix Attempts -> STOP (Ask User)
+        if fix_attempts >= 3:
+             logger.warning(f"[DETERMINISTIC_ROUTER] 🚨 Max fix attempts ({fix_attempts}) reached - Escalating to CHAT")
+             return RoutingDecision(
+                next_phase="chat",
+                reason="Max fix attempts reached (Stuck fixing errors)",
+                requires_llm=False
+             )
+
+        # RULE 2: Explicit Escalation (Loops/Locks) -> STOP (Ask User)
         if escalated_from:
-            logger.info(f"[DETERMINISTIC_ROUTER] Explicit escalation from {escalated_from} - LLM decision required")
+            logger.warning(f"[DETERMINISTIC_ROUTER] 🚨 Systematic escalation from {escalated_from} - Escalating to CHAT")
             return RoutingDecision(
-                next_phase="orchestrator",
-                reason=f"Explicit escalation from {escalated_from}",
-                requires_llm=True,
-                metadata={"escalated_from": escalated_from}
+                next_phase="chat", 
+                reason=f"System stuck in {escalated_from} (Escalation)",
+                requires_llm=False
             )
         
-        # Normal return from agent - infer state from artifacts
-        # Priority: Check what just completed to determine next phase
-        
-        # Just finished planning? (scaffolding_complete or plan exists)
-        # Priority: Check completion flags in REVERSE order of operations (Fix/Valid -> Code -> Plan)
-        # This prevents getting stuck in earlier phases (e.g. infinite Planning->Coding loop)
+        # RULE 3: Inference (Normal Flow)
+        # Check completion flags in REVERSE order of operations (Fix/Valid -> Code -> Plan)
         
         artifacts = state.get("artifacts", {})
         
-        # Just finished fixing? (fix_attempts incremented)
-        if state.get("fix_attempts", 0) > 0:
-            logger.info("[DETERMINISTIC_ROUTER] Returning from fixer - routing from fixing state")
-            return self._route_from_fixing(state)
-
-        # Just finished validation? (validation_passed flag exists)
+        # PRIORITY 1: Did validation just pass? (Exit condition)
         if "validation_passed" in state:
-            logger.info("[DETERMINISTIC_ROUTER] Returning from validator - routing from validating state")
-            return self._route_from_validating(state)
-
-        # Just finished coding? (implementation_complete flag)
-        if artifacts.get("implementation_complete"):
-            logger.info("[DETERMINISTIC_ROUTER] Returning from coder - routing from coding state")
-            return self._route_from_coding(state)
+             return self._route_from_validating(state)
         
-        # Just finished planning? (scaffolding_complete or plan exists)
+        # PRIORITY 2: Are we in a fix loop?
+        # Only check this if we didn't just pass validation
+        if fix_attempts > 0:
+             return self._route_from_fixing(state)
+
+        # PRIORITY 3: Just finished coding?
+        if artifacts.get("implementation_complete"):
+             return self._route_from_coding(state)
+        
+        # PRIORITY 4: Just finished planning?
         if artifacts.get("scaffolding_complete") or artifacts.get("plan"):
-            logger.info("[DETERMINISTIC_ROUTER] Returning from planner - routing from planning state")
-            return self._route_from_planning(state)
+             return self._route_from_planning(state)
         
         # Fallback: Start from planning if no clear state
-        logger.warning("[DETERMINISTIC_ROUTER] Could not infer state from context - starting from planning")
+        logger.warning("[DETERMINISTIC_ROUTER] Could not infer state from context - Defaulting to PLANNER")
         return RoutingDecision(
             next_phase="planner",
-            reason="Could not infer state - starting planning phase",
+            reason="State inference failed - ensuring plan exists",
             requires_llm=False
         )
-    
+
     def check_loop_detection(self, state: Dict[str, Any], next_phase: str) -> Tuple[bool, Optional[str]]:
         """
         Check if we're in an infinite loop.

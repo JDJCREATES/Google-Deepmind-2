@@ -28,7 +28,8 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
     setRunThinkingSectionLive,
     upsertRunMessageBlock,
     appendRunMessageBlockContent,
-    setLoading
+    setLoading,
+    updateRun
   } = useAgentRuns();
 
   // Local UI state for input
@@ -257,8 +258,17 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
            console.log('[ChatInterface] Run complete, triggering screenshot capture...');
            
            if (targetRunId && (window as any).electron) {
+             // Extract project path if available (handles subfolder scaffolding)
+             const finalProjectPath = (chunk as any).artifacts?.project_path;
+             console.log('[DEBUG] Opening preview for path:', finalProjectPath);
+             
+             // Update the run with the detected project path so future manual clicks work
+             if (finalProjectPath) {
+               updateRun(targetRunId, { projectPath: finalProjectPath });
+             }
+
              // Create or focus preview window, then capture screenshot
-             (window as any).electron.createRunPreview(targetRunId)
+             (window as any).electron.createRunPreview(targetRunId, finalProjectPath)
                .then((previewResult: any) => {
                  console.log('[ChatInterface] Preview result:', previewResult);
                  

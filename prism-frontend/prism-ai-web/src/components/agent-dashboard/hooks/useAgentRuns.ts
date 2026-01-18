@@ -126,9 +126,9 @@ const electronAPI = {
     if (!window.electron?.createRunBranch) throw new Error('Electron API not available');
     return window.electron.createRunBranch(runId, prompt);
   },
-  createPreview: async (runId: string) => {
+  createPreview: async (runId: string, projectPath?: string) => {
     if (!window.electron?.createRunPreview) throw new Error('Electron API not available');
-    return window.electron.createRunPreview(runId);
+    return window.electron.createRunPreview(runId, projectPath);
   },
   closePreview: async (runId: string) => {
     if (!window.electron?.closeRunPreview) throw new Error('Electron API not available');
@@ -601,6 +601,23 @@ export const useAgentRuns = create<AgentRunsState>()(
     try {
       updateRun(runId, { previewStatus: 'running' });
       
+      // Use Electron IPC if available (Preferred method - supports auto-detection)
+      if (window.electron) {
+        console.log('[openPreview] Using Electron IPC with path:', projectPath);
+        const result = await window.electron.createRunPreview(runId, projectPath);
+        
+        if (result.success) {
+            updateRun(runId, { 
+              previewStatus: 'running',
+              previewUrl: result.preview?.url 
+            });
+            return { status: 'success', url: result.preview?.url };
+        } else {
+            throw new Error(result.error || 'Electron preview failed');
+        }
+      }
+
+      // Legacy/Web Fallback
       const response = await fetch(`${API_BASE}/preview/open`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
