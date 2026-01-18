@@ -520,13 +520,18 @@ Output your reasoning, then use tools to implement the fix."""
                 "requires_user_help": True,
                 "artifacts": {"reason": "Max fix attempts exceeded. Need human guidance."},
                 "recommended_action": "ask_user",
-                "recommended_action": "ask_user",
                 "next_agent": "user",
                 "stream_events": events,
             }
         
         # Get recent errors for context
         recent_errors = error_log[-5:] if error_log else ["No specific errors"]
+        
+        # CRITICAL: Log what fixer is trying to fix
+        logger.info(f"[FIXER] 🔧 Attempt {fix_attempts}/{max_attempts}")
+        logger.info(f"[FIXER] 📋 Errors to fix:")
+        for i, error in enumerate(recent_errors, 1):
+            logger.info(f"  {i}. {error}")
         
         # ================================================================
         # Build fix prompt with error context
@@ -631,6 +636,11 @@ When done, respond with:
                 f"Fixes applied to {len(files_patched)} files",
                 {"files_count": len(files_patched), "complete": True}
             ))
+
+            # CRITICAL: Log what was fixed
+            logger.info(f"[FIXER] ✅ Applied fixes to {len(files_patched)} file(s)")
+            for file in files_patched:
+                logger.info(f"  - {file}")
             
             return {
                 "success": True,

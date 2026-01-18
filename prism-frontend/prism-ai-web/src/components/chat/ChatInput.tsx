@@ -44,9 +44,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           {isAgentRunning ? (
             <ProgressCircular indeterminate /> 
           ) : (
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              {/* Shipping Container Icon */}
-              <path d="M3 3h18v18H3V3zm2 2v14h14V5H5zm3 2h2v10H8V7zm4 0h2v10h-2V7zm4 0h2v10h-2V7z" opacity="0.9"/>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              {/* Shipping Container Icon - Classic Corrugated Design */}
+              <rect x="4" y="6" width="16" height="12" rx="1" />
+              <line x1="8" y1="6" x2="8" y2="18" />
+              <line x1="12" y1="6" x2="12" y2="18" />
+              <line x1="16" y1="6" x2="16" y2="18" />
+              <rect x="10" y="10" width="4" height="4" fill="currentColor" opacity="0.3" />
             </svg>
           )}
         </button>

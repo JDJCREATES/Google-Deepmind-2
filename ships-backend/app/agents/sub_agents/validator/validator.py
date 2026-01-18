@@ -184,6 +184,7 @@ Output ONLY: pass or fail, with specific violations if failing."""
         
         # Run layers IN ORDER
         for layer in self.layers:
+            logger.info(f"[VALIDATOR] 🔍 Running {layer.layer_name.value} layer...")
             layer_result = layer.validate(context)
             
             # Store result
@@ -196,6 +197,13 @@ Output ONLY: pass or fail, with specific violations if failing."""
             
             # IF LAYER FAILS, STOP IMMEDIATELY
             if not layer_result.passed:
+                # CRITICAL: Log why this layer failed
+                logger.error(f"[VALIDATOR] ❌ {layer.layer_name.value} layer FAILED ({len(layer_result.violations)} violations)")
+                for i, violation in enumerate(layer_result.violations[:3], 1):  # Top 3
+                    logger.error(f"  {i}. [{violation.severity.value}] {violation.message}")
+                    if violation.details:
+                        logger.error(f"     → {violation.details[:200]}...")  # Truncate long details
+                
                 report.status = ValidationStatus.FAIL
                 report.failure_layer = layer.layer_name
                 report.recommended_action = self._determine_action(layer_result)

@@ -98,7 +98,7 @@ export const useStreamingStore = create<StreamingState>()(
       
       resetStreaming: () => 
         set({ 
-          toolEvents: [], 
+          // Keep toolEvents - they should persist for the run
           agentPhase: 'idle', 
           currentActivity: '',
           activityType: 'thinking',

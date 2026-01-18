@@ -205,6 +205,10 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
     if project_path:
         set_project_root(project_path)
         
+    # 2. Invoke Planner
+    planner = Planner()
+    result = await planner.invoke(state)
+        
     # 3. Merge Artifacts (Safety: Don't lose project_path)
     merged_artifacts = {**state.get("artifacts", {})}
     if "artifacts" in result:
@@ -315,7 +319,27 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
             _try_git_checkpoint(project_path, "validation_passed", f"Tests passed")
             
         else:
-            logger.info(f"[VALIDATOR] ❌ Failed at {failure_layer}")
+            # Log failure details
+            logger.warning(f"[VALIDATOR] ❌ Failed at {failure_layer} layer ({violation_count} violations)")
+            
+            # CRITICAL: Log actual validation errors
+            validation_report = result.get("artifacts", {}).get("validation_report", {})
+            layer_results = validation_report.get("layer_results", {})
+            
+            if layer_results:
+                failed_layer_data = layer_results.get(failure_layer, {})
+                violations = failed_layer_data.get("violations", [])
+                
+                if violations:
+                    logger.error(f"[VALIDATOR] 🔍 Top validation errors:")
+                    for i, violation in enumerate(violations[:5], 1):  # Show top 5
+                        logger.error(f"  {i}. [{violation.get('severity', 'UNKNOWN')}] {violation.get('message', 'No message')}")
+                        if violation.get('details'):
+                            logger.error(f"     Details: {violation.get('details')}")
+                else:
+                    logger.error(f"[VALIDATOR] No violation details found in {failure_layer} layer")
+            else:
+                logger.error(f"[VALIDATOR] No layer results found in validation report")
             
             # 1. Create Fix Request (Required for Fixer)
             _try_create_fix_request(state, result, project_path)

@@ -13,6 +13,7 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
   // Refs (must be first to maintain hook order)
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const currentThinkingSectionRef = useRef<string | null>(null);
+  const prevRunIdRef = useRef<string | null>(null);
 
   // Global Agent Runs Store
   const { 
@@ -56,11 +57,14 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
 
   // Reset streaming state when switching runs
   useEffect(() => {
-    if (activeRunId) {
-      // When switching to a new run, reset the streaming state
-      // This clears stuck indicators from previous runs
-      resetStreaming();
-      console.log('[useChatLogic] Reset streaming state for run:', activeRunId);
+    if (activeRunId && activeRunId !== prevRunIdRef.current) {
+      // Only reset when actually switching to a DIFFERENT run
+      // Don't clear on initial mount or same run
+      if (prevRunIdRef.current !== null) {
+        resetStreaming();
+        console.log('[useChatLogic] Reset streaming state for new run:', activeRunId);
+      }
+      prevRunIdRef.current = activeRunId;
     }
   }, [activeRunId, resetStreaming]);
 

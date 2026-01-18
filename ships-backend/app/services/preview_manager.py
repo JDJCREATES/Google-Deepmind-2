@@ -61,7 +61,14 @@ class MultiPreviewManager:
         self.current_url: Optional[str] = None
         self.logs: List[str] = []
         self.process: Optional[subprocess.Popen] = None
-    
+    def _get_deterministic_port(self, run_id: str) -> int:
+        """Calculate a consistent port based on run_id."""
+        import zlib
+        # Use CRC32 to map string to integer range
+        # Use utf-8 encoding for consistency
+        offset = zlib.crc32(run_id.encode('utf-8')) % self.MAX_INSTANCES
+        return self.BASE_PORT + offset
+
     def _find_available_port(self) -> Optional[int]:
         """Find an available port starting from BASE_PORT."""
         for port in range(self.BASE_PORT, self.BASE_PORT + self.MAX_INSTANCES):
@@ -235,26 +242,42 @@ class MultiPreviewManager:
         if not self._check_npm_installed(project_path):
             return {"status": "error", "message": "Failed to install dependencies. Check package.json."}
         
-        # Allocate port
-        port = self._find_available_port()
-        if port is None:
+        # Allocate port (Try Deterministic First)
+        det_port = self._get_deterministic_port(run_id)
+        final_port = None
+        
+        # Check if deterministic port is available
+        if det_port not in self.port_map:
+            try:
+                import socket
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.bind(('127.0.0.1', det_port))
+                    final_port = det_port
+            except OSError:
+                logger.warning(f"[PREVIEW] ⚠️ Deterministic port {det_port} is busy. Falling back to search.")
+        
+        # Fallback to search if needed
+        if final_port is None:
+            final_port = self._find_available_port()
+            
+        if final_port is None:
             return {"status": "error", "message": f"No available ports (max {self.MAX_INSTANCES} previews)"}
         
         # Create instance
         instance = PreviewInstance(
             run_id=run_id,
             project_path=project_path,
-            port=port,
+            port=final_port,
             status="starting"
         )
         
         try:
             # Detect command based on project type
-            cmd, use_shell = self._detect_command(project_path, port)
+            cmd, use_shell = self._detect_command(project_path, final_port)
             
             creation_flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             
-            logger.info(f"[PREVIEW] 🚀 Starting dev server: port={port}, path={project_path}, cmd={cmd}")
+            logger.info(f"[PREVIEW] 🚀 Starting dev server: port={final_port}, path={project_path}, cmd={cmd}")
             
             instance.process = subprocess.Popen(
                 cmd,
@@ -269,7 +292,7 @@ class MultiPreviewManager:
             
             # Register instance
             self.instances[run_id] = instance
-            self.port_map[port] = run_id
+            self.port_map[final_port] = run_id
             
             # Start log consumer thread
             threading.Thread(
@@ -284,7 +307,7 @@ class MultiPreviewManager:
             self._update_current(instance)
             
             # Set default URL immediately so ships-preview has something to load
-            instance.url = f"http://localhost:{port}"
+            instance.url = f"http://localhost:{final_port}"
             self.current_url = instance.url  # Ensure backward compat
             
             logger.info(f"[PREVIEW] 📡 Process started, URL will be: {instance.url}")
@@ -295,7 +318,7 @@ class MultiPreviewManager:
             return {
                 "status": "starting",
                 "url": instance.url,
-                "port": port,
+                "port": final_port,
                 "run_id": run_id,
                 "message": "Dev server starting, poll /preview/status for updates"
             }
@@ -311,7 +334,7 @@ class MultiPreviewManager:
                 self.instances[run_id] = PreviewInstance(
                     run_id=run_id,
                     project_path=project_path,
-                    port=port or 0,
+                    port=final_port or 0,
                     status="error",
                     error_message=str(e)
                 )
@@ -442,7 +465,131 @@ class MultiPreviewManager:
                 pass
                 
         return {"status": "success", "killed_count": killed_count}
+
+    def kill_run_process(self, run_id: str, project_path: str = None) -> Dict[str, Any]:
+        """
+        Kill the SPECIFIC process for a run.
+        Strategy:
+        1. Stop known instance (graceful).
+        2. Kill by CWD (Nuclear - releases file locks).
+        3. Kill by Port (Cleanup).
+        """
+        # 1. Diagnose first
+        self.diagnose_ports()
+        
+        results = []
+        
+        # 2. Stop if known
+        self._stop_instance(run_id)
+        
+        # 3. Kill anyone in that folder (Fixes file lock issues)
+        target_path = project_path
+        if not target_path and run_id in self.instances:
+            target_path = self.instances[run_id].project_path
+            
+        if target_path:
+            if self._kill_by_cwd(target_path):
+                results.append(f"Killed by CWD ({target_path})")
+        else:
+             results.append("No path known - skipping CWD kill")
+
+        # 4. Force kill port (Zombie Killer)
+        det_port = self._get_deterministic_port(run_id)
+        self._kill_process_by_port(det_port)
+        results.append(f"Cleaned port {det_port}")
+        
+        logger.info(f"[PREVIEW] 🎯 Targeted kill for run {run_id}: {', '.join(results)}")
+        return {"status": "success", "killed_port": det_port, "details": results}
+
+    def diagnose_ports(self):
+        """Log all processes running on preview ports."""
+        try:
+            import psutil
+            logger.info("="*50)
+            logger.info("[PREVIEW DIAGNOSTIC] Scanning ports 5200-5250...")
+            found = False
+            for proc in psutil.process_iter(['pid', 'name']):
+                try:
+                    for conn in proc.connections(kind='inet'):
+                        if self.BASE_PORT <= conn.laddr.port < (self.BASE_PORT + self.MAX_INSTANCES):
+                            logger.info(f"  ❌ PORT {conn.laddr.port}: {proc.info['name']} (PID: {proc.pid})")
+                            found = True
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                     continue
+            if not found:
+                logger.info("  ✓ No active processes on preview ports.")
+            logger.info("="*50)
+        except ImportError:
+            logger.error("psutil not installed, cannot diagnose ports.")
+        except Exception as e:
+            logger.error(f"Diagnostic failed: {e}")
     
+    def _kill_by_cwd(self, project_path: str) -> int:
+        """Kill any process running in the project directory."""
+        if not project_path: return 0
+        killed = 0
+        try:
+            import psutil
+            norm_path = os.path.normpath(project_path).lower()
+            
+            for proc in psutil.process_iter(['pid', 'name', 'cwd']):
+                try:
+                    p_cwd = proc.info.get('cwd')
+                    if p_cwd:
+                        p_norm = os.path.normpath(p_cwd).lower()
+                        # Check if process is INSIDE the project path
+                        if norm_path in p_norm:
+                            logger.info(f"[PREVIEW] 🔪 Killing process in CWD: {proc.info['name']} ({proc.pid})")
+                            proc.kill()
+                            killed += 1
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+        except ImportError:
+            logger.error("psutil not installed")
+        except Exception as e:
+            logger.error(f"Error killing by CWD: {e}")
+        return killed
+
+    def _kill_process_by_port(self, port: int):
+        """Kill any process listening on the port using psutil."""
+        try:
+            import psutil
+            for proc in psutil.process_iter(['pid', 'name']):
+                try:
+                    for conn in proc.connections(kind='inet'):
+                        if conn.laddr.port == port:
+                            logger.info(f"[PREVIEW] 🔪 Killing zombie on port {port}: {proc.info['name']} ({proc.pid})")
+                            proc.kill()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+        except ImportError:
+            # Fallback to netstat if psutil fails/missing
+            self._kill_process_by_port_legacy(port)
+        except Exception as e:
+            logger.error(f"Error killing by port: {e}")
+
+    def _kill_process_by_port_legacy(self, port: int):
+        """Kill any process listening on the port (Windows Netstat fallback)."""
+        if os.name != 'nt':
+            return
+        
+        try:
+            cmd = f'netstat -ano | findstr :{port}'
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            
+            pids = set()
+            for line in result.stdout.splitlines():
+                parts = line.split()
+                if len(parts) >= 5:
+                    pid = parts[-1]
+                    if pid.isdigit() and pid != "0":
+                        pids.add(pid)
+            
+            for pid in pids:
+                subprocess.run(f"taskkill /F /T /PID {pid}", shell=True, capture_output=True)
+        except Exception as e:
+            logger.debug(f"Kill by port failed: {e}")
+
     def get_status(self, run_id: str = None) -> Dict[str, Any]:
         """Get status of a specific instance or all."""
         if run_id:

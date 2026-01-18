@@ -13,6 +13,7 @@ class BlockType(str, Enum):
     TOOL_USE = "tool_use"   # Tool execution status
     ERROR = "error"         # Error messages
     PREFLIGHT = "preflight" # Preflight checks (Fixer/Validator)
+    CMD_OUTPUT = "cmd_output" # Output from command execution
 
 
 def emit_event(
