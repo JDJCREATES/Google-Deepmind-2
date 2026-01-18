@@ -633,25 +633,11 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
     
     logger.info(f"[ORCHESTRATOR] Routing decision: {routing_decision.next_phase} (LLM required: {routing_decision.requires_llm})")
     
-    # ================================================================
-    # STEP 4.5: LOOP DETECTION (Check AFTER we know where we're going)
-    # ================================================================
-    # Check for infinite loops using the NEXT phase we're routing to
-    is_loop, loop_warning = router.check_loop_detection(state, routing_decision.next_phase)
+    logger.info(f"[ORCHESTRATOR] Routing decision: {routing_decision.next_phase} (LLM required: {routing_decision.requires_llm})")
     
-    if is_loop:
-        # HARD STOP: Force chat after 5 consecutive calls
-        logger.error(f"[ORCHESTRATOR] 🛑 INFINITE LOOP DETECTED: {routing_decision.next_phase} called {loop_detection.get('consecutive_calls', 0) + 1} times")
-        return {
-            "phase": "chat",
-            "loop_detection": {**loop_detection, "loop_detected": True, "loop_message": loop_warning, "consecutive_calls": loop_detection.get("consecutive_calls", 0) + 1},
-            "messages": [AIMessage(content=f"I'm stuck in a loop trying to route to {routing_decision.next_phase}. I need your help to continue. {loop_warning}")],
-            "stream_events": []
-        }
-    
-    if loop_warning:
-        # Log warning but continue (will escalate after 5 tries)
-        logger.warning(f"[ORCHESTRATOR] ⚠️ {loop_warning}")
+    # Check for immediate hard loops returned by router
+    if "loop_warning" in routing_decision.metadata:
+        logger.warning(f"[ORCHESTRATOR] ⚠️ Router Warned: {routing_decision.metadata['loop_warning']}")
     logger.info(f"[ORCHESTRATOR] Reason: {routing_decision.reason}")
     
     # ================================================================
@@ -705,7 +691,12 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
     # ================================================================
     # STEP 6: UPDATE LOOP DETECTION
     # ================================================================
-    if routing_decision.next_phase == loop_detection.get("last_node"):
+    # Use router-calculated loop info if available (Single Source of Truth)
+    if "loop_detection" in routing_decision.metadata:
+        loop_detection = routing_decision.metadata["loop_detection"]
+    
+    # Fallback: Manual calculation (only for LLM decisions that bypass router logic)
+    elif routing_decision.next_phase == loop_detection.get("last_node"):
         loop_detection["consecutive_calls"] = loop_detection.get("consecutive_calls", 0) + 1
     else:
         loop_detection = {

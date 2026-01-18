@@ -108,24 +108,40 @@ class DeterministicRouter:
         
         # Deterministic state machine routing
         if current_phase in ("planning", "planner"):
-            return self._route_from_planning(state)
+            return self._finalize_decision(state, self._route_from_planning(state))
         
         if current_phase in ("coding", "coder"):
-            return self._route_from_coding(state)
+            return self._finalize_decision(state, self._route_from_coding(state))
         
         if current_phase in ("validating", "validator"):
-            return self._route_from_validating(state)
+            return self._finalize_decision(state, self._route_from_validating(state))
         
         if current_phase in ("fixing", "fixer"):
-            return self._route_from_fixing(state)
+            return self._finalize_decision(state, self._route_from_fixing(state))
         
         # Unknown phase - escalate to LLM
         logger.warning(f"[DETERMINISTIC_ROUTER] Unknown phase '{current_phase}', escalating to LLM")
-        return RoutingDecision(
+        return self._finalize_decision(state, RoutingDecision(
             next_phase="orchestrator",
             reason=f"Unknown phase: {current_phase}",
             requires_llm=True
-        )
+        ))
+    
+    def _finalize_decision(self, state: Dict[str, Any], decision: RoutingDecision) -> RoutingDecision:
+        """Apply loop detection and final metadata updates."""
+        is_loop, loop_msg, loop_info = self.check_loop_detection(state, decision.next_phase)
+        
+        # Update metadata with new loop info (to be persisted by orchestrator)
+        decision.metadata["loop_detection"] = loop_info
+        
+        if is_loop:
+            return RoutingDecision(
+                next_phase="chat",
+                reason=f"Loop detected: {loop_msg}",
+                requires_llm=False,
+                metadata={"loop_warning": loop_msg, "loop_detection": loop_info}
+            )
+        return decision
     
     def _route_from_planning(self, state: Dict[str, Any]) -> RoutingDecision:
         """
@@ -274,7 +290,8 @@ class DeterministicRouter:
             reason="Validation failed - entering fix phase",
             gate_result=exit_gate,
             requires_llm=False,
-            metadata={"error_details": exit_gate.error_details}
+            # Fix: GateResult doesn't have error_details, read from state safely
+            metadata={"error_details": (state.get("error_log") or ["Unknown error"])[-1]}
         )
     
     def _route_from_fixing(self, state: Dict[str, Any]) -> RoutingDecision:
@@ -404,8 +421,9 @@ class DeterministicRouter:
         
         artifacts = state.get("artifacts", {})
         
-        # PRIORITY 1: Did validation just pass? (Exit condition)
-        if "validation_passed" in state:
+        # PRIORITY 1: Did validation just run?
+        # Fix: Check value not just key existence
+        if state.get("validation_passed") is not None:
              return self._route_from_validating(state)
         
         # PRIORITY 2: Are we in a fix loop?
@@ -429,7 +447,7 @@ class DeterministicRouter:
             requires_llm=False
         )
 
-    def check_loop_detection(self, state: Dict[str, Any], next_phase: str) -> Tuple[bool, Optional[str]]:
+    def check_loop_detection(self, state: Dict[str, Any], next_phase: str) -> Tuple[bool, Optional[str], Dict[str, Any]]:
         """
         Check if we're in an infinite loop.
         
@@ -438,26 +456,33 @@ class DeterministicRouter:
             next_phase: Phase we're about to route to
             
         Returns:
-            (is_loop, warning_message)
+            (is_loop, warning_message, updated_loop_info)
         """
-        loop_info = state.get("loop_detection", {})
+        loop_info = state.get("loop_detection", {}).copy() # Copy to avoid mutation issues
         last_node = loop_info.get("last_node")
         consecutive_count = loop_info.get("consecutive_calls", 0)
         
         # If routing to same node again
         if last_node == next_phase:
             consecutive_count += 1
+        else:
+            # Reset if phase changed
+            consecutive_count = 1
+            last_node = next_phase
             
-            # Warn after 3 consecutive calls
-            if consecutive_count >= 3:
-                warning = f"Loop detected: {next_phase} called {consecutive_count} times consecutively"
-                logger.warning(f"[DETERMINISTIC_ROUTER] ⚠️ {warning}")
-                
-                # Force escalation after 5 consecutive calls
-                if consecutive_count >= 5:
-                    logger.error(f"[DETERMINISTIC_ROUTER] 🚨 INFINITE LOOP: {next_phase} called {consecutive_count} times")
-                    return True, warning
-                
-                return False, warning
+        loop_info["last_node"] = last_node
+        loop_info["consecutive_calls"] = consecutive_count
+
+        # Warn after 3 consecutive calls
+        if consecutive_count >= 3:
+            warning = f"Loop detected: {next_phase} called {consecutive_count} times consecutively"
+            logger.warning(f"[DETERMINISTIC_ROUTER] ⚠️ {warning}")
+            
+            # Force escalation after 5 consecutive calls
+            if consecutive_count >= 5:
+                logger.error(f"[DETERMINISTIC_ROUTER] 🚨 INFINITE LOOP: {next_phase} called {consecutive_count} times")
+                return True, warning, loop_info
+            
+            return False, warning, loop_info
         
-        return False, None
+        return False, None, loop_info
