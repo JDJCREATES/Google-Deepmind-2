@@ -21,6 +21,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 }) => {
   
   const isDisabled = !inputValue.trim();
+  const showSpinner = activeRunStatus === 'running' || activeRunStatus === 'planning';
 
   return (
     <footer className="chat-input-container">
@@ -42,7 +43,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           disabled={isDisabled}
           aria-label="Send message"
         >
-          <PiShippingContainerBold className="send-icon" />
+          {showSpinner ? (
+            <ProgressCircular indeterminate />
+          ) : (
+            <PiShippingContainerBold className="send-icon" />
+          )}
         </button>
       </form>
     </footer>

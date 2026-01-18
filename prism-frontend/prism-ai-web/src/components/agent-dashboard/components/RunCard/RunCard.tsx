@@ -38,10 +38,13 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
         const res = await fetch(`http://localhost:8001/preview/status?run_id=${runIdForLookup}`);
         if (res.ok) {
           const data = await res.json();
-          setLivePort(data.port || null);
+          const port = data.port || null;
+          const status = data.status || 'stopped';
+          console.log('[RunCard] Preview status for', run.id, ':', { status, port, data });
+          setLivePort(port);
         }
       } catch (e) {
-        // Silently fail
+        console.error('[RunCard] Failed to fetch preview status:', e);
       }
     };
 
@@ -87,15 +90,14 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
 
   // Preview status indicator color (square dot)
   const getPreviewStatusColor = () => {
-    switch (run.previewStatus) {
-      case 'running':
-        return 'var(--success-color, #4ade80)';
-      case 'error':
-        return 'var(--error-color, #ff5e57)';
-      case 'stopped':
-      default:
-        return 'var(--text-muted, #666)';
+    // Use livePort as source of truth (same as ProcessDashboard)
+    if (livePort) {
+      return 'var(--success-color, #4ade80)'; // Green when preview is actually running
     }
+    if (run.previewStatus === 'error') {
+      return 'var(--error-color, #ff5e57)';
+    }
+    return 'var(--warning-color, #fbbf24)'; // Yellow when stopped
   };
 
   // Agent display name
@@ -280,8 +282,8 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
         <div 
           className="run-card__preview-indicator"
           style={{ background: getPreviewStatusColor() }}
-          title={run.previewStatus === 'running' 
-            ? `Preview running${run.previewUrl ? ` at ${run.previewUrl}` : ''}` 
+          title={livePort 
+            ? `Preview running on port ${livePort}` 
             : 'Preview not running'}
         />
       </div>
@@ -296,7 +298,9 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
 
         <div className="run-card__meta">
           <span className="run-card__port" title="Deterministic Port">Port: {activePort}</span>
-          <span className="run-card__status">{run.status}</span>
+          <span className="run-card__status">
+            {isActive && getAgentDisplay() ? getAgentDisplay() : run.status}
+          </span>
         </div>
 
           <div className="run-card__actions">

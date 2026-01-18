@@ -92,8 +92,6 @@ class Fixer(BaseAgent):
             FailureLayer.SCOPE: ScopeFixer(self.config),
         }
     
-Output your reasoning, then use tools to implement the fix."""
-    
     def _get_system_prompt(self) -> str:
         """Get system prompt for fix generation."""
         import platform

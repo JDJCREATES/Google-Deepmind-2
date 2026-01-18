@@ -160,7 +160,8 @@ class Coder(BaseAgent):
             base_prompt += f"""
 
 # Pre-Loaded Project Structure
-The following folder structure is already loaded. Do NOT call list_directory.
+The following folder structure is already loaded.
+**AUTONOMY RULE**: This is a snapshot. If you need to explore deeper or if files are missing, USE `list_directory` to find them.
 ```json
 {folder_str}
 ```"""
@@ -767,14 +768,34 @@ Use these type definitions. Do NOT read from disk.
         # ================================================================
         pre_read_context = ""
         expected_outputs = task.get("expected_outputs", []) if isinstance(task, dict) else []
-        for output in expected_outputs[:3]:  # Limit to 3 files
-            file_path = output.get("file_path", output.get("path", "")) if isinstance(output, dict) else str(output)
+        
+        # Normalize list format
+        normalized_outputs = []
+        for o in expected_outputs:
+            path = o.get("file_path", o.get("path", "")) if isinstance(o, dict) else str(o)
+            if path:
+                normalized_outputs.append(path)
+        
+        # SORTING: Prioritize Entry Points (page.tsx, layout.tsx, App.tsx)
+        # This ensures the LLM always "sees" the main entry file to wire up components
+        def implementation_priority(path: str) -> int:
+            lower = path.lower()
+            if "page." in lower or "layout." in lower or "app." in lower or "main." in lower or "index." in lower:
+                return 0 # Highest priority
+            if "types" in lower or "interfaces" in lower:
+                return 1 # High priority (context)
+            return 2 # Standard priority
+            
+        normalized_outputs.sort(key=implementation_priority)
+        
+        # Limit to 15 files (was 3) to allow full context
+        for file_path in normalized_outputs[:15]: 
             if file_path and project_path:
                 full_path = Path(project_path) / file_path
                 if full_path.exists():
                     try:
-                        content = full_path.read_text(encoding="utf-8")[:3000]
-                        pre_read_context += f"\n### {file_path} (EXISTING - use apply_source_edits):\n```\n{content}\n```\n"
+                        content = full_path.read_text(encoding="utf-8")[:8000] # Increased limit to 8kb
+                        pre_read_context += f"\n### {file_path} (EXISTING):\n```\n{content}\n```\n"
                     except Exception:
                         pass
 
@@ -802,7 +823,7 @@ Use these type definitions. Do NOT read from disk.
         # ================================================================
         coder_prompt = f"""PROJECT PATH: {project_path}
 
-CURRENT FILE STRUCTURE (Do not call list_directory):
+CURRENT FILE STRUCTURE (Snapshot):
 {file_tree_context}
 {artifact_context}
 IMPLEMENTATION PLAN:
@@ -816,7 +837,12 @@ FILES ALREADY CREATED:
 {pre_read_context}
 YOUR INSTRUCTIONS:
 1. Analyze the task and implementation plan.
-2. CHECK "CURRENT FILE STRUCTURE" ABOVE.
+2. **VERIFY CONTEXT**:
+   - Do you see the main entry point (e.g. `page.tsx`, `layout.tsx`, `App.tsx`) in the context above?
+   - If NOT, and you are adding a new feature, you **MUST** use `read_file` or `list_directory` to find and read it now.
+   - Do not generate "orphan" components that are never imported.
+
+3. CHECK "CURRENT FILE STRUCTURE" ABOVE.
    - **CRITICAL**: Do NOT assume existing files are correct. 
    - Verify if their content matches the plan.
    - If a file exists (e.g. scaffolded page.tsx) but differs from plan -> Use `apply_source_edits` to update it.
