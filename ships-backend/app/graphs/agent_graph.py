@@ -152,7 +152,7 @@ class AgentGraphState(TypedDict):
     # These replace "chat history" as the primary source of truth
     
     plan: Dict[str, Any]          # The parsed plan (goal, steps, files)
-    completed_files: List[str]    # List of files successfully written
+    completed_files: Annotated[List[str], add]    # List of files successfully written
     
     # Collective Intelligence: pending fix to capture after validation passes
     pending_fix_context: Optional[Dict[str, Any]]
@@ -205,11 +205,12 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
     if project_path:
         set_project_root(project_path)
         
-    # 2. Invoke Planner
-    # Planner.invoke now handles DB persistence, Git checkpoints, and artifact migration
-    planner = Planner()
-    result = await planner.invoke(state)
-    
+    # 3. Merge Artifacts (Safety: Don't lose project_path)
+    merged_artifacts = {**state.get("artifacts", {})}
+    if "artifacts" in result:
+        merged_artifacts.update(result["artifacts"])
+        result["artifacts"] = merged_artifacts
+        
     return result
 
 

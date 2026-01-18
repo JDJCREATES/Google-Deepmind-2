@@ -159,12 +159,24 @@ async def stream_pipeline(
                 # CAPTURE CUSTOM NODE EVENTS (e.g. file_written, run:complete)
                 # These are returned in the "stream_events" key of the node output
                 output = event_data.get("output", {})
-                if isinstance(output, dict) and "stream_events" in output:
-                    import json
-                    for custom_event in output["stream_events"]:
-                        # Yield as raw JSON event line
-                        yield json.dumps(custom_event) + "\n"
-                        logger.debug(f"[STREAM] 📤 Emitted custom event: {custom_event.get('type')}")
+                if isinstance(output, dict):
+                    # 1. SYNC PREVIEW MANAGER (Frontend Deep Linking)
+                    # This controller layer logic ensures the API knows about path changes (e.g. scaffolding)
+                    # without coupling the Graph logic to the Service layer.
+                    new_path = output.get("artifacts", {}).get("project_path")
+                    if new_path:
+                        from app.services.preview_manager import preview_manager
+                        if preview_manager.current_project_path != new_path:
+                            preview_manager.current_project_path = new_path
+                            logger.info(f"[PIPELINE] 🔄 Synced preview_manager path to: {new_path}")
+
+                    # 2. CAPTURE CUSTOM EVENTS
+                    if "stream_events" in output:
+                        import json
+                        for custom_event in output["stream_events"]:
+                            # Yield as raw JSON event line
+                            yield json.dumps(custom_event) + "\n"
+                            logger.debug(f"[STREAM] 📤 Emitted custom event: {custom_event.get('type')}")
 
             
             # Log debug info

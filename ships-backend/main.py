@@ -126,6 +126,41 @@ async def open_preview(request: OpenPreviewRequest = None):
             "message": "No project path provided. Include project_path in request."
         }
     
+    # =========================================================================
+    # SMART CONTEXT DETECTION (Fix for "Open Preview" button sending root path)
+    # =========================================================================
+    from pathlib import Path
+    
+    # 1. If path has no package.json/requirements.txt, check if a synced path from the agent exists
+    path_obj = Path(project_path)
+    has_pkg = (path_obj / "package.json").exists() or (path_obj / "requirements.txt").exists()
+    
+    if not has_pkg:
+        logger.info(f"[API] ⚠️ No package.json in {project_path}. Checking context...")
+        
+        # A. Check synced path (from Pipeline/Graph)
+        synced_path = preview_manager.current_project_path
+        if synced_path and synced_path != project_path:
+            synced_obj = Path(synced_path)
+            if (synced_obj / "package.json").exists() or (synced_obj / "requirements.txt").exists():
+                logger.info(f"[API] 🔄 Redirecting to synced agent path: {synced_path}")
+                project_path = synced_path
+                has_pkg = True
+
+    # B. If still not found, Auto-Scan immediate subfolders
+    if not has_pkg:
+        for item in path_obj.iterdir():
+            if item.is_dir() and not item.name.startswith('.'):
+                if (item / "package.json").exists() or (item / "requirements.txt").exists():
+                    logger.info(f"[API] 🔍 Auto-detected project in subfolder: {item}")
+                    project_path = str(item)
+                    # Sync back to manager for future consistency
+                    preview_manager.current_project_path = project_path
+                    break
+    
+    # =========================================================================
+
+    
     if not run_id:
         run_id = "default"
     
@@ -327,14 +362,8 @@ async def run_agent(request: Request, body: PromptRequest):
             
             # Simplified pass-through: stream_pipeline now yields strings (StreamBlock events) directly
             async for chunk in stream_pipeline(body.prompt, project_path=effective_project_path, settings=body.settings, artifact_context=body.artifact_context):
-                # DEBUG: Log chunks to verify flow (User requested)
-                try:
-                    # Log first 100 chars of chunk to avoid flooding but prove flow
-                    logger.info(f"[STREAM] Sending chunk: {chunk[:100].strip()}...")
-                except:
-                    pass
-                    
                 yield chunk
+
             
             logger.info("[STREAM] Pipeline completed successfully")
             

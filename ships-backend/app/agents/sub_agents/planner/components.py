@@ -271,6 +271,11 @@ class FolderArchitect:
 
             path = f_data.get("path", "")
             if path and path not in existing_paths:
+                # Better directory inference
+                has_ext = "." in path.split("/")[-1]
+                default_is_dir = not has_ext
+                is_dir = f_data.get("is_directory", default_is_dir)
+                
                 role = FileRole.SOURCE
                 if "component" in path.lower(): role = FileRole.COMPONENT
                 elif "hook" in path.lower(): role = FileRole.UTILITY
@@ -278,13 +283,35 @@ class FolderArchitect:
                 
                 entries.append(FolderEntry(
                     path=path,
-                    is_directory=f_data.get("is_directory", True),
-                    description=f_data.get("description", "Planned by LLM"),
+                    is_directory=is_dir,
+                    description=f_data.get("description", "Planned folder/file"),
                     role=role,
                     is_immutable=False
                 ))
                 existing_paths.add(path)
                 new_count += 1
+        
+        # =====================================================================
+        # STEP 3: Add files from Tasks (expected_outputs)
+        # =====================================================================
+        llm_tasks = llm_plan.get("tasks", [])
+        for t_data in llm_tasks:
+            if hasattr(t_data, 'model_dump'): t_data = t_data.model_dump()
+            elif not isinstance(t_data, dict): continue
+            
+            for out in t_data.get("expected_outputs", []):
+                f_path = out.get("file_path") or out.get("path", "")
+                if f_path and f_path not in existing_paths:
+                    entries.append(FolderEntry(
+                        path=f_path,
+                        is_directory=False, # Outputs are files
+                        description=out.get("description", "Task output"),
+                        role=FileRole.SOURCE,
+                        is_immutable=False
+                    ))
+                    existing_paths.add(f_path)
+                    new_count += 1
+
         
         if new_count > 0:
             logger.info(f"[FOLDER_ARCHITECT] ➕ Added {new_count} new planned files from LLM")
