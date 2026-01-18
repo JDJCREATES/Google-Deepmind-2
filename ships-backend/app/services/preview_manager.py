@@ -415,6 +415,33 @@ class MultiPreviewManager:
         """Stop all preview instances."""
         for run_id in list(self.instances.keys()):
             self._stop_instance(run_id)
+
+    def kill_zombies(self) -> Dict[str, Any]:
+        """
+        Force kill all processes on preview ports (5200-5210).
+        Useful when backend restarts and loses track of child processes.
+        """
+        killed_count = 0
+        logger.info("[PREVIEW] 🧟 Killing zombie processes on ports...")
+        
+        # 1. Stop known instances first
+        self.stop_all()
+        
+        # 2. Sweep the port range
+        for port in range(self.BASE_PORT, self.BASE_PORT + self.MAX_INSTANCES):
+            # Check if port is in use
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.settimeout(0.1)
+                    if s.connect_ex(('127.0.0.1', port)) == 0:
+                        # Port is open (in use)
+                        logger.info(f"[PREVIEW] Found zombie on port {port}")
+                        self._kill_process_by_port(port)
+                        killed_count += 1
+            except Exception:
+                pass
+                
+        return {"status": "success", "killed_count": killed_count}
     
     def get_status(self, run_id: str = None) -> Dict[str, Any]:
         """Get status of a specific instance or all."""

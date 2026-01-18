@@ -99,6 +99,22 @@ async def start_preview(project: ProjectPath):
 async def stop_preview():
     return preview_manager.stop_dev_server()
 
+@preview_router.post("/stop/{run_id}")
+async def stop_preview_by_id(run_id: str):
+    preview_manager._stop_instance(run_id)
+    return {"status": "stopped", "run_id": run_id}
+
+@preview_router.post("/cleanup")
+async def cleanup_previews(run_id: str = None):
+    """
+    Force kill processes.
+    If run_id provided: Kill only the port for that run (Targeted).
+    If no run_id: Kill ALL preview ports (Zombie Nuke).
+    """
+    if run_id:
+        return preview_manager.kill_run_process(run_id)
+    return preview_manager.kill_zombies()
+
 class OpenPreviewRequest(BaseModel):
     project_path: str = None  # Required - the project to preview
     run_id: str = None  # Optional - for per-run tracking

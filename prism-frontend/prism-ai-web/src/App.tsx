@@ -18,6 +18,7 @@ import Settings from './components/settings/Settings';
 import { ChatInterface } from './components/chat/ChatInterface';
 import { XTerminal } from './components/terminal/XTerminal';
 import { AgentDashboard } from './components/agent-dashboard';
+import { ProcessDashboard } from './components/process/ProcessDashboard';
 
 import { useFileSystem } from './store/fileSystem';
 import { useArtifactStore } from './store/artifactStore';
@@ -145,15 +146,16 @@ function App() {
           <div className="sidebar-pane">
             <div className="sidebar-content">
               {activeSidebarView === 'runs' && (
-                <div className="runs-sidebar">
+                <div className="runs-sidebar" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                   <div className="runs-sidebar__header">
                     <h3>Run Info</h3>
                   </div>
-                  <div className="runs-sidebar__content">
+                  <div className="runs-sidebar__content" style={{ flex: 1, overflowY: 'auto' }}>
                     <p className="runs-sidebar__hint">
                       Select a run to see details
                     </p>
                   </div>
+                  <ProcessDashboard />
                 </div>
               )}
               {activeSidebarView === 'files' && <FileExplorer />}
