@@ -108,7 +108,18 @@ async def stream_pipeline(
                 if chunk and hasattr(chunk, "content"):
                     content = chunk.content
                     if content:
-                        if not isinstance(content, str):
+                        # Parsing Logic for Complex Chunks (Lists/Dicts)
+                        if isinstance(content, list):
+                            # Handle [{"type": "text", "text": "..."}] format
+                            extracted = []
+                            for item in content:
+                                if isinstance(item, dict):
+                                    if item.get("type") == "text":
+                                        extracted.append(item.get("text", ""))
+                                elif isinstance(item, str):
+                                    extracted.append(item)
+                            content = "".join(extracted)
+                        elif not isinstance(content, str):
                             content = str(content)
                             
                         # Default to Thinking if no block active
@@ -143,6 +154,18 @@ async def stream_pipeline(
                      yield block_mgr.start_block(BlockType.TEXT, "Validating Changes...") + "\n"
                 elif event_name == "fixer":
                      yield block_mgr.start_block(BlockType.PREFLIGHT, "Applying Fixes...") + "\n"
+
+            elif event_type == "on_chain_end":
+                # CAPTURE CUSTOM NODE EVENTS (e.g. file_written, run:complete)
+                # These are returned in the "stream_events" key of the node output
+                output = event_data.get("output", {})
+                if isinstance(output, dict) and "stream_events" in output:
+                    import json
+                    for custom_event in output["stream_events"]:
+                        # Yield as raw JSON event line
+                        yield json.dumps(custom_event) + "\n"
+                        logger.debug(f"[STREAM] 📤 Emitted custom event: {custom_event.get('type')}")
+
             
             # Log debug info
             if event_type not in ["on_chat_model_stream", "on_chat_model_start"]:

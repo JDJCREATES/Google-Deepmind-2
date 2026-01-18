@@ -998,8 +998,9 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
                         logger.info(f"[PLANNER] 📦 Will scaffold into subfolder (suggested: '{suggested_slug}')")
                     
                     # 3. Update scaffold command with target
-                    if " . " in scaffold_command:
-                        scaffold_command = scaffold_command.replace(" . ", f" {target_arg} ")
+                    # Use regex to replace " ." with " target" (handling both middle and end of string)
+                    scaffold_command = re.sub(r'\s\.(?:\s|$)', f" {target_arg} ", scaffold_command).strip()
+
                     
                     logger.info(f"[PLANNER] 🔧 Final Scaffold Command: {scaffold_command}")
                     

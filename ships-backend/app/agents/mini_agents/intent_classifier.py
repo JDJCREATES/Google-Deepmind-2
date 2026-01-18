@@ -391,7 +391,8 @@ You MUST output a valid JSON object matching this schema:
         self,
         user_request: str,
         app_blueprint: Optional[Dict[str, Any]] = None,
-        folder_map: Optional[Dict[str, Any]] = None
+        folder_map: Optional[Dict[str, Any]] = None,
+        config: Optional[Dict[str, Any]] = None
     ) -> StructuredIntent:
         """
         Classify a user request into a structured intent.
@@ -402,6 +403,7 @@ You MUST output a valid JSON object matching this schema:
             user_request: The raw user request
             app_blueprint: Optional app blueprint for context
             folder_map: Optional folder structure for context
+            config: Optional LangChain config (e.g. to disable callbacks)
             
         Returns:
             StructuredIntent with classification results
@@ -424,7 +426,7 @@ You MUST output a valid JSON object matching this schema:
         try:
             # Invoke LLM
             start_time = datetime.utcnow()
-            response = await self.llm.ainvoke(messages)
+            response = await self.llm.ainvoke(messages, config=config)
             duration_ms = int((datetime.utcnow() - start_time).total_seconds() * 1000)
             
             # Parse response

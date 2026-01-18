@@ -563,12 +563,24 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
     if (not structured_intent or phase == "chat_setup") and user_request:
         try:
             from app.agents.mini_agents.intent_classifier import IntentClassifier
+            from langchain_core.callbacks import Callbacks
             
             logger.info(f"[ORCHESTRATOR] 🕵️ Running Intent Classifier on: {user_request[:50]}...")
+            
+            # Initialize with NO artifact manager to prevent extraneous logging if needed
+            # But crucial part is how we invoke it. The classifier uses self.llm.
+            # We need to ensure the LLM inside it doesn't stream to the main graph's handler.
             intent_agent = IntentClassifier()
             
             # Use current project context if known
             folder_map = artifacts.get("folder_map")
+            
+            # We can't easily pass run_manager/callbacks to .classify() unless we modify it.
+            # However, IntentClassifier.classify() does:
+            # response = await self.llm.ainvoke(messages)
+            # If self.llm was created without callbacks, it should be fine.
+            # BUT if the graph has global callbacks, they might attach.
+            # Let's ensure we use a non-streaming invocation if possible, or modify IntentClassifier to accept callbacks=[]
             
             structured_intent_obj = await intent_agent.classify(
                 user_request=user_request,
@@ -849,7 +861,7 @@ async def complete_node(state: AgentGraphState) -> Dict[str, Any]:
             "project_path": project_path,
             "run_complete_event": run_complete_event  # For Electron git checkpoint
         },
-        "stream_events": []
+        "stream_events": [run_complete_event]  # CRITICAL: Stream to frontend!
     }
 
 
