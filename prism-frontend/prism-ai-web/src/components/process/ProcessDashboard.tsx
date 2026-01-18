@@ -94,61 +94,60 @@ export const ProcessDashboard: React.FC = () => {
       </div>
 
       <div className="process-controls">
-        {isRunning ? (
-          <>
-            <div className="process-info">
-              <span className="port-badge">PORT: {processStatus?.port || '...'}</span>
-              {processStatus?.status === 'starting' && <span className="starting-badge">Starting...</span>}
-            </div>
-            <div className="process-actions">
-              <button 
+        <div className="process-info">
+          <span className="port-badge">PORT: {processStatus?.port || '...'}</span>
+          {processStatus?.status === 'starting' && <span className="starting-badge">Starting...</span>}
+          {processStatus?.status === 'stopped' && <span className="stopped-badge">Stopped</span>}
+        </div>
+        <div className="process-actions">
+          {!isRunning ? (
+             <button 
+                className="icon-btn" 
+                onClick={handleStart} 
+                disabled={loading}
+                title="Start Dev Server"
+              >
+                <VscPlay size={18} />
+              </button>
+          ) : (
+             <button 
                 className="icon-btn danger" 
                 onClick={handleKill} 
                 disabled={loading}
-                title="Kill Process"
+                title="Stop Process"
               >
-                <VscDebugDisconnect />
+                <VscDebugDisconnect size={18} />
               </button>
-              <button 
-                className="icon-btn" 
-                onClick={handleOpenUrl} 
-                title="Open Browser"
-                disabled={!processStatus?.url}
-              >
-                <VscGlobe />
-              </button>
-            </div>
-          </>
-        ) : (
-          <div className="process-actions full-width" style={{ gap: '8px' }}>
-             <button 
-                className="text-btn primary" 
-                onClick={handleStart} 
-                disabled={loading}
-                style={{ flex: 1 }}
-              >
-                <VscPlay /> Start Dev Server
-              </button>
-              <button
-                className="icon-btn"
-                onClick={async () => {
-                  if(!confirm(`Force kill process for run? (Port ${processStatus?.port || '?'})\nThis releases file locks.`)) return;
-                  setLoading(true);
-                  try {
-                    await fetch(`http://localhost:8001/preview/cleanup?run_id=${activeRunId}`, { method: 'POST' });
-                    // Refresh status immediately
-                    setProcessStatus(null);
-                  } finally {
-                    setLoading(false);
-                  }
-                }}
-                disabled={loading}
-                title="Force Kill (Zombie)"
-              >
-                <VscDebugDisconnect />
-              </button>
-          </div>
-        )}
+          )}
+          
+          <button
+            className="icon-btn"
+            onClick={async () => {
+              if(!confirm(`Force kill process for run? (Port ${processStatus?.port || '?'})\nThis releases file locks.`)) return;
+              setLoading(true);
+              try {
+                await fetch(`http://localhost:8001/preview/cleanup?run_id=${activeRunId}`, { method: 'POST' });
+                // Refresh status immediately
+                setProcessStatus(null);
+              } finally {
+                setLoading(false);
+              }
+            }}
+            disabled={loading}
+            title="Force Reset (Zombie Kill)"
+          >
+            <VscDebugDisconnect size={18} style={{ opacity: 0.5 }} />
+          </button>
+          
+          <button 
+            className="icon-btn" 
+            onClick={handleOpenUrl} 
+            title="Open Browser"
+            disabled={!processStatus?.url || !isRunning}
+          >
+            <VscGlobe size={18} />
+          </button>
+        </div>
       </div>
       
       {processStatus?.error && (
