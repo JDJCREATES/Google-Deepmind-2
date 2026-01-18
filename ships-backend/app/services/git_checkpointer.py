@@ -287,6 +287,89 @@ Thumbs.db
         history_path.write_text(self.history.model_dump_json(indent=2))
         logger.debug(f"[GIT] Saved checkpoint history to {history_path}")
 
+    # =========================================================================
+    # BRANCH MANAGEMENT (Production Hardening)
+    # =========================================================================
+    
+    def get_current_branch(self) -> Optional[str]:
+        """Get the current active branch name."""
+        if not self.is_git_repo: return None
+        try:
+            res = self._run_git(["rev-parse", "--abbrev-ref", "HEAD"])
+            if res.returncode == 0:
+                return res.stdout.strip()
+            return None
+        except Exception:
+            return None
+
+    def create_and_checkout_branch(self, branch_name: str, base_branch: str = "main") -> bool:
+        """
+        Create and checkout a new branch for an agent run.
+        
+        Handles:
+        - Repo initialization
+        - Dirty state (auto-stash)
+        - Existing branches (switch to them)
+        - Creation errors
+        """
+        if not self.is_git_repo:
+            if not self.init_repo_if_needed():
+                return False
+
+        current = self.get_current_branch()
+        if current == branch_name:
+            logger.info(f"[GIT] Already on branch {branch_name}")
+            return True
+
+        # Check dirty state
+        status = self._run_git(["status", "--porcelain"])
+        if status.stdout.strip():
+            logger.warning(f"[GIT] ⚠️ Uncommitted changes detected on {current}. Stashing...")
+            self.stash_changes(f"Auto-stash before switching to {branch_name}")
+
+        try:
+            # Check if branch exists
+            check_exists = self._run_git(["rev-parse", "--verify", branch_name])
+            
+            if check_exists.returncode == 0:
+                # Checkout existing
+                checkout = self._run_git(["checkout", branch_name])
+                if checkout.returncode == 0:
+                    logger.info(f"[GIT] 🔄 Switched to existing branch: {branch_name}")
+                    return True
+                else:
+                    logger.error(f"[GIT] ❌ Failed to checkout {branch_name}: {checkout.stderr}")
+                    return False
+            else:
+                # Create new branch
+                # Ensure we are off a valid base if possible, or just branch from HEAD
+                # For isolation, branding from HEAD is usually fine if we assume linear progression
+                create = self._run_git(["checkout", "-b", branch_name])
+                if create.returncode == 0:
+                    logger.info(f"[GIT] 🌿 Created and switched to new branch: {branch_name}")
+                    return True
+                else:
+                    logger.error(f"[GIT] ❌ Failed to create branch {branch_name}: {create.stderr}")
+                    return False
+
+        except Exception as e:
+            logger.error(f"[GIT] Branch operation failed: {e}")
+            return False
+
+    def stash_changes(self, message: str = "Auto-stash") -> bool:
+        """Stash current changes."""
+        res = self._run_git(["stash", "push", "-m", message])
+        return res.returncode == 0
+
+    def checkout_default(self) -> bool:
+        """Checkout main/master branch."""
+        # Try main first, then master
+        for default in ["main", "master"]:
+            res = self._run_git(["checkout", default])
+            if res.returncode == 0:
+                return True
+        return False
+
 
 # Singleton instance per project
 _checkpointers: Dict[str, GitCheckpointer] = {}

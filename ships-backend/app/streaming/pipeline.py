@@ -43,7 +43,32 @@ async def stream_pipeline(
             if run_id:
                 logger.info(f"[PIPELINE] 📊 Step tracking started: run_id={run_id}")
         except Exception as e:
+    
+            if run_id:
+                logger.info(f"[PIPELINE] 📊 Step tracking started: run_id={run_id}")
+        except Exception as e:
             logger.debug(f"[PIPELINE] Step tracking unavailable: {e}")
+
+    # 1.5. GIT BRANCH ISOLATION (Production Hardening)
+    if project_path:
+        try:
+            from app.services.git_checkpointer import get_checkpointer as get_git_service
+            
+            # Use run_id for branch name (or timestamp if missing)
+            import time
+            branch_id = str(run_id) if run_id else f"dev-{int(time.time())}"
+            # Shorten UUID for readability
+            short_id = branch_id[:8] if "-" in branch_id else branch_id
+            branch_name = f"ships/run/{short_id}"
+            
+            git_service = get_git_service(project_path, str(run_id))
+            if git_service.create_and_checkout_branch(branch_name):
+                logger.info(f"[PIPELINE] 🌿 Isolated run in git branch: {branch_name}")
+            else:
+                logger.warning(f"[PIPELINE] ⚠️ Failed to isolate branch {branch_name} - using current branch")
+                
+        except Exception as git_err:
+            logger.error(f"[PIPELINE] ❌ Git branch error: {git_err}")
 
     # 2. Setup Graph
     checkpointer = get_checkpointer()

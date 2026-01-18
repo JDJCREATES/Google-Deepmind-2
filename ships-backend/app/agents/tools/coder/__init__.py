@@ -24,6 +24,7 @@ from .file_operations import (
     write_file_to_disk,
     write_files_batch,
     read_file_from_disk,
+    delete_file_from_disk,
     list_directory,
     create_directory,
     create_directories,
@@ -82,6 +83,7 @@ CODER_TOOLS = [
     write_file_to_disk,
     write_files_batch,  # PREFERRED for multiple files - reduces iterations
     read_file_from_disk,
+    delete_file_from_disk,  # Remove obsolete/incorrect files
     list_directory,
     get_file_tree,      # Prefers .ships/ artifact, falls back to scan
     get_artifact,        # Read any artifact from .ships/
@@ -111,6 +113,7 @@ __all__ = [
     "write_file_to_disk",
     "write_files_batch",
     "read_file_from_disk", 
+    "delete_file_from_disk", # Added export
     "list_directory",
     "create_directory",
     "create_directories",

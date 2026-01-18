@@ -997,6 +997,17 @@ IMPORTANT:
                             # Check common argument names for source file
                             path = tc_args.get("source_file", tc_args.get("path", tc_args.get("file_path", "")))
                             if path: files_written.append(path)
+                            
+                        elif tc_name == "delete_file_from_disk":
+                            path = tc_args.get("file_path", tc_args.get("path", ""))
+                            if path:
+                                files_written.append(path)
+                                events.append(emit_event(
+                                    "file_deleted",
+                                    "coder",
+                                    path,
+                                    {"action": "delete"}
+                                ))
                 
                 # Method 2: Track from ToolMessage responses (what actually executed)
                 elif isinstance(msg, ToolMessage):

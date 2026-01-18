@@ -422,10 +422,95 @@ def view_source_code(
         return f"Error reading file: {str(e)}"
 
 # Export tools
+# Export tools
+@tool
+def delete_file_from_disk(file_path: str) -> Dict[str, Any]:
+    """
+    Delete a file from the project.
+    
+    PERMANENTLY removes a file (after backing it up to .ships/trash).
+    Use this to clean up unused, obsolete, or incorrect files.
+    
+    Args:
+        file_path: Relative path to delete (e.g., "src/old_component.tsx")
+        
+    Returns:
+        Dict with success status and backup location
+    """
+    try:
+        # Validate path safety
+        is_safe, error = is_path_safe(file_path)
+        if not is_safe:
+            logger.error(f"[CODER] ❌ BLOCKED deletion: {error}")
+            return {"success": False, "error": error, "path": file_path}
+        
+        project_root = get_project_root()
+        resolved_path = (Path(project_root) / file_path).resolve()
+        
+        # Security: Prevent deleting critical config/env files
+        if resolved_path.name.startswith(".env") or ".git" in resolved_path.parts:
+            logger.error(f"[CODER] ❌ BLOCKED protected deletion: {file_path}")
+            return {
+                "success": False, 
+                "error": "Cannot delete protected environment or git files", 
+                "path": file_path
+            }
+            
+        if not resolved_path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {file_path}",
+                "path": file_path
+            }
+        
+        # Backup before delete
+        try:
+            from datetime import datetime
+            import shutil
+            
+            trash_dir = Path(project_root) / ".ships" / "trash"
+            trash_dir.mkdir(parents=True, exist_ok=True)
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_name = f"{timestamp}_{resolved_path.name}"
+            backup_path = trash_dir / backup_name
+            
+            if resolved_path.is_dir():
+                shutil.copytree(resolved_path, backup_path)
+            else:
+                shutil.copy2(resolved_path, backup_path)
+                
+            backup_msg = f"Backed up to .ships/trash/{backup_name}"
+        except Exception as backup_err:
+            logger.warning(f"[CODER] ⚠️ Backup failed: {backup_err}")
+            backup_msg = "Backup failed"
+            
+        # Perform deletion
+        if resolved_path.is_dir():
+             import shutil
+             shutil.rmtree(resolved_path)
+             logger.info(f"[CODER] 🗑️ Deleted directory: {file_path}")
+        else:
+             resolved_path.unlink()
+             logger.info(f"[CODER] 🗑️ Deleted file: {file_path}")
+             
+        return {
+            "success": True,
+            "path": file_path,
+            "message": f"Deleted {file_path}. {backup_msg}",
+            "backup_location": str(backup_path)
+        }
+        
+    except Exception as e:
+        logger.error(f"[CODER] ❌ Failed to delete {file_path}: {e}")
+        return {"success": False, "error": str(e), "path": file_path}
+
+
 FILE_OPERATION_TOOLS = [
     write_file_to_disk,
     write_files_batch,  # Batch writes - reduces ReAct iterations
     read_file_from_disk,
+    delete_file_from_disk, # Added deletion support
     list_directory,
     create_directory,
     view_source_code,

@@ -145,6 +145,38 @@ class StructuralLayer(ValidationLayer):
             
             # Check 3: Cross-layer leakage patterns
             violations.extend(self._check_layer_leakage(path, change.get("content", "")))
+            
+        # Check 4: Verify Deletions (Production Hardening)
+        # If FolderMap says "delete", file MUST NOT exist
+        for entry in allowed_entries:
+            if entry.get("action") == "delete":
+                target_path = entry.get("path", "")
+                full_target_path = os.path.join(context.get("project_path", ""), target_path)
+                
+                # Check if it still exists on disk OR in the change set (as an add/modify)
+                exists_on_disk = os.path.exists(full_target_path)
+                reintroduced_in_changes = any(
+                    c.get("path") == target_path and c.get("operation") != "delete" 
+                    for c in file_changes
+                )
+                
+                if exists_on_disk and not reintroduced_in_changes:
+                     # Check if it was deleted in this very changeset involved?
+                     # Ideally the changeset should have operation='delete' for this path
+                     was_deleted = any(
+                        c.get("path") == target_path and c.get("operation") == "delete"
+                        for c in file_changes
+                     )
+                     
+                     if not was_deleted:
+                        violations.append(StructuralViolation(
+                            rule="enforce_deletion",
+                            message=f"File marked for deletion still exists: {target_path}",
+                            file_path=target_path,
+                            severity=ViolationSeverity.MAJOR,
+                            fix_hint="Delete this file as required by Folder Map",
+                            actual_path=target_path
+                        ))
         
         duration = int((datetime.utcnow() - start).total_seconds() * 1000)
         passed = len([v for v in violations if v.severity in [ViolationSeverity.CRITICAL, ViolationSeverity.MAJOR]]) == 0

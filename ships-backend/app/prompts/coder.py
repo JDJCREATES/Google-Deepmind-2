@@ -102,13 +102,24 @@ Before returning, verify:
 - Use proper React patterns (controlled components, etc.)
 - Composition over prop drilling - use context or state management
 
+## File Cleanup:
+- You have `delete_file_from_disk` available - use it to remove:
+  - Obsolete files that are no longer needed
+  - Duplicate/redundant implementations
+  - Test files for deleted features
+  - Incorrect files you created by mistake
+- The Planner may specify `files_to_remove` - delete those first
+- Files are backed up to `.ships/trash/` before deletion
+- NEVER delete: `.env*`, `.git/*`, `node_modules/*`, or system files
+
 ## Forbidden:
 - `// TODO: implement later`
 - `catch(e) {}`
 - `any` type
 - `// @ts-ignore`
 - Creating folders outside folder_map_plan structure
-- Scaffolding (Planner handles this - you NEVER scaffold)
+- Scaffolding commands (npm create, npx create-react-app, git init). You must use `write_files_batch` to build the structure manually.
+- Interactive commands that might hang (e.g. `npm init` without -y).
 - Security vulnerabilities (XSS, injection, etc.)
 
 # Token Efficiency

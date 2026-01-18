@@ -796,6 +796,10 @@ class PlanManifest(BaseModel):
         default_factory=list,
         description="Task IDs to execute first"
     )
+    files_to_remove: List[str] = Field(
+        default_factory=list,
+        description="Explicit list of files to be deleted by the Coder"
+    )
     
     # Stats
     total_tasks: int = 0

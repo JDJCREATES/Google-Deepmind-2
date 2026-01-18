@@ -180,7 +180,30 @@ class MultiPreviewManager:
         """
         logger.info(f"[PREVIEW] get_or_start for run={run_id}, path={project_path}")
         
-        # Check if we already have this run
+        # 1. OPTIONAL: Time Travel / Branch Switching (Production Hardening)
+        # If run_id is specific, try to checkout its branch to match state
+        if run_id and run_id != "default":
+            try:
+                # Import here to avoid circular dependencies
+                from app.services.git_checkpointer import get_checkpointer
+                git_service = get_checkpointer(project_path)
+                
+                # Derive branch name logic (matches pipeline.py)
+                branch_short = run_id[:8] if "-" in run_id else run_id
+                target_branch = f"ships/run/{branch_short}"
+                
+                current = git_service.get_current_branch()
+                if current != target_branch:
+                   # Only switch if branch exists
+                   # use underlying git command to check existence without overhead
+                   if git_service._run_git(["rev-parse", "--verify", target_branch]).returncode == 0:
+                        logger.info(f"[PREVIEW] 🔄 Switching to run branch: {target_branch}")
+                        git_service.stash_changes(f"Auto-stash before previewing {run_id}")
+                        git_service._run_git(["checkout", target_branch])
+            except Exception as e:
+                logger.warning(f"[PREVIEW] ⚠️ Could not switch branch for run {run_id}: {e}")
+
+        # 2. Check for existing instance
         if run_id in self.instances:
             instance = self.instances[run_id]
             
