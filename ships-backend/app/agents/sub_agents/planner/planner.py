@@ -134,22 +134,27 @@ class Planner(BaseAgent):
         file_tree = environment.get("file_tree", {})
         project_has_files = False
         
-        # Check if file tree has files or if we can see package.json in the tree
         if file_tree and "children" in file_tree:
             project_has_files = True
         
         # EDIT MODE DETECTION
-        # Default to Edit Mode if files exist, UNLESS intent explicitly says "new project" or "scaffold"
+        # Use structured INTENT scope from Intent Classifier
         is_edit_mode = False
+        
+        # Get scope from artifacts (passed from plan())
+        intent_scope = "feature"
+        if artifacts:
+             intent_scope = artifacts.get("scope", "feature")
+             
         if project_has_files:
-            intent_desc = ""
-            if artifacts and artifacts.get("intent"):
-                 intent_desc = str(artifacts.get("intent", {}))
-            
-            # Simple heuristic: if files exist, assume edit unless "new" is in request
-            if "new project" not in intent_desc.lower() and "scaffold" not in intent_desc.lower():
+            # If scope is PROJECT, allow scaffolding (Edit Mode OFF)
+            # Otherwise (feature, layer, component, etc), enforce Edit Mode
+            if intent_scope == "project":
+                is_edit_mode = False
+                logger.info("[PLANNER] 🏗️ Scope 'project' detected - Edit Mode DISABLED (Full Scaffolding Allowed)")
+            else:
                 is_edit_mode = True
-                logger.info("[PLANNER] ✏️ Edit Mode ACTIVATED (Existing project detected)")
+                logger.info(f"[PLANNER] ✏️ Edit Mode ACTIVATED (Scope: {intent_scope})")
 
         # Get base prompt with conventions for this project type (passing edit mode)
         base_prompt = build_planner_prompt(self.current_project_type, is_edit_mode=is_edit_mode)
@@ -316,6 +321,8 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
             planner_artifacts = {
                 "validation_feedback": intent.get("validation_feedback"),
                 "previous_plan": intent.get("previous_plan"),
+                "scope": intent.get("scope"),  # Pass scope to _get_system_prompt
+                "intent": intent,              # Pass full intent for context
             }
         
         self.system_prompt = self._get_system_prompt(artifacts=planner_artifacts)
