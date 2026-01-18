@@ -402,8 +402,9 @@ class DependencyLayer(ValidationLayer):
         
         file_changes = context.get("file_changes", [])
         dependency_plan = context.get("dependency_plan", {})
+        project_path = context.get("project_path")
         
-        # Get declared dependencies
+        # Get declared dependencies from plan
         declared_deps = set()
         for dep in dependency_plan.get("runtime_dependencies", []):
             name = dep.get("name", dep) if isinstance(dep, dict) else str(dep)
@@ -411,6 +412,24 @@ class DependencyLayer(ValidationLayer):
         for dep in dependency_plan.get("dev_dependencies", []):
             name = dep.get("name", dep) if isinstance(dep, dict) else str(dep)
             declared_deps.add(name)
+        
+        # ALSO check actual package.json if it exists
+        package_json_deps = set()
+        if project_path:
+            import json
+            from pathlib import Path
+            pkg_path = Path(project_path) / "package.json"
+            if pkg_path.exists():
+                try:
+                    with open(pkg_path) as f:
+                        pkg_data = json.load(f)
+                        package_json_deps.update(pkg_data.get("dependencies", {}).keys())
+                        package_json_deps.update(pkg_data.get("devDependencies", {}).keys())
+                except:
+                    pass
+        
+        # Combine both sources
+        all_declared = declared_deps | package_json_deps
         
         # Common built-in/allowed packages
         builtin_packages = {
@@ -440,17 +459,17 @@ class DependencyLayer(ValidationLayer):
                 # Check if declared
                 base_package = imp.split("/")[0].split(".")[0]
                 
-                if declared_deps and base_package not in declared_deps and base_package not in builtin_packages:
-                    # Potential hallucinated package
+                if all_declared and base_package not in all_declared and base_package not in builtin_packages:
+                    # Potential hallucinated package or missing from package.json
                     if self.config.fail_on_hallucinated_import:
                         violations.append(DependencyViolation(
                             rule="no_undeclared_imports",
-                            message=f"Import '{imp}' not in dependency plan",
+                            message=f"Import '{imp}' not in dependency plan or package.json - add to package.json dependencies",
                             file_path=path,
                             severity=ViolationSeverity.MAJOR,
                             violation_type="unresolved_import",
                             package_name=base_package,
-                            fix_hint=f"Add '{base_package}' to dependencies or remove import"
+                            fix_hint=f"Add '{base_package}' to package.json dependencies or devDependencies"
                         ))
         
         # Check for circular dependencies (simplified)

@@ -11,7 +11,6 @@ import { useAgentRuns } from '../../hooks/useAgentRuns';
 import { ScreenshotTimeline } from '../ScreenshotTimeline/ScreenshotTimeline';
 import { FeedbackInput } from '../FeedbackInput/FeedbackInput';
 import { MergeConflictModal } from '../MergeConflictModal/MergeConflictModal';
-import { getDeterministicPort } from '../../../../utils/previewPorts';
 import './RunCard.css';
 
 interface RunCardProps {
@@ -27,8 +26,32 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const [conflicts, setConflicts] = useState<any[]>([]);
+  const [livePort, setLivePort] = useState<number | null>(null);
   
   const optionsRef = useRef<HTMLDivElement>(null);
+
+  // Fetch live port from preview status (same as ProcessDashboard)
+  useEffect(() => {
+    const fetchPort = async () => {
+      try {
+        const runIdForLookup = run.fullId || run.id;
+        const res = await fetch(`http://localhost:8001/preview/status?run_id=${runIdForLookup}`);
+        if (res.ok) {
+          const data = await res.json();
+          setLivePort(data.port || null);
+        }
+      } catch (e) {
+        // Silently fail
+      }
+    };
+
+    // Initial fetch
+    fetchPort();
+
+    // Poll every 3 seconds
+    const interval = setInterval(fetchPort, 3000);
+    return () => clearInterval(interval);
+  }, [run.id, run.fullId]);
 
   // Close options dropdown when clicking outside
   useEffect(() => {
@@ -137,7 +160,8 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
   };
 
   const isActive = run.status === 'running' || run.status === 'planning';
-  const activePort = run.port > 0 ? run.port : getDeterministicPort(run.id);
+  // Use the SAME source as ProcessDashboard - live port from /preview/status
+  const activePort = livePort || run.port || 0;
 
   return (
     <div 

@@ -58,7 +58,8 @@ export interface ThinkingSectionData {
  * A single agent run representing a feature/branch
  */
 export interface AgentRun {
-  id: string;
+  id: string;  // Short 8-char ID for UI display
+  fullId: string;  // Full UUID for backend operations and port calculations
   title: string;
   prompt: string;
   branch: string;

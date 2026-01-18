@@ -10,6 +10,7 @@ interface ProcessStatus {
   port?: number;
   url?: string;
   error?: string;
+  logs?: string[];
 }
 
 export const ProcessDashboard: React.FC = () => {
@@ -24,7 +25,11 @@ export const ProcessDashboard: React.FC = () => {
 
     const checkStatus = async () => {
       try {
-        const res = await fetch(`http://localhost:8001/preview/status?run_id=${activeRunId}`);
+        // Get the full ID from the active run to use for status lookup
+        const activeRun = runs.find(r => r.id === activeRunId);
+        const runIdForLookup = activeRun?.fullId || activeRunId;
+        
+        const res = await fetch(`http://localhost:8001/preview/status?run_id=${runIdForLookup}`);
         if (res.ok) {
           const data = await res.json();
           setProcessStatus({
@@ -32,7 +37,8 @@ export const ProcessDashboard: React.FC = () => {
             status: data.status || 'stopped',
             port: data.port,
             url: data.url,
-            error: data.error
+            error: data.error,
+            logs: data.logs || []
           });
         }
       } catch (e) {
@@ -46,7 +52,7 @@ export const ProcessDashboard: React.FC = () => {
     // Poll every 2s
     const interval = setInterval(checkStatus, 2000);
     return () => clearInterval(interval);
-  }, [activeRunId]);
+  }, [activeRunId, runs]);
 
   if (!activeRunId) return null;
 
@@ -57,7 +63,9 @@ export const ProcessDashboard: React.FC = () => {
     if (!confirm('Stop the dev server?')) return;
     setLoading(true);
     try {
-      await fetch(`http://localhost:8001/preview/stop/${activeRunId}`, { method: 'POST' });
+      const activeRun = runs.find(r => r.id === activeRunId);
+      const runIdForStop = activeRun?.fullId || activeRunId;
+      await fetch(`http://localhost:8001/preview/stop/${runIdForStop}`, { method: 'POST' });
       // Quick optimistic update
       setProcessStatus(prev => prev ? { ...prev, status: 'stopped' } : null);
     } catch (e) {
@@ -126,7 +134,9 @@ export const ProcessDashboard: React.FC = () => {
               if(!confirm(`Force kill process for run? (Port ${processStatus?.port || '?'})\nThis releases file locks.`)) return;
               setLoading(true);
               try {
-                await fetch(`http://localhost:8001/preview/cleanup?run_id=${activeRunId}`, { method: 'POST' });
+                const activeRun = runs.find(r => r.id === activeRunId);
+                const runIdForCleanup = activeRun?.fullId || activeRunId;
+                await fetch(`http://localhost:8001/preview/cleanup?run_id=${runIdForCleanup}`, { method: 'POST' });
                 // Refresh status immediately
                 setProcessStatus(null);
               } finally {
@@ -150,9 +160,40 @@ export const ProcessDashboard: React.FC = () => {
         </div>
       </div>
       
+      {/* Show error with logs for debugging */}
       {processStatus?.error && (
-        <div className="process-error" title={processStatus.error}>
-          Error: {processStatus.error}
+        <div className="process-error" style={{
+          backgroundColor: 'rgba(255, 94, 87, 0.1)',
+          border: '1px solid rgba(255, 94, 87, 0.3)',
+          borderRadius: '4px',
+          padding: '8px',
+          marginTop: '8px',
+          fontSize: '11px',
+          color: '#ff9999'
+        }}>
+          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>⚠️ Dev Server Error:</div>
+          <div style={{ fontFamily: 'monospace', fontSize: '10px', opacity: 0.9 }}>
+            {processStatus.error}
+          </div>
+          {processStatus.logs && processStatus.logs.length > 0 && (
+            <details style={{ marginTop: '8px' }}>
+              <summary style={{ cursor: 'pointer', opacity: 0.7 }}>View Logs</summary>
+              <div style={{ 
+                maxHeight: '100px', 
+                overflow: 'auto', 
+                marginTop: '4px', 
+                fontSize: '9px',
+                fontFamily: 'monospace',
+                backgroundColor: 'rgba(0,0,0,0.3)',
+                padding: '4px',
+                borderRadius: '2px'
+              }}>
+                {processStatus.logs.map((log, i) => (
+                  <div key={i}>{log}</div>
+                ))}
+              </div>
+            </details>
+          )}
         </div>
       )}
     </div>

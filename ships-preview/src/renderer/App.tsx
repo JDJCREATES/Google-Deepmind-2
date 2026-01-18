@@ -304,9 +304,43 @@ function App() {
   if (projectUrl) {
       return (
           <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column' }}>
+             {/* Show URL bar for debugging */}
+             <div style={{ 
+                height: '32px', 
+                backgroundColor: '#2d2d2d', 
+                color: '#aaa', 
+                display: 'flex', 
+                alignItems: 'center', 
+                padding: '0 12px', 
+                fontSize: '12px',
+                borderBottom: '1px solid #444'
+             }}>
+                <span style={{ marginRight: '8px' }}>📡</span>
+                {projectUrl}
+                <button 
+                  onClick={async () => {
+                    // Open in external browser for debugging
+                    if (window.electron?.openExternal) {
+                      await window.electron.openExternal(projectUrl);
+                    }
+                  }}
+                  style={{
+                    marginLeft: 'auto',
+                    background: 'transparent',
+                    border: '1px solid #555',
+                    color: '#aaa',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '11px'
+                  }}
+                >
+                  Open in Browser
+                </button>
+             </div>
              <webview 
                 src={projectUrl} 
-                style={{ width: '100%', height: '100%', border: 'none' }}
+                style={{ width: '100%', flex: 1, border: 'none' }}
                 // @ts-ignore
                 allowpopups="true"
              />

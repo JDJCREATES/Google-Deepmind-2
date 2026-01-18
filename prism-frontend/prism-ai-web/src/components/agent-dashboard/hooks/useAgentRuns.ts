@@ -590,6 +590,9 @@ export const useAgentRuns = create<AgentRunsState>()(
       return { status: 'error', message: 'Run not found' };
     }
     
+    // Use fullId for backend operations to ensure consistent port calculation
+    const fullRunId = run.fullId || runId;
+    
     // Use the actual project path from the run
     let projectPath: string | undefined = run.projectPath;
     
@@ -604,7 +607,7 @@ export const useAgentRuns = create<AgentRunsState>()(
       // Use Electron IPC if available (Preferred method - supports auto-detection)
       if (window.electron) {
         console.log('[openPreview] Using Electron IPC with path:', projectPath);
-        const result = await window.electron.createRunPreview(runId, projectPath);
+        const result = await window.electron.createRunPreview(fullRunId, projectPath);
         
         if (result.success) {
             updateRun(runId, { 
@@ -623,7 +626,7 @@ export const useAgentRuns = create<AgentRunsState>()(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           project_path: projectPath,
-          run_id: runId
+          run_id: fullRunId
         }),
         credentials: 'include'
       });
@@ -639,10 +642,11 @@ export const useAgentRuns = create<AgentRunsState>()(
       } else {
         console.warn('[openPreview] API returned error:', result);
         const errorMsg = result.message || 'Unknown backend error';
+        const logs = result.logs ? '\n\nRecent logs:\n' + result.logs.slice(-5).join('\n') : '';
         updateRun(runId, { previewStatus: 'error', previewError: errorMsg });
         
-        // VISIBLE ALERT FOR USER
-        alert(`❌ Preview Startup Failed:\n${errorMsg}`);
+        // VISIBLE ALERT FOR USER with logs
+        alert(`❌ Preview Startup Failed:\n${errorMsg}${logs}`);
       }
       
       return result;

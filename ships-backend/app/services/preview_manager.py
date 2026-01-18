@@ -68,6 +68,16 @@ class MultiPreviewManager:
         # Use utf-8 encoding for consistency
         offset = zlib.crc32(run_id.encode('utf-8')) % self.MAX_INSTANCES
         return self.BASE_PORT + offset
+    
+    def _is_port_listening(self, port: int, timeout: float = 0.5) -> bool:
+        """Check if a port is actually listening/accepting connections."""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(timeout)
+                result = s.connect_ex(('127.0.0.1', port))
+                return result == 0  # 0 means success/port is open
+        except:
+            return False
 
     def _find_available_port(self) -> Optional[int]:
         """Find an available port starting from BASE_PORT."""
@@ -301,26 +311,59 @@ class MultiPreviewManager:
                 daemon=True
             ).start()
             
-            # DON'T BLOCK - return immediately and let polling detect URL
-            # The log consumer thread will set instance.url when detected
-            instance.status = "starting"
-            self._update_current(instance)
+            # Wait briefly for the port to actually start listening
+            # Give it up to 10 seconds to bind to the port
+            import time
+            max_wait = 10
+            wait_interval = 0.5
+            elapsed = 0
             
-            # Set default URL immediately so ships-preview has something to load
-            instance.url = f"http://localhost:{final_port}"
-            self.current_url = instance.url  # Ensure backward compat
+            logger.info(f"[PREVIEW] ⏳ Waiting for port {final_port} to start listening...")
             
-            logger.info(f"[PREVIEW] 📡 Process started, URL will be: {instance.url}")
+            while elapsed < max_wait:
+                if not instance.is_alive():
+                    # Process died immediately - check logs for error
+                    error_msg = "Process crashed on startup"
+                    if instance.logs:
+                        # Get all logs, not just the last one
+                        full_logs = "\n".join(instance.logs[-10:]) if len(instance.logs) > 10 else "\n".join(instance.logs)
+                        error_msg = f"Dev server crashed:\n{full_logs}"
+                    instance.status = "error"
+                    instance.error_message = error_msg
+                    logger.error(f"[PREVIEW] ❌ Process died: {error_msg}")
+                    return {
+                        "status": "error",
+                        "message": error_msg,
+                        "logs": instance.logs
+                    }
+                
+                if self._is_port_listening(final_port):
+                    instance.status = "running"
+                    instance.url = f"http://localhost:{final_port}"
+                    self._update_current(instance)
+                    logger.info(f"[PREVIEW] ✅ Port {final_port} is now listening!")
+                    self.focus_requested = True
+                    return {
+                        "status": "running",
+                        "url": instance.url,
+                        "port": final_port,
+                        "run_id": run_id
+                    }
+                
+                time.sleep(wait_interval)
+                elapsed += wait_interval
             
-            # Request focus so ships-preview comes to front
-            self.focus_requested = True
+            # Timeout - port never started listening
+            instance.status = "error"
+            recent_logs = "\n".join(instance.logs[-5:]) if instance.logs else "No logs"
+            instance.error_message = f"Port {final_port} not listening after {max_wait}s. Logs:\n{recent_logs}"
+            logger.error(f"[PREVIEW] ⏰ Timeout waiting for port {final_port}")
             
             return {
-                "status": "starting",
-                "url": instance.url,
+                "status": "error",
+                "message": f"Dev server did not start listening on port {final_port}",
                 "port": final_port,
-                "run_id": run_id,
-                "message": "Dev server starting, poll /preview/status for updates"
+                "logs": instance.logs[-10:]
             }
             
         except Exception as e:
@@ -355,14 +398,22 @@ class MultiPreviewManager:
                 if len(instance.logs) > 500:
                     instance.logs.pop(0)
                 
+                # Detect errors in logs
+                line_clean = self.ANSI_ESCAPE.sub('', line_stripped).lower()
+                if any(err in line_clean for err in ['failed to compile', 'error:', 'fatal', 'cannot find module', 'syntaxerror']):
+                    instance.status = "error"
+                    instance.error_message = line_stripped[:200]  # Keep first 200 chars
+                    logger.error(f"[PREVIEW] Dev server error detected: {line_stripped}")
+                
                 # Try to detect URL
                 if not instance.url:
-                    line_clean = self.ANSI_ESCAPE.sub('', line_stripped)
-                    if "localhost" in line_clean.lower() or "127.0.0.1" in line_clean:
-                        match = self._url_pattern.search(line_clean)
+                    line_clean_url = self.ANSI_ESCAPE.sub('', line_stripped)
+                    if "localhost" in line_clean_url.lower() or "127.0.0.1" in line_clean_url:
+                        match = self._url_pattern.search(line_clean_url)
                         if match:
                             instance.url = match.group(0)
-                            instance.status = "running"
+                            if instance.status != "error":  # Don't override error status
+                                instance.status = "running"
                             self.focus_requested = True
                             logger.info(f"[PREVIEW] Detected URL: {instance.url}")
                             
@@ -601,6 +652,7 @@ class MultiPreviewManager:
                     "url": instance.url,
                     "port": instance.port,
                     "is_alive": instance.is_alive(),
+                    "error": instance.error_message,
                     "logs": instance.logs[-20:]
                 }
             
@@ -612,6 +664,7 @@ class MultiPreviewManager:
                 "url": f"http://localhost:{det_port}",
                 "port": det_port,
                 "is_alive": False,
+                "error": None,
                 "logs": []
             }
         

@@ -221,15 +221,40 @@ async def create_run(
 def _model_to_response(run: AgentRunModel) -> dict:
     """Convert SQLAlchemy model to API response format."""
     metadata = run.run_metadata or {}
+    
+    # Merge live preview data if available
+    from app.services.preview_manager import preview_manager
+    
+    # Check both full UUID and short ID to find running instance
+    full_id = str(run.id)
+    short_id = full_id[:8]
+    
+    live_status = preview_manager.get_status(full_id)
+    if not live_status or not live_status.get("is_alive"):
+        live_status = preview_manager.get_status(short_id)
+            
+    # Use live port if running, otherwise DB metadata
+    port = metadata.get("port", 3000)
+    status = run.status
+    url = None
+    
+    if live_status:
+        port = live_status.get("port", port)
+        if live_status.get("is_alive") or live_status.get("status") in ("starting", "running"):
+            url = live_status.get("url")
+
     return {
         "id": str(run.id)[:8],  # Short ID for UI
+        "fullId": str(run.id),  # Full UUID for port calculations
         "title": metadata.get("title", run.user_request[:50] if run.user_request else "Untitled"),
         "prompt": run.user_request or "",
         "branch": run.branch_name or "",
         "baseBranch": metadata.get("base_branch", "main"),  # Branch this forked from
         "projectPath": run.project_path,  # Filesystem path for preview
-        "port": metadata.get("port", 3000),
-        "status": run.status,
+        "port": port,
+        "previewUrl": url, 
+        "previewStatus": live_status.get("status") if live_status else "stopped",
+        "status": status,
         "currentAgent": metadata.get("current_agent"),
         "agentMessage": metadata.get("agent_message", ""),
         "screenshots": [],  # TODO: Load from separate table
