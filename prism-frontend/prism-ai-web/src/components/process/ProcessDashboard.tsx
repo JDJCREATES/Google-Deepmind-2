@@ -4,19 +4,12 @@ import { useTheme } from '../../hooks/useTheme';
 import { VscDebugDisconnect, VscPlay, VscGlobe } from 'react-icons/vsc';
 import './ProcessDashboard.css';
 
-interface ProcessStatus {
-  run_id: string;
-  status: 'running' | 'stopped' | 'starting' | 'error';
-  port?: number;
-  url?: string;
-  error?: string;
-  logs?: string[];
-}
+// Interface moved to types.ts
 
 export const ProcessDashboard: React.FC = () => {
   const { activeRunId, runs, openPreview } = useAgentRuns();
   const { theme } = useTheme();
-  const [processStatus, setProcessStatus] = useState<ProcessStatus | null>(null);
+  const [processStatus, setProcessStatus] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
   // Poll for status
@@ -25,11 +18,11 @@ export const ProcessDashboard: React.FC = () => {
 
     const checkStatus = async () => {
       try {
-        // Get the full ID from the active run to use for status lookup
         const activeRun = runs.find(r => r.id === activeRunId);
         const runIdForLookup = activeRun?.fullId || activeRunId;
         
-        const res = await fetch(`http://localhost:8001/preview/status?run_id=${runIdForLookup}`);
+        // Use encodeURIComponent to handle slashes in branch names
+        const res = await fetch(`http://localhost:8001/preview/status?run_id=${encodeURIComponent(runIdForLookup)}`);
         if (res.ok) {
           const data = await res.json();
           setProcessStatus({
@@ -67,7 +60,7 @@ export const ProcessDashboard: React.FC = () => {
       const runIdForStop = activeRun?.fullId || activeRunId;
       await fetch(`http://localhost:8001/preview/stop/${runIdForStop}`, { method: 'POST' });
       // Quick optimistic update
-      setProcessStatus(prev => prev ? { ...prev, status: 'stopped' } : null);
+      setProcessStatus((prev: any) => prev ? { ...prev, status: 'stopped' } : null);
     } catch (e) {
       console.error('Failed to stop process', e);
     } finally {

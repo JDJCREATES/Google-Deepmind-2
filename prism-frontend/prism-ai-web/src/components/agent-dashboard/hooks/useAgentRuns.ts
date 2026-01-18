@@ -8,11 +8,31 @@
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { AgentRun, Screenshot, RunStatus, AgentType, CreateRunRequest, ChatMessage, ThinkingSectionData, StreamBlock } from '../types';
+import type { AgentRun, Screenshot, RunStatus, AgentType, CreateRunRequest, ChatMessage, ThinkingSectionData, StreamBlock, PreviewStatus } from '../types';
 
 // ============================================================================
 // Types
 // ============================================================================
+
+interface ElectronAPI {
+  createRunBranch: (runId: string, prompt: string) => Promise<void>;
+  createRunPreview: (runId: string, projectPath?: string) => Promise<{ success: boolean; preview?: { url: string }; error?: string }>;
+  closeRunPreview: (runId: string) => Promise<void>;
+  deleteRunBranch: (runId: string) => Promise<void>;
+  rollbackRun: (commitHash: string) => Promise<void>;
+  captureRunScreenshot: (runId: string, agentPhase: string, description?: string) => Promise<{ success: boolean; screenshot?: Screenshot; error?: string }>;
+  getRunScreenshots: (runId: string) => Promise<Screenshot[]>;
+  pushRun: (branch: string) => Promise<void>;
+  pullRun: (branch: string) => Promise<void>;
+  getRemotes: () => Promise<any[]>;
+  setRemote: (url: string, name?: string) => Promise<void>;
+}
+
+declare global {
+  interface Window {
+    electron?: ElectronAPI;
+  }
+}
 
 interface AgentRunsState {
   runs: AgentRun[];
@@ -20,6 +40,9 @@ interface AgentRunsState {
   isLoading: boolean;
   error: string | null;
   isElectron: boolean;
+  
+  // Preview Status Map (Centralized)
+  previewStatuses: Record<string, PreviewStatus>;
   
   // Actions
   setRuns: (runs: AgentRun[]) => void;
@@ -68,6 +91,9 @@ interface AgentRunsState {
   pullRun: (runId: string) => Promise<void>;
   getRemotes: () => Promise<any[]>;
   setRemote: (url: string, name?: string) => Promise<void>;
+  
+  // Preview actions
+  syncPreviewStatuses: () => Promise<void>;
   
   // Loading state
   setLoading: (loading: boolean) => void;
@@ -180,6 +206,7 @@ export const useAgentRuns = create<AgentRunsState>()(
   isLoading: false,
   error: null,
   isElectron: isElectronEnvironment(),
+  previewStatuses: {},
   
   // Basic setters
   setRuns: (runs) => set({ runs }),
@@ -603,6 +630,17 @@ export const useAgentRuns = create<AgentRunsState>()(
     
     try {
       updateRun(runId, { previewStatus: 'running' });
+      // Optimistic update for global map
+      set(state => ({
+        previewStatuses: {
+           ...state.previewStatuses,
+           [fullRunId]: { 
+             run_id: fullRunId, 
+             status: 'starting' as const,
+             port: run.port
+           }
+        }
+      }));
       
       // Use Electron IPC if available (Preferred method - supports auto-detection)
       if (window.electron) {
@@ -739,7 +777,7 @@ export const useAgentRuns = create<AgentRunsState>()(
     // Let's assume `run.branchName` is the field.
     // I'll pass that.
     
-    await electronAPI.pushRun((run as any).branchName || (run as any).branch || `run-${runId}`);
+    await electronAPI.pushRun(run.branch || `run-${runId}`);
   },
 
   pullRun: async (runId) => {
@@ -748,7 +786,7 @@ export const useAgentRuns = create<AgentRunsState>()(
     const run = runs.find(r => r.id === runId);
     if (!run) throw new Error('Run not found');
     
-    await electronAPI.pullRun((run as any).branchName || (run as any).branch || `run-${runId}`);
+    await electronAPI.pullRun(run.branch || `run-${runId}`);
   },
 
   getRemotes: async () => {
@@ -757,6 +795,50 @@ export const useAgentRuns = create<AgentRunsState>()(
 
   setRemote: async (url, name) => {
      return electronAPI.setRemote(url, name);
+  },
+
+  syncPreviewStatuses: async () => {
+    try {
+        const res = await fetch(`${API_BASE}/preview/status`);
+        if (res.ok) {
+            const data = await res.json();
+            
+            // Map to our PreviewStatus type
+            const newStatuses: Record<string, PreviewStatus> = {};
+            
+            // Dictionary of instances is nested in data.instances.instances
+            // structure: { is_running: bool, instances: { active_count: n, instances: { [id]: ... } } }
+            const instanceMap = data.instances?.instances || {};
+            
+            if (instanceMap) {
+                Object.entries(instanceMap).forEach(([runId, info]) => {
+                    // Type assertion for info
+                    const typedInfo = info as {
+                        status: 'running' | 'stopped' | 'starting' | 'error';
+                        port: number;
+                        url: string;
+                        error?: string;
+                        is_alive?: boolean;
+                        logs?: string[];
+                    };
+                    
+                    newStatuses[runId] = {
+                        run_id: runId,
+                        status: typedInfo.status,
+                        port: typedInfo.port,
+                        url: typedInfo.url,
+                        error: typedInfo.error,
+                        is_alive: typedInfo.is_alive,
+                        logs: typedInfo.logs
+                    };
+                });
+            }
+            
+            set({ previewStatuses: newStatuses });
+        }
+    } catch (e) {
+        console.error('[useAgentRuns] Failed to sync preview statuses:', e);
+    }
   },
 }),
     {
@@ -787,34 +869,4 @@ export const useAgentRuns = create<AgentRunsState>()(
   )
 );
 
-// ============================================================================
-// Type augmentation for window.electron
-// ============================================================================
 
-declare global {
-  interface Window {
-    electron?: {
-      createRunBranch?: (runId: string, prompt: string) => Promise<{ success: boolean; branch?: any; error?: string }>;
-      switchRunBranch?: (runId: string) => Promise<{ success: boolean; error?: string }>;
-      deleteRunBranch?: (runId: string) => Promise<{ success: boolean; error?: string }>;
-      createRunCheckpoint?: (message: string) => Promise<{ success: boolean; commitHash?: string; error?: string }>;
-      rollbackRun?: (commitHash: string) => Promise<{ success: boolean; error?: string }>;
-      createRunPreview?: (runId: string) => Promise<{ success: boolean; preview?: any; error?: string }>;
-      refreshRunPreview?: (runId: string) => Promise<{ success: boolean; error?: string }>;
-      closeRunPreview?: (runId: string) => Promise<{ success: boolean; error?: string }>;
-      getActiveRunPreviews?: () => Promise<{ success: boolean; previews?: any[]; error?: string }>;
-      captureRunScreenshot?: (runId: string, agentPhase: string, description?: string) => Promise<{ success: boolean; screenshot?: Screenshot; error?: string }>;
-      getRunScreenshots?: (runId: string) => Promise<{ success: boolean; screenshots?: Screenshot[]; error?: string }>;
-      deleteRunScreenshots?: (runId: string) => Promise<{ success: boolean; error?: string }>;
-      
-      // Git ops
-      pushRun?: (branch: string) => Promise<void>;
-      pullRun?: (branch: string) => Promise<void>;
-      getRemotes?: () => Promise<any[]>;
-      setRemote?: (url: string, name?: string) => Promise<void>;
-      
-      // Other existing electron methods...
-      [key: string]: any;
-    };
-  }
-}

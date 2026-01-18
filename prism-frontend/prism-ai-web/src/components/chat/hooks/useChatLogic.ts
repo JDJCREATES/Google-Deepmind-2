@@ -139,6 +139,9 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
         // ============================================================
         console.group(`[useChatLogic] 📨 Processing: ${chunk.type || 'UNKNOWN'}`);
         console.log('Full chunk:', chunk);
+        console.log('chunk.block_type:', chunk.block_type);
+        console.log('chunk.content:', chunk.content?.substring(0, 100));
+        console.log('chunk.title:', chunk.title);
         console.log('Target runId:', targetRunId);
         console.log('AI messageId:', aiMessageId);
         console.groupEnd();
@@ -153,7 +156,12 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
                  isComplete: false,
                  metadata: { ...chunk, timestamp: Date.now() }
              };
-             console.log('[useChatLogic] ✅ Creating block:', block);
+             console.log('[useChatLogic] ✅ Creating block:');
+             console.log('  - id:', block.id);
+             console.log('  - type:', block.type);
+             console.log('  - title:', block.title);
+             console.log('  - content:', block.content);
+             console.log('  - metadata:', block.metadata);
              if (targetRunId) {
                upsertRunMessageBlock(targetRunId, aiMessageId, block);
                console.log('[useChatLogic] ✅ Block upserted to run:', targetRunId);
@@ -174,7 +182,9 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
         
         // Block Delta - Append content to existing block
         else if (chunk.type === 'block_delta' && chunk.id) {
-             console.log('[useChatLogic] 📝 Block delta:', chunk.id, 'Content length:', chunk.content?.length);
+             console.log('[useChatLogic] 📝 Block delta:', chunk.id);
+             console.log('  - Content:', chunk.content?.substring(0, 100));
+             console.log('  - Content length:', chunk.content?.length);
              if (targetRunId) {
                appendRunMessageBlockContent(targetRunId, aiMessageId, chunk.id, chunk.content || '');
              }
@@ -236,9 +246,11 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
           addToolEvent(toolEvent);
         }
         
-        // Tool result tracking
+        // Tool result tracking - SHOW IN CHAT as blocks
         else if (chunk.type === 'tool_result') {
           setActivity('Thinking...', 'thinking');
+          
+          // Add to ToolProgress sidebar
           const toolEvent = {
             id: `${Date.now()}-${chunk.tool}-result`,
             type: 'tool_result',
@@ -249,6 +261,34 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
           };
           console.log('[useChatLogic] tool_result event captured:', toolEvent);
           addToolEvent(toolEvent);
+          
+          // ALSO add as a StreamBlock in the message for visibility
+          const toolName = chunk.tool || 'unknown';
+          let action = '';
+          if (toolName.includes('write')) action = 'Created';
+          else if (toolName.includes('edit')) action = 'Edited';
+          else if (toolName.includes('delete')) action = 'Deleted';
+          else action = 'Modified';
+          
+          const fileBlock: StreamBlock = {
+            id: `${Date.now()}-file-op`,
+            type: 'tool_use',
+            title: `${action}: ${chunk.file}`,
+            content: `✓ ${action} \`${chunk.file}\``,
+            isComplete: true,
+            metadata: chunk
+          };
+          if (targetRunId) {
+            upsertRunMessageBlock(targetRunId, aiMessageId, fileBlock);
+          }
+        }
+        
+        // Activity indicator updates from agents
+        else if (chunk.type === 'activity') {
+          const agent = chunk.agent || 'agent';
+          const message = chunk.message || 'Working...';
+          console.log('[useChatLogic] activity event:', agent, message);
+          setActivity(message, 'working');
           
           if (chunk.tool === 'write_file_to_disk' || chunk.tool === 'edit_file_content') {
             filesCreated = true;

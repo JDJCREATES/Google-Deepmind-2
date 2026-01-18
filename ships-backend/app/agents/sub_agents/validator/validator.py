@@ -401,7 +401,7 @@ Output ONLY: pass or fail, with specific violations if failing."""
             project_path=project_path  # Pass to enable BuildLayer npm run build
         )
         
-        # Emit validation result event
+        # Emit validation result event with detailed violations
         if report.status == ValidationStatus.PASS:
             events.append(emit_event(
                 "validation_complete",
@@ -410,11 +410,27 @@ Output ONLY: pass or fail, with specific violations if failing."""
                 {"passed": True, "violation_count": 0}
             ))
         else:
+            # Extract violation details for UI display
+            violations_list = []
+            if hasattr(report, 'violations') and report.violations:
+                for v in report.violations[:10]:  # First 10 violations
+                    if hasattr(v, 'message'):
+                        violations_list.append({"message": v.message, "type": getattr(v, 'type', 'error')})
+                    elif isinstance(v, dict):
+                        violations_list.append(v)
+                    else:
+                        violations_list.append({"message": str(v), "type": "error"})
+            
             events.append(emit_event(
                 "validation_complete",
                 "validator",
                 f"✗ Validation failed at {report.failure_layer.value} layer",
-                {"passed": False, "violation_count": report.total_violations, "layer": report.failure_layer.value}
+                {
+                    "passed": False, 
+                    "violation_count": report.total_violations, 
+                    "layer": report.failure_layer.value,
+                    "violations": violations_list
+                }
             ))
         
         events.append(emit_event(

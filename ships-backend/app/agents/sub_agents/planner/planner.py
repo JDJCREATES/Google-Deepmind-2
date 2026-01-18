@@ -125,11 +125,6 @@ class Planner(BaseAgent):
     
     def _get_system_prompt(self, artifacts: Dict[str, Any] = None) -> str:
         """Get the system prompt with project-type-specific conventions injected."""
-        # Get base prompt with conventions for this project type
-        base_prompt = build_planner_prompt(self.current_project_type)
-        
-        # Append task granularity rules (these are project-agnostic)
-
         environment = self.environment if hasattr(self, 'environment') else {}
         file_tree = environment.get("file_tree", {})
         project_has_files = False
@@ -141,10 +136,12 @@ class Planner(BaseAgent):
         # Use structured INTENT scope from Intent Classifier
         is_edit_mode = False
         
-        # Get scope from artifacts (passed from plan())
+        # Get scope and task_type from artifacts (passed from plan())
         intent_scope = "feature"
+        task_type = "feature"
         if artifacts:
              intent_scope = artifacts.get("scope", "feature")
+             task_type = artifacts.get("task_type", "feature")
              
         if project_has_files:
             # If scope is PROJECT, allow scaffolding (Edit Mode OFF)
@@ -156,8 +153,12 @@ class Planner(BaseAgent):
                 is_edit_mode = True
                 logger.info(f"[PLANNER] ✏️ Edit Mode ACTIVATED (Scope: {intent_scope})")
 
-        # Get base prompt with conventions for this project type (passing edit mode)
-        base_prompt = build_planner_prompt(self.current_project_type, is_edit_mode=is_edit_mode)
+        # Get base prompt with conventions for this project type (passing edit mode and task type)
+        base_prompt = build_planner_prompt(
+            self.current_project_type, 
+            is_edit_mode=is_edit_mode,
+            task_type=task_type
+        )
         
         scaffold_warning = ""
         if project_has_files:
@@ -536,8 +537,44 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
         # Intent
         parts.append(f"INTENT ANALYSIS:\n{json.dumps(intent, indent=2, default=str)}")
         
+        # CRITICAL: Detect if this is a FIX/MODIFY request
+        action = intent.get("action", "create")
+        task_type = intent.get("task_type", "feature")
+        is_fix_or_modify = action in ["fix", "modify", "update", "change"] or task_type == "fix"
+        
+        if is_fix_or_modify:
+            parts.append("""
+⚠️ IMPORTANT: This is a FIX/MODIFY request, NOT a new feature!
+
+STRATEGY FOR FIXES:
+1. Create a SINGLE diagnostic task that:
+   - Reads the mentioned file(s) to understand current state
+   - Identifies the specific issue
+   - Makes targeted minimal changes
+   - Does NOT rewrite entire files
+
+2. Keep the plan MINIMAL:
+   - 1-2 tasks maximum
+   - Only modify files explicitly mentioned or directly related
+   - Preserve all existing functionality
+
+3. Expected outputs should list ONLY the file(s) that need changes
+   - NOT all files in the project
+   - NOT dependencies or components that already work
+
+EXAMPLE FIX PLAN:
+{
+  "summary": "Fix missing connection in page.tsx",
+  "tasks": [{
+    "title": "Diagnose and fix page.tsx integration",
+    "description": "Read page.tsx, identify missing import/component reference, add the connection",
+    "complexity": "small",
+    "expected_outputs": [{"path": "app/page.tsx", "description": "Add missing component import"}]
+  }]
+}""")
+        
         # Framework
-        parts.append(f"FRAMEWORK: {context.get('framework', 'react')}")
+        parts.append(f"\nFRAMEWORK: {context.get('framework', 'react')}")
         
         # Constraints
         if context.get("constraints"):
@@ -726,8 +763,18 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
         # 2. Plan Generation
         # (This uses the LLM to generate the manifest)
         
-        # Emit thinking start
-        events.append(emit_event("thinking", "planner", "Analyzing requirements..."))
+        # Emit thinking start with requirements context
+        goal = intent.get("goal", intent.get("description", ""))
+        context = intent.get("context", {})
+        events.append(emit_event(
+            "thinking", 
+            "planner", 
+            "Analyzing requirements...",
+            {
+                "goal": goal[:200] if goal else "",  # First 200 chars
+                "has_context": bool(context)
+            }
+        ))
         
         plan_artifacts = await self.plan(intent)
         if not plan_artifacts:
@@ -753,11 +800,28 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
         else:
              task_count = 0
 
+        # Extract task titles and files for UI display
+        task_titles = []
+        files_to_create = []
+        if hasattr(task_list_obj, "tasks") and isinstance(task_list_obj.tasks, list):
+            for t in task_list_obj.tasks[:5]:  # First 5 tasks
+                if hasattr(t, "title"):
+                    task_titles.append(t.title)
+                if hasattr(t, "expected_outputs"):
+                    for out in t.expected_outputs:
+                        if hasattr(out, "file_path"):
+                            files_to_create.append(out.file_path)
+        
         events.append(emit_event(
             "plan_created", 
             "planner", 
             "Implementation plan created.",
-            {"task_count": task_count}
+            {
+                "task_count": task_count,
+                "task_titles": task_titles[:5],  # First 5 task titles
+                "files_to_create": files_to_create[:10],  # First 10 files
+                "total_files": len(files_to_create)
+            }
         ))
         
         # SCAFFOLDING LOGIC CONTINUES BELOW...

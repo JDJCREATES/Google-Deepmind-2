@@ -27,32 +27,33 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
   const [showOptions, setShowOptions] = useState(false);
   const [conflicts, setConflicts] = useState<any[]>([]);
   const [livePort, setLivePort] = useState<number | null>(null);
+  const [previewStatus, setPreviewStatus] = useState<string>('stopped');
   
   const optionsRef = useRef<HTMLDivElement>(null);
 
-  // Fetch live port from preview status (same as ProcessDashboard)
+  // Poll for preview status
   useEffect(() => {
-    const fetchPort = async () => {
+    const fetchStatus = async () => {
       try {
         const runIdForLookup = run.fullId || run.id;
-        const res = await fetch(`http://localhost:8001/preview/status?run_id=${runIdForLookup}`);
+        // Use encodeURIComponent - critical fix
+        const url = `http://localhost:8001/preview/status?run_id=${encodeURIComponent(runIdForLookup)}`;
+        const res = await fetch(url);
+        
         if (res.ok) {
           const data = await res.json();
-          const port = data.port || null;
-          const status = data.status || 'stopped';
-          console.log('[RunCard] Preview status for', run.id, ':', { status, port, data });
-          setLivePort(port);
+          const status = (data.status || 'stopped').trim();
+          setPreviewStatus(status);
+          // Strict check for running status
+          setLivePort(status === 'running' ? data.port : null);
         }
       } catch (e) {
-        console.error('[RunCard] Failed to fetch preview status:', e);
+        // Silently fail
       }
     };
 
-    // Initial fetch
-    fetchPort();
-
-    // Poll every 3 seconds
-    const interval = setInterval(fetchPort, 3000);
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 3000);
     return () => clearInterval(interval);
   }, [run.id, run.fullId]);
 
@@ -90,14 +91,16 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
 
   // Preview status indicator color (square dot)
   const getPreviewStatusColor = () => {
-    // Use livePort as source of truth (same as ProcessDashboard)
-    if (livePort) {
-      return 'var(--success-color, #4ade80)'; // Green when preview is actually running
+    if (previewStatus === 'running') {
+      return 'var(--success-color, #4ade80)'; // Green ONLY when actually running
     }
-    if (run.previewStatus === 'error') {
+    if (previewStatus === 'starting') {
+       return 'var(--warning-color, #fbbf24)'; // Yellow when starting
+    }
+    if (previewStatus === 'error') {
       return 'var(--error-color, #ff5e57)';
     }
-    return 'var(--warning-color, #fbbf24)'; // Yellow when stopped
+    return 'var(--text-muted, #999)'; // Gray when stopped
   };
 
   // Agent display name

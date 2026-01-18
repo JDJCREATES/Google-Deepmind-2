@@ -153,18 +153,72 @@ You MUST use this format (JSON ONLY):
 ```"""
 
 
-def build_planner_prompt(project_type: str = "generic", is_edit_mode: bool = False) -> str:
+def build_planner_prompt(project_type: str = "generic", is_edit_mode: bool = False, task_type: str = "feature") -> str:
     """
     Build Planner prompt with project-specific templates injected.
     
     Args:
         project_type: Detected project type from Intent Analyzer
         is_edit_mode: True if modifying existing project (diff-focused)
+        task_type: Type of task (fix, feature, create, etc.)
         
     Returns:
         Complete prompt with relevant conventions only
     """
     template = get_template(project_type)
+    
+    # =========================================================================
+    # FIX MODE: Create minimal, surgical plans for bug fixes
+    # =========================================================================
+    fix_mode_section = ""
+    if task_type in ["fix", "modify"]:
+        fix_mode_section = """
+# 🔧 FIX/MODIFY MODE ACTIVE
+You are planning a FIX or MODIFICATION, NOT building a new feature from scratch.
+
+**CRITICAL FIX PLANNING RULES:**
+1. **MINIMAL SCOPE**: Create 1-2 tasks maximum for fixes
+2. **READ FIRST**: First task should be reading/analyzing the broken file(s)
+3. **TARGETED CHANGES**: Second task should modify ONLY what's broken
+4. **NO BROAD REFACTORS**: Do NOT create 5+ task plans for "fixing one file"
+5. **SURGICAL APPROACH**: The plan should emphasize preserving working code
+
+**EXAMPLE FIX PLAN** (for "fix page.tsx connection issue"):
+```json
+{
+  "tasks": [
+    {
+      "id": "TASK-001",
+      "title": "Analyze page.tsx and identify connection issue",
+      "description": "Read page.tsx and related imports to understand what's broken",
+      "expected_outputs": [{"file_path": "src/app/page.tsx", "action": "read"}],
+      "order": 1
+    },
+    {
+      "id": "TASK-002", 
+      "title": "Fix page.tsx connection (surgical edit)",
+      "description": "Apply minimal fix to connect component properly",
+      "expected_outputs": [{"file_path": "src/app/page.tsx", "action": "modify"}],
+      "order": 2
+    }
+  ]
+}
+```
+
+**BAD FIX PLAN** (creates 5 tasks, rewrites 9 files):
+```json
+{
+  "tasks": [
+    {"title": "Restructure app layout"},
+    {"title": "Refactor all components"},
+    {"title": "Update type definitions"},
+    {"title": "Rebuild page structure"},
+    {"title": "Integrate everything"}  
+  ]
+}
+```
+This is OVER-PLANNING for a fix. Keep it minimal and surgical.
+"""
     
     # =========================================================================
     # EDIT MODE: If operating on existing project, INJECT DIFF-FOCUSED RULES
@@ -212,7 +266,7 @@ Wait for completion before continuing."""
         scaffold_section=scaffold_section,
         conventions=template['conventions'],
         deps=template['deps'],
-    ) + edit_mode_section
+    ) + fix_mode_section + edit_mode_section
 
 
 # For backwards compatibility - default to generic

@@ -11,24 +11,32 @@ export interface AgentChunk {
   // Legacy types (kept for backward compatibility if needed)
   type: 'message' | 'phase' | 'error' | 'tool_start' | 'tool_result' | 'files_created' | 'terminal_output' | 'complete' | 'plan_created' | 'plan_review' | 'thinking_start' | 'thinking' |
         // NEW STRUCTURED TYPES
-        'block_start' | 'block_delta' | 'block_end';
+        'block_start' | 'block_delta' | 'block_end' | 'activity';
   
   // Structured Block Fields
   id?: string;
-  block_type?: 'text' | 'code' | 'command' | 'plan' | 'thinking' | 'tool_use' | 'error';
+  block_type?: 'text' | 'code' | 'command' | 'plan' | 'thinking' | 'tool_use' | 'error' | 'preflight' | 'cmd_output';
   title?: string;
   timestamp?: number;
   final_content?: string;
   duration_ms?: number;
+  metadata?: Record<string, any>;
   
   // Legacy Helper Fields
   node?: string;
   content?: string;
   phase?: 'idle' | 'planning' | 'coding' | 'validating' | 'fixing' | 'done' | 'error';
-  // ... other fields ...
+  
+  // Tool Events (for ToolProgress component)
   tool?: string;
   success?: boolean;
   file?: string;
+  
+  // Activity Events (for ActivityIndicator)
+  agent?: string;
+  message?: string;
+  
+  // Preview/Terminal Events
   preview?: string;
   preview_url?: string;
   files?: string[];

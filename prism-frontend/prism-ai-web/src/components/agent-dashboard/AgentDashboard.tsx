@@ -25,7 +25,8 @@ export const AgentDashboard: React.FC = () => {
     setActiveRun,
     addRunMessage,
     upsertRunMessageBlock,
-    appendRunMessageBlockContent
+    appendRunMessageBlockContent,
+    syncPreviewStatuses
   } = useAgentRuns();
   
   const { 
@@ -44,6 +45,16 @@ export const AgentDashboard: React.FC = () => {
   useEffect(() => {
     fetchRuns();
   }, [fetchRuns]);
+
+  // Poll for preview statuses continuously
+  useEffect(() => {
+    // Initial sync
+    syncPreviewStatuses();
+    
+    // Poll every 3s
+    const interval = setInterval(syncPreviewStatuses, 3000);
+    return () => clearInterval(interval);
+  }, [syncPreviewStatuses]);
 
   // Handle new run creation
   const handleCreateRun = async () => {

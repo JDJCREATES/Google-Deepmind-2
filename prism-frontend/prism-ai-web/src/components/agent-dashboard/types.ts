@@ -27,7 +27,7 @@ export interface Screenshot {
 // Structured UI Block (Cursor-like)
 export interface StreamBlock {
   id: string;
-  type: 'text' | 'code' | 'command' | 'plan' | 'thinking' | 'tool_use' | 'error' | 'preflight';
+  type: 'text' | 'code' | 'command' | 'plan' | 'thinking' | 'tool_use' | 'error' | 'preflight' | 'cmd_output';
   title?: string;
   content: string;
   isComplete: boolean;
@@ -136,11 +136,21 @@ export interface FeedbackRequest {
  */
 export type RunAction = 'pause' | 'resume' | 'delete' | 'rollback' | 'merge';
 
-/**
- * Rollback request to a specific screenshot/commit
- */
 export interface RollbackRequest {
   runId: string;
   screenshotId: string;
   commitHash: string;
+}
+
+/**
+ * Preview Status for a run
+ */
+export interface PreviewStatus {
+  run_id: string;
+  status: 'running' | 'stopped' | 'starting' | 'error';
+  port?: number;
+  url?: string;
+  error?: string;
+  logs?: string[];
+  is_alive?: boolean;
 }

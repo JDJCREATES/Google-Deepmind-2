@@ -1,12 +1,21 @@
 import React from 'react';
 import type { StreamBlock } from '../agent-dashboard/types';
 import Editor from '@monaco-editor/react';
+import { formatMarkdown } from './utils/simpleMarkdown';
 
 interface BlockProps {
     block: StreamBlock;
 }
 
 export const BlockRenderer: React.FC<BlockProps> = ({ block }) => {
+    console.log('[BlockRenderer] Rendering block:', {
+        id: block.id,
+        type: block.type,
+        title: block.title,
+        contentLength: block.content?.length,
+        contentPreview: block.content?.substring(0, 50)
+    });
+    
     switch (block.type) {
         case 'thinking':
             return (
@@ -15,15 +24,14 @@ export const BlockRenderer: React.FC<BlockProps> = ({ block }) => {
                     paddingLeft: '12px', 
                     margin: '8px 0', 
                     color: '#999',
-                    fontFamily: 'monospace',
                     fontSize: '0.9em'
                 }}>
                     <div style={{ fontWeight: 'bold', marginBottom: '4px', color: '#888' }}>
                          {block.isComplete ? '✓ ' : '⚡ '}{block.title || 'Thinking...'}
                     </div>
                     {(block.content || !block.isComplete) && (
-                        <div style={{ whiteSpace: 'pre-wrap', opacity: 0.9 }}>
-                            {block.content}
+                        <div style={{ opacity: 0.9, lineHeight: '1.5' }}>
+                            {formatMarkdown(block.content)}
                         </div>
                     )}
                 </div>
@@ -85,25 +93,25 @@ export const BlockRenderer: React.FC<BlockProps> = ({ block }) => {
                     <h3 style={{ color: '#60A5FA', fontWeight: 'bold', marginBottom: '12px', fontSize: '1.1em' }}>
                         {block.title || 'Implementation Plan'}
                     </h3>
-                    <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>
-                        {block.content}
+                    <div style={{ lineHeight: '1.5', color: '#D1D5DB' }}>
+                        {formatMarkdown(block.content)}
                     </div>
                 </div>
             )
         case 'preflight':
             return (
                 <div className="block-preflight" style={{
-                    backgroundColor: 'rgba(251, 191, 36, 0.1)',
-                    border: '1px solid rgba(251, 191, 36, 0.4)',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                    border: '1px solid rgba(16, 185, 129, 0.4)',
                     borderRadius: '8px',
                     padding: '12px',
                     margin: '8px 0'
                 }}>
-                    <div style={{ color: '#FCD34D', fontWeight: 'bold', marginBottom: '8px' }}>
-                        🔧 {block.title || 'Preflight Checks'}
+                    <div style={{ color: '#10B981', fontWeight: 'bold', marginBottom: '8px' }}>
+                        {block.title || '🔧 Preflight Checks'}
                     </div>
-                    <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>
-                        {block.content}
+                    <div style={{ lineHeight: '1.5', color: '#D1D5DB' }}>
+                        {formatMarkdown(block.content)}
                     </div>
                 </div>
             )
@@ -117,10 +125,60 @@ export const BlockRenderer: React.FC<BlockProps> = ({ block }) => {
                     borderRadius: '6px',
                     margin: '8px 0'
                 }}>
-                    <div style={{ fontWeight: 'bold' }}>Error</div>
-                    <div>{block.content}</div>
+                    <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>
+                        {block.title || 'Error'}
+                    </div>
+                    <div style={{ lineHeight: '1.5' }}>
+                        {formatMarkdown(block.content)}
+                    </div>
                 </div>
              );
+        case 'cmd_output':
+            return (
+                <div className="block-cmd-output" style={{
+                    backgroundColor: '#1A1A1A',
+                    border: '1px solid #2A2A2A',
+                    borderRadius: '6px',
+                    padding: '12px',
+                    margin: '8px 0',
+                    fontFamily: 'monospace',
+                    fontSize: '0.85em'
+                }}>
+                    {block.title && (
+                        <div style={{ color: '#6B7280', marginBottom: '8px', fontSize: '0.9em' }}>
+                            {block.title}
+                        </div>
+                    )}
+                    <div style={{ 
+                        whiteSpace: 'pre-wrap', 
+                        color: '#D1D5DB',
+                        lineHeight: '1.5',
+                        overflowX: 'auto'
+                    }}>
+                        {formatMarkdown(block.content)}
+                    </div>
+                </div>
+            );
+        case 'tool_use':
+            return (
+                <div className="block-tool-use" style={{
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    border: '1px solid rgba(59, 130, 246, 0.3)',
+                    borderRadius: '6px',
+                    padding: '10px 12px',
+                    margin: '6px 0',
+                    fontSize: '0.9em'
+                }}>
+                    <div style={{ color: '#60A5FA', fontWeight: '500' }}>
+                        {block.title || 'Tool'}
+                    </div>
+                    {block.content && (
+                        <div style={{ color: '#9CA3AF', marginTop: '4px' }}>
+                            {block.content}
+                        </div>
+                    )}
+                </div>
+            );
         case 'text':
         default:
             return (

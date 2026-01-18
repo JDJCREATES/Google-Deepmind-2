@@ -819,43 +819,86 @@ Use these type definitions. Do NOT read from disk.
         scoped_task_str = json.dumps(scoped_task, indent=2) if scoped_task else str(task)
 
         # ================================================================
-        # Build coding prompt with full context
+        # Build coding prompt with TASK-TYPE AWARENESS
         # ================================================================
-        coder_prompt = f"""PROJECT PATH: {project_path}
+        
+        # Detect task type from structured intent
+        structured_intent = artifacts.get("structured_intent", {})
+        task_type = structured_intent.get("task_type", "feature")
+        is_fix_task = task_type in ["fix", "modify"]
+        
+        logger.info(f"[CODER] 🎯 Task Type: {task_type} | Fix Mode: {is_fix_task}")
+        
+        # Build different instructions based on task type
+        if is_fix_task:
+            # FIX MODE: Emphasize read-first, surgical edits
+            task_instructions = f"""## 🔧 FIX MODE ACTIVATED
 
-CURRENT FILE STRUCTURE (Snapshot):
-{file_tree_context}
-{artifact_context}
-IMPLEMENTATION PLAN:
-{plan_content[:4000] if plan_content else 'No plan provided - implement based on task description.'}
+You are FIXING existing code, not creating new features.
+
+MANDATORY WORKFLOW:
+1. **READ FIRST**: Use `read_file_from_disk` to read the broken file(s)
+2. **ANALYZE**: Identify what's broken vs what's working
+3. **SURGICAL FIX**: Use `apply_source_edits` to fix ONLY the broken part
+4. **VERIFY**: Ensure working code is preserved
+
+CRITICAL RULES:
+- Modify 1-3 files MAXIMUM for a fix
+- Use `apply_source_edits` (surgical patches), NOT `write_file_to_disk`
+- Preserve ALL working code
+- Make the MINIMAL change needed
+
+If you're touching 5+ files for a "simple fix", you're over-fixing. Read more carefully.
+
+CURRENT TASK:
+{scoped_task_str}
+
+PRE-LOADED CONTEXT (but READ MORE if needed):
+{pre_read_context if pre_read_context else '(No files pre-loaded - use read_file_from_disk to get context)'}"""  
+        else:
+            # CREATE/FEATURE MODE: Emphasize efficiency and integration
+            task_instructions = f"""## ✨ CREATE/FEATURE MODE
+
+You are CREATING new functionality or files.
+
+WORKFLOW:
+1. **CHECK PLAN**: Review folder_map_plan for exact paths
+2. **BATCH CREATE**: Use `write_files_batch` for multiple new files
+3. **INTEGRATE**: Wire components together (imports/exports)
+4. **VERIFY**: Ensure no orphan components - everything must be used
+
+CRITICAL RULES:
+- Use `write_files_batch` for efficiency (multiple files in one call)
+- Wire new components into existing entry points (page.tsx, App.tsx, etc.)
+- Never create orphan components that are never imported
+- Check if main entry point is in context - if not, read it first
 
 CURRENT TASK:
 {scoped_task_str}
 
 FILES ALREADY CREATED:
 {chr(10).join(['- ' + f for f in completed_files]) if completed_files else '- None yet'}
-{pre_read_context}
-YOUR INSTRUCTIONS:
-1. Analyze the task and implementation plan.
-2. **VERIFY CONTEXT**:
-   - Do you see the main entry point (e.g. `page.tsx`, `layout.tsx`, `App.tsx`) in the context above?
-   - If NOT, and you are adding a new feature, you **MUST** use `read_file` or `list_directory` to find and read it now.
-   - Do not generate "orphan" components that are never imported.
 
-3. CHECK "CURRENT FILE STRUCTURE" ABOVE.
-   - **CRITICAL**: Do NOT assume existing files are correct. 
-   - Verify if their content matches the plan.
-   - If a file exists (e.g. scaffolded page.tsx) but differs from plan -> Use `apply_source_edits` to update it.
-   - If a file is NEW -> Use `write_files_batch`.
+PRE-LOADED CONTEXT:
+{pre_read_context if pre_read_context else '(Use read_file_from_disk if you need more context)'}"""  
+        
+        coder_prompt = f"""PROJECT PATH: {project_path}
 
-3. **BATCH OPERATIONS**: Group your tool calls.
-4. Do NOT loop one file at a time - group related files together.
-5. When ALL files from the plan are fully implemented and verified, respond with "Implementation complete."
+CURRENT FILE STRUCTURE:
+{file_tree_context}
+
+ARTIFACTS (folder_map, tasks, APIs):
+{artifact_context}
+
+IMPLEMENTATION PLAN:
+{plan_content[:4000] if plan_content else 'No plan provided - implement based on task description.'}
+
+{task_instructions}
 
 IMPORTANT:
-- Respect existing code style.
-- Use `apply_source_edits` for updates (User prefers editing over overwriting).
-- Write complete working code."""
+- Respect existing code style
+- Write complete working code (no TODOs)
+- When task is complete, respond with "Implementation complete." """
 
         # ================================================================
         # Execute using create_react_agent with CODER_TOOLS
@@ -936,12 +979,22 @@ IMPORTANT:
                 pre_model_hook=pre_model_hook,  # Trim before each LLM call
             )
             
-            # Emit thinking event before LLM call
+            # Emit thinking event before LLM call with rich task context
+            task_title = task.get("title", "") if isinstance(task, dict) else ""
+            task_description = task.get("description", "") if isinstance(task, dict) else ""
+            acceptance_criteria = task.get("acceptance_criteria", []) if isinstance(task, dict) else []
+            
             events.append(emit_event(
                 "thinking",
                 "coder",
                 "Analyzing code requirements and file structure...",
-                {"files_expected": len(expected_outputs) if expected_outputs else 0}
+                {
+                    "files_expected": len(expected_outputs) if expected_outputs else 0,
+                    "task_title": task_title,
+                    "task_description": task_description,
+                    "expected_files": expected_outputs[:10] if expected_outputs else [],  # First 10 files
+                    "acceptance_criteria": acceptance_criteria[:5] if acceptance_criteria else []  # First 5 criteria
+                }
             ))
             
             result = await coder_agent.ainvoke(
