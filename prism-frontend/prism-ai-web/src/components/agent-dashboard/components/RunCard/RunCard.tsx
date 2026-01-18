@@ -11,6 +11,7 @@ import { useAgentRuns } from '../../hooks/useAgentRuns';
 import { ScreenshotTimeline } from '../ScreenshotTimeline/ScreenshotTimeline';
 import { FeedbackInput } from '../FeedbackInput/FeedbackInput';
 import { MergeConflictModal } from '../MergeConflictModal/MergeConflictModal';
+import { getDeterministicPort } from '../../../../utils/previewPorts';
 import './RunCard.css';
 
 interface RunCardProps {
@@ -136,6 +137,7 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
   };
 
   const isActive = run.status === 'running' || run.status === 'planning';
+  const activePort = run.port > 0 ? run.port : getDeterministicPort(run.id);
 
   return (
     <div 
@@ -269,9 +271,7 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
         </div>
 
         <div className="run-card__meta">
-          {run.port > 0 && (
-            <span className="run-card__port">Port: {run.port}</span>
-          )}
+          <span className="run-card__port" title="Deterministic Port">Port: {activePort}</span>
           <span className="run-card__status">{run.status}</span>
         </div>
 

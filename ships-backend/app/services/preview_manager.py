@@ -45,7 +45,7 @@ class MultiPreviewManager:
     
     # Port range for preview servers
     BASE_PORT = 5200
-    MAX_INSTANCES = 10  # Maximum concurrent previews
+    MAX_INSTANCES = 50  # Increased range for hashing
     
     # ANSI escape codes (for log parsing)
     ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*m')
