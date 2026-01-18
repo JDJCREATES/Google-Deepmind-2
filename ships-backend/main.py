@@ -146,33 +146,54 @@ async def open_preview(request: OpenPreviewRequest = None):
     # SMART CONTEXT DETECTION (Fix for "Open Preview" button sending root path)
     # =========================================================================
     from pathlib import Path
+
+    def find_project_root(search_path: Path, depth: int = 2) -> Optional[Path]:
+        """Recursively find a directory containing package.json or requirements.txt"""
+        if not search_path.exists():
+            return None
+            
+        # Check current level
+        if (search_path / "package.json").exists() or (search_path / "requirements.txt").exists():
+            return search_path
+            
+        if depth <= 0:
+            return None
+            
+        # Check subdirectories
+        try:
+            # Sort to ensure consistent order, prefer shorter names (likely root apps)
+            for item in sorted(search_path.iterdir(), key=lambda p: len(p.name)):
+                if item.is_dir() and not item.name.startswith('.') and item.name != 'node_modules':
+                    found = find_project_root(item, depth - 1)
+                    if found:
+                        return found
+        except Exception as e:
+            logger.warning(f"[API] Error scanning {search_path}: {e}")
+            
+        return None
+
+    # 1. Resolve Path object
+    path_obj = Path(project_path).resolve()
     
-    # 1. If path has no package.json/requirements.txt, check if a synced path from the agent exists
-    path_obj = Path(project_path)
-    has_pkg = (path_obj / "package.json").exists() or (path_obj / "requirements.txt").exists()
+    # 2. Try to find logic root
+    detected_path = find_project_root(path_obj)
     
-    if not has_pkg:
-        logger.info(f"[API] ⚠️ No package.json in {project_path}. Checking context...")
-        
-        # A. Check synced path (from Pipeline/Graph)
+    if detected_path:
+        # If we found a valid root, use it
+        if str(detected_path) != str(path_obj):
+             logger.info(f"[API] 🔍 Auto-detected project root: {detected_path} (was {project_path})")
+             project_path = str(detected_path)
+             # Sync back to manager for future consistency
+             preview_manager.current_project_path = project_path
+    else:
+        # 3. Fallback: Check synced path (from Pipeline/Graph)
+        logger.info(f"[API] ⚠️ No package.json found in {project_path} or subfolders. Checking synced context...")
         synced_path = preview_manager.current_project_path
         if synced_path and synced_path != project_path:
             synced_obj = Path(synced_path)
-            if (synced_obj / "package.json").exists() or (synced_obj / "requirements.txt").exists():
+            if find_project_root(synced_obj, depth=0): # Check if synced path is valid
                 logger.info(f"[API] 🔄 Redirecting to synced agent path: {synced_path}")
                 project_path = synced_path
-                has_pkg = True
-
-    # B. If still not found, Auto-Scan immediate subfolders
-    if not has_pkg:
-        for item in path_obj.iterdir():
-            if item.is_dir() and not item.name.startswith('.'):
-                if (item / "package.json").exists() or (item / "requirements.txt").exists():
-                    logger.info(f"[API] 🔍 Auto-detected project in subfolder: {item}")
-                    project_path = str(item)
-                    # Sync back to manager for future consistency
-                    preview_manager.current_project_path = project_path
-                    break
     
     # =========================================================================
 
