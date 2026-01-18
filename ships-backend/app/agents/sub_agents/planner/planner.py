@@ -130,7 +130,6 @@ class Planner(BaseAgent):
         
         # Append task granularity rules (these are project-agnostic)
 
-        # DETECT EXISTING PROJECT from environment
         environment = self.environment if hasattr(self, 'environment') else {}
         file_tree = environment.get("file_tree", {})
         project_has_files = False
@@ -138,6 +137,22 @@ class Planner(BaseAgent):
         # Check if file tree has files or if we can see package.json in the tree
         if file_tree and "children" in file_tree:
             project_has_files = True
+        
+        # EDIT MODE DETECTION
+        # Default to Edit Mode if files exist, UNLESS intent explicitly says "new project" or "scaffold"
+        is_edit_mode = False
+        if project_has_files:
+            intent_desc = ""
+            if artifacts and artifacts.get("intent"):
+                 intent_desc = str(artifacts.get("intent", {}))
+            
+            # Simple heuristic: if files exist, assume edit unless "new" is in request
+            if "new project" not in intent_desc.lower() and "scaffold" not in intent_desc.lower():
+                is_edit_mode = True
+                logger.info("[PLANNER] ✏️ Edit Mode ACTIVATED (Existing project detected)")
+
+        # Get base prompt with conventions for this project type (passing edit mode)
+        base_prompt = build_planner_prompt(self.current_project_type, is_edit_mode=is_edit_mode)
         
         scaffold_warning = ""
         if project_has_files:
@@ -405,6 +420,10 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
                 reasoning=plan_manifest.summary
             )
         
+        # SCALABILITY FIX: In Edit Mode, we implicitly assume scaffolding is complete.
+        # This prevents the Router/Quality Gates from blocking "Edit" runs.
+        is_edit_mode = context.get("scaffolding", {}).get("scaffolding_needed", True) is False
+        
         return {
             "plan_manifest": plan_manifest,
             "task_list": task_list,
@@ -413,6 +432,9 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
             "dependency_plan": dependency_plan,
             "validation_checklist": validation_checklist,
             "risk_report": risk_report,
+            # Critical routing flags
+            "scaffolding_complete": True if is_edit_mode else False,
+            "scaffolding_skipped": True if is_edit_mode else False,
         }
     
     async def _generate_llm_plan(

@@ -161,11 +161,21 @@ export const agentService = {
           if (!line.trim()) continue;
           try {
             const chunk = JSON.parse(line);
-            console.log('[AgentService] 📥 Chunk received:', chunk.type, chunk);
+            console.group(`[AgentService] 📥 Chunk: ${chunk.type || 'NO_TYPE'}`);
+            console.log('Raw line:', line.substring(0, 200));
+            console.log('Parsed object:', chunk);
+            console.log('Has type:', !!chunk.type, 'Value:', chunk.type);
+            console.log('Has block_type:', !!chunk.block_type, 'Value:', chunk.block_type);
+            console.log('Has id:', !!chunk.id, 'Value:', chunk.id);
+            console.log('Has content:', !!chunk.content, 'Length:', chunk.content?.length);
+            console.groupEnd();
             onChunk(chunk);
           } catch (e) {
-            console.error("Error parsing JSON chunk:", e, line);
-            console.error("Problematic line:", line);
+            console.group('[AgentService] ❌ Parse Error');
+            console.error("Error:", e);
+            console.error("Raw line:", line);
+            console.error("Line length:", line.length);
+            console.groupEnd();
           }
         }
       }

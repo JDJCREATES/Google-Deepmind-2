@@ -137,7 +137,11 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
         // ============================================================
         // UNIFIED STREAMING: StreamBlock Protocol Only
         // ============================================================
-        console.log('[DEBUG] 📨 Stream Chunk:', chunk);
+        console.group(`[useChatLogic] 📨 Processing: ${chunk.type || 'UNKNOWN'}`);
+        console.log('Full chunk:', chunk);
+        console.log('Target runId:', targetRunId);
+        console.log('AI messageId:', aiMessageId);
+        console.groupEnd();
 
         // Block Start - Create new block in message
         if (chunk.type === 'block_start' && chunk.block_type) {
@@ -149,7 +153,11 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
                  isComplete: false,
                  metadata: { ...chunk, timestamp: Date.now() }
              };
-             if (targetRunId) upsertRunMessageBlock(targetRunId, aiMessageId, block);
+             console.log('[useChatLogic] ✅ Creating block:', block);
+             if (targetRunId) {
+               upsertRunMessageBlock(targetRunId, aiMessageId, block);
+               console.log('[useChatLogic] ✅ Block upserted to run:', targetRunId);
+             }
              
              // Update Activity Indicator
              if (chunk.block_type === 'thinking') setActivity('Thinking...', 'thinking');
@@ -166,18 +174,24 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
         
         // Block Delta - Append content to existing block
         else if (chunk.type === 'block_delta' && chunk.id) {
-             if (targetRunId) appendRunMessageBlockContent(targetRunId, aiMessageId, chunk.id, chunk.content || '');
+             console.log('[useChatLogic] 📝 Block delta:', chunk.id, 'Content length:', chunk.content?.length);
+             if (targetRunId) {
+               appendRunMessageBlockContent(targetRunId, aiMessageId, chunk.id, chunk.content || '');
+             }
         } 
         
         // Block End - Mark block as complete
         else if (chunk.type === 'block_end' && chunk.id) {
-             if (targetRunId) upsertRunMessageBlock(targetRunId, aiMessageId, { 
-                id: chunk.id, 
-                type: 'text',
-                content: '',
-                isComplete: true,
-                final_content: chunk.final_content
-             } as StreamBlock);
+             console.log('[useChatLogic] ✓ Block complete:', chunk.id);
+             if (targetRunId) {
+               upsertRunMessageBlock(targetRunId, aiMessageId, { 
+                  id: chunk.id, 
+                  type: 'text',
+                  content: '',
+                  isComplete: true,
+                  final_content: chunk.final_content
+               } as StreamBlock);
+             }
         }
         
         // Phase updates (for activity indicator only, not duplicate rendering)

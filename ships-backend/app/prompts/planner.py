@@ -153,18 +153,39 @@ You MUST use this format (JSON ONLY):
 ```"""
 
 
-def build_planner_prompt(project_type: str = "generic") -> str:
+def build_planner_prompt(project_type: str = "generic", is_edit_mode: bool = False) -> str:
     """
     Build Planner prompt with project-specific templates injected.
     
     Args:
         project_type: Detected project type from Intent Analyzer
+        is_edit_mode: True if modifying existing project (diff-focused)
         
     Returns:
         Complete prompt with relevant conventions only
     """
     template = get_template(project_type)
     
+    # =========================================================================
+    # EDIT MODE: If operating on existing project, INJECT DIFF-FOCUSED RULES
+    # =========================================================================
+    edit_mode_section = ""
+    if is_edit_mode:
+        edit_mode_section = """
+# CRITICAL: EDIT MODE ACTIVE
+You are operating on an **EXISTING PROJECT**. 
+- **DO NOT** wipe or re-scaffold the root directory.
+- **DO NOT** output a full folder map of files you are not touching.
+- **IF MODIFYING**: Only list files you are changing.
+- **IF ADDING A NEW SERVICE OR LAYER**: (e.g., adding a `backend/` or `api/` service)
+    - **DO** plan the full structure for the *NEW* subfolder.
+    - **DO** include necessary config files (package.json, requirements.txt) for that service.
+    - **DO NOT** touch the existing unrelated files.
+- **IF ADDING A COMPONENT**: (e.g., a React button)
+    - **DO NOT** scaffold a new project. Just add the file.
+- **CONTEXT**: You have the file tree. Trust it.
+"""
+
     # Build stack section
     alt_stacks = template.get('alt_stacks', [])
     alt_stacks_str = ', '.join(alt_stacks) if alt_stacks else 'None'
@@ -191,7 +212,7 @@ Wait for completion before continuing."""
         scaffold_section=scaffold_section,
         conventions=template['conventions'],
         deps=template['deps'],
-    )
+    ) + edit_mode_section
 
 
 # For backwards compatibility - default to generic
