@@ -445,15 +445,27 @@ class MultiPreviewManager:
     
     def get_status(self, run_id: str = None) -> Dict[str, Any]:
         """Get status of a specific instance or all."""
-        if run_id and run_id in self.instances:
-            instance = self.instances[run_id]
+        if run_id:
+            if run_id in self.instances:
+                instance = self.instances[run_id]
+                return {
+                    "run_id": run_id,
+                    "status": instance.status,
+                    "url": instance.url,
+                    "port": instance.port,
+                    "is_alive": instance.is_alive(),
+                    "logs": instance.logs[-20:]
+                }
+            
+            # Not running, but return deterministic info
+            det_port = self._get_deterministic_port(run_id)
             return {
                 "run_id": run_id,
-                "status": instance.status,
-                "url": instance.url,
-                "port": instance.port,
-                "is_alive": instance.is_alive(),
-                "logs": instance.logs[-20:]
+                "status": "stopped",
+                "url": f"http://localhost:{det_port}",
+                "port": det_port,
+                "is_alive": False,
+                "logs": []
             }
         
         # Return summary of all

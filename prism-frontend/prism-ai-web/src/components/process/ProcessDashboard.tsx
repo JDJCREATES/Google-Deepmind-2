@@ -95,9 +95,9 @@ export const ProcessDashboard: React.FC = () => {
 
       <div className="process-controls">
         <div className="process-info">
-          <span className="port-badge">PORT: {processStatus?.port || '...'}</span>
-          {processStatus?.status === 'starting' && <span className="starting-badge">Starting...</span>}
-          {processStatus?.status === 'stopped' && <span className="stopped-badge">Stopped</span>}
+          <span className="port-badge" title="Localhost Port">{processStatus?.port || 'N/A'}</span>
+          {processStatus?.status === 'starting' && <span className="starting-badge">Booting</span>}
+          {processStatus?.status === 'stopped' && <span className="stopped-badge">OFF</span>}
         </div>
         <div className="process-actions">
           {!isRunning ? (

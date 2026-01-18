@@ -82,35 +82,47 @@
 }
 
 .icon-btn {
-  background: var(--bg-tertiary); /* Added background for visibility */
-  border: 1px solid var(--border-color);
-  color: var(--text-primary); /* High contrast */
-  width: 30px; /* Larger hit target */
-  height: 30px;
+  background: #2d2d2d; /* Hardcoded dark for visibility safety */
+  border: 1px solid #404040;
+  color: #e0e0e0; /* High contrast bright grey/white */
+  width: 32px;
+  height: 32px;
   border-radius: 4px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0; /* Remove padding to prevent icon squishing */
   transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.icon-btn svg {
+  fill: currentColor; /* Ensure SVG uses the text color */
+  display: block; /* Fix SVG alignment line-height issues */
 }
 
 .icon-btn:hover:not(:disabled) {
-  background: var(--bg-hover);
-  border-color: var(--text-secondary);
-  transform: translateY(-1px); /* Tactile feedback */
+  background: #3d3d3d;
+  color: #ffffff;
+  border-color: #505050;
+  transform: translateY(-1px);
 }
 
 .icon-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
   filter: grayscale(1);
 }
 
+.icon-btn.danger {
+  color: #ef5350; /* Red tint */
+}
+
 .icon-btn.danger:hover:not(:disabled) {
-  background: rgba(244, 67, 54, 0.15);
-  color: #f44336;
-  border-color: #f44336;
+  background: rgba(244, 67, 54, 0.2);
+  color: #ff5252;
+  border-color: #ef5350;
 }
 
 .text-btn {
