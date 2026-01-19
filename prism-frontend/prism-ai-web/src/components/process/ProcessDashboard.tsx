@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useAgentRuns } from '../agent-dashboard/hooks/useAgentRuns';
+import { usePreviewStatus } from '../agent-dashboard/hooks/usePreviewStatus';
 import { useTheme } from '../../hooks/useTheme';
 import { VscDebugDisconnect, VscPlay, VscGlobe } from 'react-icons/vsc';
 import './ProcessDashboard.css';
@@ -9,43 +10,9 @@ import './ProcessDashboard.css';
 export const ProcessDashboard: React.FC = () => {
   const { activeRunId, runs, openPreview } = useAgentRuns();
   const { theme } = useTheme();
-  const [processStatus, setProcessStatus] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-
-  // Poll for status
-  useEffect(() => {
-    if (!activeRunId) return;
-
-    const checkStatus = async () => {
-      try {
-        const activeRun = runs.find(r => r.id === activeRunId);
-        const runIdForLookup = activeRun?.fullId || activeRunId;
-        
-        // Use encodeURIComponent to handle slashes in branch names
-        const res = await fetch(`http://localhost:8001/preview/status?run_id=${encodeURIComponent(runIdForLookup)}`);
-        if (res.ok) {
-          const data = await res.json();
-          setProcessStatus({
-            run_id: activeRunId,
-            status: data.status || 'stopped',
-            port: data.port,
-            url: data.url,
-            error: data.error,
-            logs: data.logs || []
-          });
-        }
-      } catch (e) {
-        // Silently fail on poll error
-      }
-    };
-
-    // Initial check
-    checkStatus();
-
-    // Poll every 2s
-    const interval = setInterval(checkStatus, 2000);
-    return () => clearInterval(interval);
-  }, [activeRunId, runs]);
+  // Shared hook
+  const processStatus = usePreviewStatus(activeRunId);
 
   if (!activeRunId) return null;
 
@@ -60,7 +27,7 @@ export const ProcessDashboard: React.FC = () => {
       const runIdForStop = activeRun?.fullId || activeRunId;
       await fetch(`http://localhost:8001/preview/stop/${runIdForStop}`, { method: 'POST' });
       // Quick optimistic update
-      setProcessStatus((prev: any) => prev ? { ...prev, status: 'stopped' } : null);
+      await fetch(`http://localhost:8001/preview/stop/${runIdForStop}`, { method: 'POST' });
     } catch (e) {
       console.error('Failed to stop process', e);
     } finally {
@@ -131,7 +98,7 @@ export const ProcessDashboard: React.FC = () => {
                 const runIdForCleanup = activeRun?.fullId || activeRunId;
                 await fetch(`http://localhost:8001/preview/cleanup?run_id=${runIdForCleanup}`, { method: 'POST' });
                 // Refresh status immediately
-                setProcessStatus(null);
+                await fetch(`http://localhost:8001/preview/cleanup?run_id=${runIdForCleanup}`, { method: 'POST' });
               } finally {
                 setLoading(false);
               }

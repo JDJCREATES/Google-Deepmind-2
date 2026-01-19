@@ -8,6 +8,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import type { AgentRun } from '../../types';
 import { useAgentRuns } from '../../hooks/useAgentRuns';
+import { usePreviewStatus } from '../../hooks/usePreviewStatus';
 import { ScreenshotTimeline } from '../ScreenshotTimeline/ScreenshotTimeline';
 import { FeedbackInput } from '../FeedbackInput/FeedbackInput';
 import { MergeConflictModal } from '../MergeConflictModal/MergeConflictModal';
@@ -26,36 +27,14 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const [conflicts, setConflicts] = useState<any[]>([]);
-  const [livePort, setLivePort] = useState<number | null>(null);
-  const [previewStatus, setPreviewStatus] = useState<string>('stopped');
+
+  // Ensure we have the latest run data (with fullId) from store
+  const { runs } = useAgentRuns();
+  const freshRun = runs.find(r => r.id === run.id) || run;
+  // Use shared hook for status
+  const { status: previewStatus, port: livePort } = usePreviewStatus(freshRun.id, freshRun.fullId);
   
   const optionsRef = useRef<HTMLDivElement>(null);
-
-  // Poll for preview status
-  useEffect(() => {
-    const fetchStatus = async () => {
-      try {
-        const runIdForLookup = run.fullId || run.id;
-        // Use encodeURIComponent - critical fix
-        const url = `http://localhost:8001/preview/status?run_id=${encodeURIComponent(runIdForLookup)}`;
-        const res = await fetch(url);
-        
-        if (res.ok) {
-          const data = await res.json();
-          const status = (data.status || 'stopped').trim();
-          setPreviewStatus(status);
-          // Strict check for running status
-          setLivePort(status === 'running' ? data.port : null);
-        }
-      } catch (e) {
-        // Silently fail
-      }
-    };
-
-    fetchStatus();
-    const interval = setInterval(fetchStatus, 3000);
-    return () => clearInterval(interval);
-  }, [run.id, run.fullId]);
 
   // Close options dropdown when clicking outside
   useEffect(() => {
@@ -92,15 +71,15 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
   // Preview status indicator color (square dot)
   const getPreviewStatusColor = () => {
     if (previewStatus === 'running') {
-      return 'var(--success-color, #4ade80)'; // Green ONLY when actually running
+      return '#4caf50'; // Match ProcessDashboard Green
     }
     if (previewStatus === 'starting') {
-       return 'var(--warning-color, #fbbf24)'; // Yellow when starting
+       return '#ff9800'; // Match ProcessDashboard Orange/Yellow
     }
     if (previewStatus === 'error') {
-      return 'var(--error-color, #ff5e57)';
+      return '#f44336'; // Match ProcessDashboard Red
     }
-    return 'var(--text-muted, #999)'; // Gray when stopped
+    return '#999'; // Gray when stopped
   };
 
   // Agent display name
