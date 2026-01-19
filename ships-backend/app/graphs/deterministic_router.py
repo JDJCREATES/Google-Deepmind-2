@@ -414,9 +414,14 @@ class DeterministicRouter:
         
         artifacts = state.get("artifacts", {})
         
-        # PRIORITY 1: Did validation just run?
-        # Fix: Check value not just key existence
-        if state.get("validation_passed") is not None:
+        # PRIORITY 1: Validation Status
+        validation_status = state.get("validation_status")
+        
+        if validation_status == "pending":
+             logger.info("[DETERMINISTIC_ROUTER] Validation PENDING - Routing to VALIDATOR")
+             return RoutingDecision(next_phase="validator", reason="Validation pending", requires_llm=False)
+             
+        if validation_status in ["passed", "failed_recoverable", "failed_critical"]:
              return self._route_from_validating(state)
         
         # PRIORITY 2: Are we in a fix loop?

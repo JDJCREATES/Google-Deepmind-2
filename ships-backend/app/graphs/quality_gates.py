@@ -171,7 +171,14 @@ def check_files_written(state: Dict[str, Any]) -> bool:
 
 def check_validation_passed(state: Dict[str, Any]) -> bool:
     """Check if validation completed successfully."""
-    return state.get("validation_passed", False)
+    # String literal match to avoid circular import with agent_graph.py
+    return state.get("validation_status") == "passed"
+
+
+def check_validation_failed(state: Dict[str, Any]) -> bool:
+    """Check if validation failed (recoverable only)."""
+    status = state.get("validation_status")
+    return status == "failed_recoverable"
 
 
 def check_no_critical_errors(state: Dict[str, Any]) -> bool:
@@ -405,8 +412,8 @@ class QualityGates:
                 GateCheck(
                     name="validation_failed",
                     description="Validation must have failed",
-                    check_fn=lambda s: not check_validation_passed(s),
-                    error_message="Cannot fix if validation passed."
+                    check_fn=check_validation_failed,
+                    error_message="Cannot fix if validation passed or pending."
                 ),
                 GateCheck(
                     name="fix_attempts_valid",

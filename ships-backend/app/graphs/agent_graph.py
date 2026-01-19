@@ -18,7 +18,8 @@ This file should ONLY contain:
 3. Edge/Routing Logic (wiring)
 """
 
-from typing import TypedDict, Annotated, Literal, Optional, List, Dict, Any
+from typing import TypedDict, Annotated, Literal, Optional, List, Dict, Any, Union
+from enum import Enum
 from operator import add
 import os
 from pathlib import Path
@@ -102,9 +103,18 @@ from app.services.lock_manager import lock_manager # File locking service
 # STATE DEFINITION  
 # ============================================================================
 
+class ValidationStatus(str, Enum):
+    PENDING = "pending"       # Initial state / Needs validation (e.g. after code changes)
+    PASSED = "passed"         # Validation run and passed
+    FAILED_RECOVERABLE = "failed_recoverable" # Failed but can be fixed (lint errors)
+    FAILED_CRITICAL = "failed_critical"       # Failed and cannot be auto-fixed (config errors)
+    SKIPPED = "skipped"       # Explicitly skipped
+
 class AgentGraphState(TypedDict):
-    """State shared across all agents in the graph."""
-    
+    """
+    Unified state object for the entire agent pipeline.
+    Uses 'modern' fields for 2.0 architecture and legacy fields for backward compat.
+    """
     # Messages for conversation (trimmed for token efficiency)
     messages: Annotated[List[BaseMessage], add]
     
@@ -136,8 +146,8 @@ class AgentGraphState(TypedDict):
     # Current task being worked on
     current_task_index: int
     
-    # Validation status
-    validation_passed: Optional[bool]
+    # Validation status - Robust Enum (2025)
+    validation_status: ValidationStatus
     
     # Fix attempts
     fix_attempts: int
@@ -278,6 +288,7 @@ async def coder_node(state: AgentGraphState) -> Dict[str, Any]:
         "phase": "orchestrator",
         "artifacts": merged_artifacts,
         "completed_files": completed_files,
+        "validation_status": ValidationStatus.PENDING, # Code changed, validation needed
         "stream_events": result.get("stream_events", []),
         "loop_detection": {**state.get("loop_detection", {}), "wait_attempts": 0} if implementation_complete else state.get("loop_detection")
     }
@@ -349,8 +360,9 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
             pass
 
         # Return State Update
+        # Return State Update
         return {
-            "validation_passed": validation_passed,
+            "validation_status": ValidationStatus.PASSED if validation_passed else ValidationStatus.FAILED_RECOVERABLE,
             "phase": "orchestrator",
             "error_log": state.get("error_log", []) + ([f"Validation Failed [{failure_layer}]"] if not validation_passed else []),
             "artifacts": {**artifacts, **result.get("artifacts", {})},
@@ -366,8 +378,10 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
         
     except Exception as e:
         logger.error(f"[VALIDATOR] ❌ Validator failed: {e}")
+    except Exception as e:
+        logger.error(f"[VALIDATOR] ❌ Validator failed: {e}")
         return {
-            "validation_passed": False,
+            "validation_status": ValidationStatus.FAILED_CRITICAL,
             "phase": "orchestrator",
             "error_log": state.get("error_log", []) + [f"Validator error: {str(e)}"],
             "messages": [AIMessage(content=f"Validation error: {e}")]
@@ -521,7 +535,7 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
             "phase": "orchestrator",
             "pending_fix_context": pending_fix_context,
             "fix_request": None, # Clear request
-            "validation_passed": None, # Reset validation status to force re-validation
+            "validation_status": ValidationStatus.PENDING, # Reset validation status to force re-validation
             "agent_status": {"status": "fixed", "attempt": fix_attempts},
             "stream_events": result.get("stream_events", [])
         }
@@ -1025,7 +1039,7 @@ async def run_full_pipeline(
         "phase": "planning",
         "artifacts": {},
         "current_task_index": 0,
-        "validation_passed": None,
+        "validation_status": ValidationStatus.PENDING,
         "fix_attempts": 0,
         "max_fix_attempts": 3,
         "result": None,
