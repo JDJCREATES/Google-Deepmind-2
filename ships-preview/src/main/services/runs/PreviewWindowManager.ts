@@ -131,6 +131,56 @@ export class PreviewWindowManager {
     if (this.windows.size >= CONFIG.MAX_WINDOWS) {
       throw new Error(`Maximum number of preview windows (${CONFIG.MAX_WINDOWS}) reached`);
     }
+
+    // SMART CONTEXT DETECTION (Fix for "Open Preview" failing on nested projects)
+    const fs = require('fs');
+    const path = require('path');
+
+    const findProjectRoot = (searchPath: string, depth: number = 2): string | null => {
+      try {
+        if (!fs.existsSync(searchPath)) return null;
+
+        // Check current level
+        if (fs.existsSync(path.join(searchPath, 'package.json')) || 
+            fs.existsSync(path.join(searchPath, 'requirements.txt'))) {
+          return searchPath;
+        }
+
+        if (depth <= 0) return null;
+
+        // Check subdirectories
+        const items = fs.readdirSync(searchPath);
+        // Sort by length to prefer shorter names (likely root apps)
+        items.sort((a: string, b: string) => a.length - b.length);
+
+        for (const item of items) {
+          const itemPath = path.join(searchPath, item);
+          // Skip dotfiles/dirs and node_modules
+          if (item.startsWith('.') || item === 'node_modules' || item === '__pycache__') continue;
+
+          const stats = fs.statSync(itemPath);
+          if (stats.isDirectory()) {
+            const found = findProjectRoot(itemPath, depth - 1);
+            if (found) return found;
+          }
+        }
+      } catch (e) {
+        console.warn(`[PreviewWindowManager] Error scanning ${searchPath}:`, e);
+      }
+      return null;
+    };
+
+    let resolvedPath = targetPath;
+    const detectedRoot = findProjectRoot(targetPath);
+    
+    if (detectedRoot && detectedRoot !== targetPath) {
+        console.log(`[PreviewWindowManager] 🔍 Auto-detected project root: ${detectedRoot} (was ${targetPath})`);
+        resolvedPath = detectedRoot;
+    } else {
+        console.log(`[PreviewWindowManager] No nested project found in ${targetPath}, using as-is.`);
+    }
+
+    const port = this.getNextPort();
     
     // Check if already exists
     if (this.windows.has(sanitizedId)) {
@@ -198,8 +248,8 @@ export class PreviewWindowManager {
     
     try {
       // Start dev server with specific CWD
-      console.log(`[PreviewWindowManager] Starting dev server for run ${sanitizedId} from: ${targetPath}`);
-      preview.devServer = await this.startDevServer(port, targetPath);
+      console.log(`[PreviewWindowManager] Starting dev server for run ${sanitizedId} from: ${resolvedPath}`);
+      preview.devServer = await this.startDevServer(port, resolvedPath);
       
       // Wait for server to be ready
       const isReady = await this.waitForServer(url, CONFIG.SERVER_STARTUP_TIMEOUT);
