@@ -11,12 +11,13 @@ export const ProcessDashboard: React.FC = () => {
   const { activeRunId, runs, openPreview } = useAgentRuns();
   const { theme } = useTheme();
   const [loading, setLoading] = useState(false);
-  // Shared hook
-  const processStatus = usePreviewStatus(activeRunId);
+  
+  const activeRun = runs.find(r => r.id === activeRunId);
+  // Shared hook with full ID for accurate lookup
+  const processStatus = usePreviewStatus(activeRunId, activeRun?.fullId);
 
   if (!activeRunId) return null;
 
-  const activeRun = runs.find(r => r.id === activeRunId);
   const title = activeRun?.title || 'Unknown Run';
 
   const handleKill = async () => {

@@ -431,10 +431,18 @@ class MultiPreviewManager:
                         match = self._url_pattern.search(line_clean_url)
                         if match:
                             instance.url = match.group(0)
+                            # Sync port with detected URL (in case Vite switched ports)
+                            try:
+                                port_str = instance.url.split(':')[-1]
+                                if port_str.isdigit():
+                                    instance.port = int(port_str)
+                            except:
+                                pass
+                                
                             if instance.status != "error":  # Don't override error status
                                 instance.status = "running"
                             self.focus_requested = True
-                            logger.info(f"[PREVIEW] Detected URL: {instance.url}")
+                            logger.info(f"[PREVIEW] Detected URL: {instance.url} (Port: {instance.port})")
                             
         except Exception as e:
             instance.logs.append(f"[Error] {e}")

@@ -38,7 +38,7 @@ export default function ChatMessage({ message, onEdit, onRewind }: ChatMessagePr
         return (
             <div className={`message ${isSystem ? 'message-system' : 'message-ai'}`}>
                 <div className="message-content no-bubble" style={{ width: '100%' }}>
-                    {message.blocks.map((block, index) => {
+                    {message.blocks.map((block) => {
                         return <BlockRenderer key={block.id} block={block} />;
                     })}
                 </div>
@@ -58,72 +58,93 @@ export default function ChatMessage({ message, onEdit, onRewind }: ChatMessagePr
 
   // USER MESSAGE with Controls
   return (
-    <div className="message message-user group">
-      <div className="message-bubble relative group">
+    <div className="message message-user group flex flex-col items-end">
+      <div 
+        className={`message-bubble relative group ${!isEditing ? 'cursor-pointer hover:brightness-90 active:scale-[0.99] transition-all !p-3' : ''}`}
+        onClick={() => {
+          if (!isEditing && onEdit) {
+            setEditContent(message.content);
+            setIsEditing(true);
+          }
+        }}
+        title={!isEditing ? "Click to edit" : ""}
+      >
         {isEditing ? (
-          <div className="edit-container">
+          <div className="edit-container min-w-[300px]" onClick={(e) => e.stopPropagation()}>
             <textarea 
               className="w-full bg-slate-800 text-white rounded p-2 text-sm focus:outline-none resize-none border border-slate-600"
               value={editContent}
               onChange={(e) => setEditContent(e.target.value)}
               rows={Math.max(2, editContent.split('\n').length)}
               autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSaveEdit();
+                }
+                if (e.key === 'Escape') setIsEditing(false);
+              }}
             />
             <div className="flex justify-end gap-2 mt-2">
               <button 
-                onClick={() => setIsEditing(false)}
+                onClick={(e) => {
+                    e.stopPropagation();
+                    setIsEditing(false);
+                }}
                 className="p-1 hover:bg-slate-700 rounded text-xs text-slate-400 flex items-center gap-1"
-                title="Cancel"
+                title="Cancel (Esc)"
               >
                 <VscClose /> Cancel
               </button>
               <button 
-                onClick={handleSaveEdit}
+                onClick={(e) => {
+                    e.stopPropagation();
+                    handleSaveEdit();
+                }}
                 className="p-1 bg-blue-600 hover:bg-blue-500 rounded text-xs text-white flex items-center gap-1 px-2"
-                title="Save & Resend"
+                title="Save & Resend (Enter)"
               >
-                <VscCheck /> Save & Resend
+                <VscCheck /> Save
               </button>
             </div>
           </div>
         ) : (
-          <>
-            <div className="message-content whitespace-pre-wrap">{message.content}</div>
-            
-            {/* Timestamp & Actions Row */}
-            <div className="message-footer flex items-center justify-between mt-1 min-w-[80px]">
-                <div className="message-time text-[10px] opacity-60">
-                {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </div>
-                
-                {/* Actions visible on hover */}
-                <div className="message-actions flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity ml-2">
-                    {onEdit && (
-                        <button 
-                            onClick={() => {
-                                setEditContent(message.content);
-                                setIsEditing(true);
-                            }}
-                            className="p-1 hover:bg-white/10 rounded text-slate-300 hover:text-white transition-colors"
-                            title="Edit & Resend"
-                        >
-                            <VscEdit size={12} />
-                        </button>
-                    )}
-                    {onRewind && (
-                        <button 
-                            onClick={() => onRewind(message.id)}
-                            className="p-1 hover:bg-white/10 rounded text-slate-300 hover:text-white transition-colors"
-                            title="Revert to this message (clears history after)"
-                        >
-                            <VscDebugRestart size={12} />
-                        </button>
-                    )}
-                </div>
-            </div>
-          </>
+          <div className="message-content whitespace-pre-wrap">{message.content}</div>
         )}
       </div>
+
+      {/* Timestamp & Actions Row (BELOW BUBBLE) */}
+      {!isEditing && (
+        <div className="message-footer flex items-center justify-end mt-1 gap-3 mr-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="message-time text-[10px] opacity-40">
+            {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </div>
+            
+            <div className="message-actions flex items-center gap-2">
+                {onEdit && (
+                    <button 
+                        onClick={() => {
+                            setEditContent(message.content);
+                            setIsEditing(true);
+                        }}
+                        className="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white transition-colors flex items-center gap-1 text-[10px]"
+                        title="Edit message"
+                    >
+                        <VscEdit size={12} /> Edit
+                    </button>
+                )}
+                {onRewind && (
+                    <button 
+                        onClick={() => onRewind(message.id)}
+                        className="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white transition-colors flex items-center gap-1 text-[10px]"
+                        title="Revert to this message (clears history after)"
+                    >
+                        <VscDebugRestart size={12} /> Rewind
+                    </button>
+                )}
+            </div>
+        </div>
+      )}
     </div>
   );
 }

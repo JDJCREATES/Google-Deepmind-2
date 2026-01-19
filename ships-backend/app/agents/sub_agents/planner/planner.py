@@ -1118,17 +1118,19 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
                     if not suggested_slug: suggested_slug = "my-app"
                     suggested_slug = suggested_slug[:30]
                     
-                    current_dir_name = project_dir.name.lower()
-                    
                     # Decide if we scaffold here (.) or in a subfolder
-                    if current_dir_name == suggested_slug:
+                    # Check if directory is EMPTY (no user files except .git, .ships, etc.)
+                    existing_entries = list(project_dir.iterdir()) if project_dir.exists() else []
+                    user_files = [e for e in existing_entries if e.name not in {'.git', '.ships', '.gitignore', 'routing_logs.json'}]
+                    
+                    if len(user_files) == 0:
+                        # Empty directory - scaffold directly here
                         target_arg = "."
-                        logger.info(f"[PLANNER] 🎯 Current dir matches slug '{suggested_slug}'. Scaffolding here.")
+                        logger.info(f"[PLANNER] 🎯 Directory empty. Scaffolding directly in {project_dir}")
                     else:
-                        # Tell the LLM to scaffold into a subfolder, but don't update project_path yet
-                        # We'll detect the actual created folder post-scaffolding
+                        # Directory has files - create subfolder to avoid conflicts
                         target_arg = suggested_slug
-                        logger.info(f"[PLANNER] 📦 Will scaffold into subfolder (suggested: '{suggested_slug}')")
+                        logger.info(f"[PLANNER] 📦 Directory has {len(user_files)} files. Scaffolding into subfolder '{suggested_slug}'")
                     
                     # 3. Update scaffold command with target
                     # Use regex to replace " ." with " target" (handling both middle and end of string)
