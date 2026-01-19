@@ -705,7 +705,7 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
              system_msg = f"""You are the Master Orchestrator Fallback. 
              The deterministic router stopped because: {routing_decision.reason}
              Analyze the state and decide the next step (planner, coder, validator, fixer, chat, complete).
-             Return JSON: {{"decision": "next_agent_name", "reasoning": "..."}}"""
+             Return STRICT JSON (Double Quotes Only!): {{"decision": "next_agent_name", "reasoning": "..."}}"""
              
              messages_with_context = [
                  HumanMessage(content=system_msg + f"\n\nCurrent Phase: {phase}\nLast Message: {messages[-1].content if messages else 'None'}")
@@ -716,10 +716,20 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
              response_content = result["messages"][-1].content
              
              # Simple Parsing
-             import json, re
+             import json, re, ast
              json_match = re.search(r'\{[\s\S]*\}', str(response_content))
              if json_match:
-                 parsed = json.loads(json_match.group())
+                 json_str = json_match.group()
+                 try:
+                     parsed = json.loads(json_str)
+                 except json.JSONDecodeError:
+                     # Fallback: Try ast.literal_eval for single quotes
+                     try:
+                         parsed = ast.literal_eval(json_str)
+                     except:
+                         logger.warning("[ORCHESTRATOR] ⚠️ JSON/AST parsing failed for LLM decision")
+                         parsed = {}
+
                  llm_decision = parsed.get("decision", "chat").lower()
                  if "planner" in llm_decision: routing_decision.next_phase = "planner"
                  elif "coder" in llm_decision: routing_decision.next_phase = "coder"

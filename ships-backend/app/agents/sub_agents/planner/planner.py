@@ -1098,10 +1098,17 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
                     logger.info(f"[PLANNER] 🔧 Final Scaffold Command: {scaffold_command}")
                     
                     # Don't create folders with prefix yet - wait until we know the actual project path
-                    folders_to_create = [
-                        f.path for f in plan_result["folder_map"].entries 
-                        if getattr(f, 'is_directory', False) and not str(f.path).startswith(".ships")
-                    ]
+                    folders_to_create = []
+                    for f in plan_result["folder_map"].entries:
+                         # Skip existing directories and .ships folder
+                         if getattr(f, 'is_directory', False) and not str(f.path).startswith(".ships"):
+                             path = f.path
+                             # FIX: Prepend subfolder if we are scaffolding into one
+                             if target_arg != ".":
+                                 # Avoid double prefixing if path already starts with target_arg
+                                 if not str(path).startswith(f"{target_arg}/"):
+                                     path = f"{target_arg}/{path}"
+                             folders_to_create.append(path)
                     
                     scaffold_prompt = f"""PROJECT PATH: {project_dir} (Target: {target_arg})
 
@@ -1149,14 +1156,21 @@ IMPORTANT:
                     # ============================================================
                     actual_project_path = None
                     try:
-                        # Scan for new directories with package.json (indicator of scaffolded project)
-                        for item in project_dir.iterdir():
-                            if item.is_dir() and not item.name.startswith('.'):
-                                pkg_json = item / "package.json"
-                                if pkg_json.exists():
-                                    actual_project_path = str(item)
-                                    logger.info(f"[PLANNER] 🔍 Detected scaffolded project at: {actual_project_path}")
-                                    break
+                        # PRIORITIZE: Check if the intended target folder was validated
+                        target_path = project_dir / target_arg
+                        if target_arg != "." and target_path.exists() and target_path.is_dir():
+                             actual_project_path = str(target_path)
+                             logger.info(f"[PLANNER] 🎯 Confirmed scaffolded project at target: {actual_project_path}")
+                        else:
+                            # Fallback: Scan for new directories if we scaffolded to . or something else
+                            # Scan for new directories with package.json (indicator of scaffolded project)
+                            for item in project_dir.iterdir():
+                                if item.is_dir() and not item.name.startswith('.'):
+                                    pkg_json = item / "package.json"
+                                    if pkg_json.exists():
+                                        actual_project_path = str(item)
+                                        logger.info(f"[PLANNER] 🔍 Detected scaffolded project at: {actual_project_path}")
+                                        break
                         
                         # Update project_path to the ACTUAL created folder
                         if actual_project_path and actual_project_path != project_path:

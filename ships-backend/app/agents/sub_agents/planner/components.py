@@ -732,9 +732,11 @@ class Scaffolder:
         
         if scaffold_cmd:
             prompt_parts.extend([
-                "STEP 2: Run framework scaffolding (ONLY if no package.json)",
+                "STEP 2: Run framework scaffolding (CRITICAL)",
+                "Unless you are ABSOLUTELY SURE a package.json exists in the target:",
                 f'- Call run_terminal_command("{scaffold_cmd}")',
                 '- Then call run_terminal_command("npm install")',
+                "- If the folder already exists and is not empty, use a different name or continue if safe.",
                 "",
             ])
         

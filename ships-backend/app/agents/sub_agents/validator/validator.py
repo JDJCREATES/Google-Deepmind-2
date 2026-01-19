@@ -24,6 +24,10 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 import uuid
 
+from app.core.logger import get_logger
+
+logger = get_logger("validator")
+
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.base.base_agent import BaseAgent
