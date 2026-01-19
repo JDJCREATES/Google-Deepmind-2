@@ -442,35 +442,55 @@ class DeterministicRouter:
 
     def check_loop_detection(self, state: Dict[str, Any], next_phase: str) -> Tuple[bool, Optional[str], Dict[str, Any]]:
         """
-        Check if we're in an infinite loop.
+        Check if we're in an infinite loop using Pattern Matching.
         
-        Args:
-            state: Current state
-            next_phase: Phase we're about to route to
-            
-        Returns:
-            (is_loop, warning_message, updated_loop_info)
+        Detection Strategy:
+        1. Consecutive Repeats: A -> A (Threshold: 3)
+        2. Simple Cycles: A -> B -> A -> B (Threshold: 3 cycles)
+        3. Long Cycles: A -> B -> C -> A -> B -> C (Threshold: 2 cycles)
         """
-        loop_info = state.get("loop_detection", {}).copy() # Copy to avoid mutation issues
-        last_node = loop_info.get("last_node")
-        consecutive_count = loop_info.get("consecutive_calls", 0)
+        loop_info = state.get("loop_detection", {}).copy()
+        history = list(loop_info.get("phase_history", []))
         
-        # If routing to same node again
-        if last_node == next_phase:
-            consecutive_count += 1
-        else:
-            # Reset if phase changed
-            consecutive_count = 1
-            last_node = next_phase
+        # Add current decision to history (max last 20 steps)
+        history.append(next_phase)
+        if len(history) > 20:
+            history.pop(0)
             
-        loop_info["last_node"] = last_node
-        loop_info["consecutive_calls"] = consecutive_count
-
-        # TRIGGER ON FIRST LOOP DETECTION (2 consecutive calls)
-        # Let orchestrator LLM decide what to do early
-        if consecutive_count >= 2:
-            warning = f"Loop detected: {next_phase} called {consecutive_count} times consecutively"
-            logger.warning(f"[DETERMINISTIC_ROUTER] ⚠️ {warning} - triggering escalation")
-            return True, warning, loop_info
+        loop_info["phase_history"] = history
+        loop_info["last_node"] = next_phase # Keep for backward compat
         
+        # 1. Consecutive Repeats (A -> A -> A)
+        if len(history) >= 3:
+            if history[-1] == history[-2] == history[-3]:
+                 warning = f"Stuck in phase: {next_phase} (3x repeats)"
+                 logger.warning(f"[DETERMINISTIC_ROUTER] ⚠️ {warning}")
+                 return True, warning, loop_info
+
+        # 2. Cycle Detection (A -> B -> A -> B ...)
+        # We look for patterns of length 2 to 5 repeating
+        if len(history) >= 6:
+            for pattern_len in range(2, 6):
+                # Need at least 2 full repetitions to call it a loop
+                # e.g. pattern A-B (len 2) needs A-B-A-B (len 4)
+                required_len = pattern_len * 2
+                if len(history) < required_len:
+                    continue
+                    
+                # Extract potential pattern and comparison slice
+                current_slice = history[-pattern_len:]
+                previous_slice = history[-required_len:-pattern_len]
+                
+                if current_slice == previous_slice:
+                    # Found a cycle!
+                    # Check if we have a THIRD repetition to be sure it's a "God Loop" (infinite)
+                    # and not just a retry (which might be valid once)
+                    if len(history) >= pattern_len * 3:
+                        third_slice = history[-(pattern_len*3):-(pattern_len*2)]
+                        if third_slice == current_slice:
+                             pattern_str = "->".join(current_slice)
+                             warning = f"Infinite Cycle Detected: [{pattern_str}] x3"
+                             logger.warning(f"[DETERMINISTIC_ROUTER] ⚠️ {warning}")
+                             return True, warning, loop_info
+                             
         return False, None, loop_info

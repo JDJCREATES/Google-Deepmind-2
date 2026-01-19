@@ -133,6 +133,23 @@ async def stream_pipeline(
                 if chunk and hasattr(chunk, "content"):
                     content = chunk.content
                     if content:
+                        # DETECT STRUCTURED OUTPUT JSON - Don't stream it!
+                        # Planner/Coder use .with_structured_output() which streams raw JSON
+                        # We'll get the final structured data in on_chain_end instead
+                        if isinstance(content, str):
+                            stripped = content.strip()
+                            # Skip if it looks like structured output JSON streaming
+                            if stripped and (
+                                stripped.startswith('{') or 
+                                stripped.startswith('[') or
+                                '"reasoning"' in stripped or
+                                '"tasks"' in stripped or
+                                '"complexity"' in stripped or
+                                '"priority"' in stripped
+                            ):
+                                logger.debug(f"[STREAM] Suppressing structured output token: {content[:50]}...")
+                                continue
+                        
                         # Parsing Logic for Complex Chunks (Lists/Dicts)
                         if isinstance(content, list):
                             # Handle [{"type": "text", "text": "..."}] format
