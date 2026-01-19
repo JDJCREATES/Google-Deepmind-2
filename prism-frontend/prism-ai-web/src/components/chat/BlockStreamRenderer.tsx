@@ -8,14 +8,6 @@ interface BlockProps {
 }
 
 export const BlockRenderer: React.FC<BlockProps> = ({ block }) => {
-    console.log('[BlockRenderer] Rendering block:', {
-        id: block.id,
-        type: block.type,
-        title: block.title,
-        contentLength: block.content?.length,
-        contentPreview: block.content?.substring(0, 50)
-    });
-    
     switch (block.type) {
         case 'thinking':
             return (

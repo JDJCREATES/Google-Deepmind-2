@@ -8,8 +8,10 @@ from app.streaming.stream_events import StreamBlockManager, BlockType
 from app.database import get_session_factory
 from sqlalchemy import select
 from app.models import User
+from app.utils.debounced_logger import DebouncedLogger
 
 logger = logging.getLogger("ships.streaming")
+debounced_log = DebouncedLogger(logger, debounce_seconds=2.0)
 
 async def stream_pipeline(
     user_request: str,
@@ -118,6 +120,9 @@ async def stream_pipeline(
     
     block_mgr = StreamBlockManager()
     
+    # Track which agents use structured output (no token streaming)
+    suppress_streaming_for = set()
+    
     try:
         logger.info(f"[STREAM] 🚀 Starting graph.astream_events() with thread_id={thread_id}")
         
@@ -133,23 +138,6 @@ async def stream_pipeline(
                 if chunk and hasattr(chunk, "content"):
                     content = chunk.content
                     if content:
-                        # DETECT STRUCTURED OUTPUT JSON - Don't stream it!
-                        # Planner/Coder use .with_structured_output() which streams raw JSON
-                        # We'll get the final structured data in on_chain_end instead
-                        if isinstance(content, str):
-                            stripped = content.strip()
-                            # Skip if it looks like structured output JSON streaming
-                            if stripped and (
-                                stripped.startswith('{') or 
-                                stripped.startswith('[') or
-                                '"reasoning"' in stripped or
-                                '"tasks"' in stripped or
-                                '"complexity"' in stripped or
-                                '"priority"' in stripped
-                            ):
-                                logger.debug(f"[STREAM] Suppressing structured output token: {content[:50]}...")
-                                continue
-                        
                         # Parsing Logic for Complex Chunks (Lists/Dicts)
                         if isinstance(content, list):
                             # Handle [{"type": "text", "text": "..."}] format
@@ -190,37 +178,43 @@ async def stream_pipeline(
                     "tool": event_name,
                     "file": file_path
                 }) + "\n"
+                debounced_log.info(f"[PIPELINE] Tool: {event_name}")
                 
             elif event_type == "on_tool_end":
                 import json
                 output = event_data.get("output", "")
                 
-                logger.info(f"[PIPELINE DEBUG] on_tool_end for {event_name}")
-                logger.info(f"[PIPELINE DEBUG] Raw output type: {type(output)}")
-                logger.info(f"[PIPELINE DEBUG] Raw output: {str(output)[:200]}")
-                
                 # EXTRACT actual content from ToolMessage/AIMessage objects
                 output_content = output
                 if hasattr(output, 'content'):
                     output_content = output.content
-                    logger.info(f"[PIPELINE DEBUG] Extracted .content: {str(output_content)[:200]}")
                 
                 # Parse JSON tool responses for clean display
                 formatted_output = None
                 if isinstance(output_content, str):
                     try:
                         parsed = json.loads(output_content)
-                        logger.info(f"[PIPELINE DEBUG] Parsed JSON: {parsed}")
                         # Format common tool response patterns
                         if isinstance(parsed, dict):
                             if parsed.get("success"):
                                 parts = [f"✓ Success"]
+                                
+                                # Use message if available (highest priority)
                                 if "message" in parsed:
                                     parts.append(f": {parsed['message']}")
-                                if "output" in parsed and parsed["output"]:
-                                    parts.append(f"\n```\n{parsed['output'][:300]}\n```")
-                                if "content" in parsed and parsed["content"]:
-                                    parts.append(f"\n{parsed['content'][:200]}")
+                                # Terminal output - show it formatted
+                                elif "output" in parsed and parsed["output"]:
+                                    parts.append(f"\n```\n{parsed['output'][:500]}\n```")
+                                # Artifact loaded - show name only
+                                elif "name" in parsed and event_name == "get_artifact":
+                                    parts.append(f": Loaded {parsed['name']}")
+                                # File tree - show summary only
+                                elif "stats" in parsed and event_name == "get_file_tree":
+                                    stats = parsed["stats"]
+                                    parts.append(f": Found {stats.get('files', 0)} files, {stats.get('directories', 0)} directories")
+                                # Write operations - already have message, skip
+                                # For everything else, show success but NO raw data
+                                
                                 formatted_output = "".join(parts)
                             else:
                                 formatted_output = f"✗ Failed: {parsed.get('error', 'Unknown error')}"
@@ -236,9 +230,7 @@ async def stream_pipeline(
                 
                 # Only show output block if there's meaningful content
                 if formatted_output and formatted_output.strip():
-                    logger.info(f"[PIPELINE DEBUG] Emitting cmd_output block with content: {formatted_output[:100]}")
                     block_json = block_mgr.create_block(BlockType.CMD_OUTPUT, f"{event_name} result", formatted_output)
-                    logger.info(f"[PIPELINE DEBUG] Block JSON: {block_json[:200]}")
                     yield block_json + "\n"
                 
                 # ALSO emit tool_result for ToolProgress sidebar
@@ -265,12 +257,12 @@ async def stream_pipeline(
                     "file": file_path,
                     "success": success
                 }) + "\n"
+                logger.info(f"[PIPELINE DEBUG] Emitted tool_result JSON: tool={event_name}, file={file_path}, success={success}")
 
             # 3. NODE TRANSITIONS
             elif event_type == "on_chain_start":
                 if event_name == "planner":
                      yield block_mgr.start_block(BlockType.PLAN, "Developing Implementation Plan") + "\n"
-                     yield block_mgr.start_block(BlockType.THINKING, "Analyzing request...") + "\n"
                 elif event_name == "coder":
                      yield block_mgr.start_block(BlockType.CODE, "Writing Code...") + "\n"
                 elif event_name == "validator":
@@ -279,9 +271,99 @@ async def stream_pipeline(
                      yield block_mgr.start_block(BlockType.PREFLIGHT, "Applying Fixes...") + "\n"
 
             elif event_type == "on_chain_end":
+                
+                # PARSE STRUCTURED OUTPUTS from planner/coder
+                import json
+                output = event_data.get("output", {})
+                
+                # PLANNER STRUCTURED OUTPUT - Display nicely formatted plan
+                if event_name == "planner" and isinstance(output, dict):
+                    reasoning = output.get("reasoning", "")
+                    summary = output.get("summary", "")
+                    tasks = output.get("tasks", [])
+                    decision_notes = output.get("decision_notes", [])
+                    folders = output.get("folders", [])
+                    dependencies = output.get("dependencies", {})
+                    api_endpoints = output.get("api_endpoints", [])
+                    risks = output.get("risks", [])
+                    clarifying_questions = output.get("clarifying_questions", [])
+                    
+                    # Summary first
+                    if summary:
+                        yield block_mgr.create_block(BlockType.PLAN, "📋 Plan Summary", summary) + "\n"
+                    
+                    # Reasoning
+                    if reasoning:
+                        yield block_mgr.create_block(BlockType.THINKING, "💭 Design Thinking", reasoning) + "\n"
+                    
+                    # Key decisions
+                    if decision_notes:
+                        notes_text = "\n".join(f"• {note}" for note in decision_notes)
+                        yield block_mgr.create_block(BlockType.TEXT, "🎯 Key Decisions", notes_text) + "\n"
+                    
+                    # Tasks breakdown
+                    if tasks:
+                        task_summary = f"**{len(tasks)} implementation tasks:**\n\n"
+                        for i, task in enumerate(tasks, 1):
+                            title = task.get("title", "Untitled")
+                            desc = task.get("description", "")
+                            complexity = task.get("complexity", "unknown")
+                            priority = task.get("priority", "medium")
+                            est_minutes = task.get("estimated_minutes", 0)
+                            
+                            task_summary += f"**{i}. {title}**\n"
+                            if desc:
+                                task_summary += f"   {desc[:100]}{'...' if len(desc) > 100 else ''}\n"
+                            task_summary += f"   _Complexity: {complexity} | Priority: {priority}"
+                            if est_minutes:
+                                task_summary += f" | ~{est_minutes}min"
+                            task_summary += "_\n\n"
+                        
+                        yield block_mgr.create_block(BlockType.PLAN, "✅ Tasks", task_summary) + "\n"
+                    
+                    # Files/folders to create
+                    if folders:
+                        files_list = []
+                        for folder in folders[:10]:  # Show first 10
+                            path = folder.get("path", "")
+                            desc = folder.get("description", "")
+                            if path:
+                                files_list.append(f"• `{path}`" + (f" - {desc[:50]}" if desc else ""))
+                        
+                        files_text = "\n".join(files_list)
+                        if len(folders) > 10:
+                            files_text += f"\n\n... and {len(folders) - 10} more files"
+                        
+                        yield block_mgr.create_block(BlockType.TEXT, "📁 Files to Create", files_text) + "\n"
+                    
+                    # Dependencies
+                    if dependencies:
+                        runtime = dependencies.get("runtime", [])
+                        dev = dependencies.get("dev", [])
+                        
+                        if runtime or dev:
+                            dep_text = ""
+                            if runtime:
+                                dep_text += "**Runtime:**\n" + "\n".join(f"• {pkg.get('name', pkg)}" for pkg in runtime[:10])
+                            if dev:
+                                if runtime:
+                                    dep_text += "\n\n"
+                                dep_text += "**Dev:**\n" + "\n".join(f"• {pkg.get('name', pkg)}" for pkg in dev[:10])
+                            
+                            yield block_mgr.create_block(BlockType.TEXT, "📦 Dependencies", dep_text) + "\n"
+                    
+                    # Risks/warnings
+                    if risks:
+                        risk_text = "\n".join(f"⚠️ {risk.get('description', str(risk))}" for risk in risks[:5])
+                        yield block_mgr.create_block(BlockType.TEXT, "⚠️ Risks", risk_text) + "\n"
+                    
+                    # Questions for user
+                    if clarifying_questions:
+                        q_text = "\n".join(f"{i}. {q}" for i, q in enumerate(clarifying_questions, 1))
+                        yield block_mgr.create_block(BlockType.TEXT, "❓ Clarifying Questions", q_text) + "\n"
+                
                 # CAPTURE CUSTOM NODE EVENTS (e.g. file_written, run:complete)
                 # These are returned in the "stream_events" key of the node output
-                output = event_data.get("output", {})
                 if isinstance(output, dict):
                     # 1. SYNC PREVIEW MANAGER (Frontend Deep Linking)
                     # This controller layer logic ensures the API knows about path changes (e.g. scaffolding)

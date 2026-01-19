@@ -106,6 +106,7 @@ class CreateRunRequest(BaseModel):
     prompt: str
     title: Optional[str] = None
     project_path: Optional[str] = Field(None, alias="projectPath")
+    command_preference: Optional[str] = Field(None, alias="commandPreference")
     
     class Config:
         populate_by_name = True
@@ -197,7 +198,8 @@ async def create_run(
         status="pending",
         run_metadata={
             "title": request.title or request.prompt[:50],
-            "port": 3000,  # Will be assigned dynamically
+            "port": 3000,
+            "command_preference": request.command_preference or "auto",
         }
     )
     

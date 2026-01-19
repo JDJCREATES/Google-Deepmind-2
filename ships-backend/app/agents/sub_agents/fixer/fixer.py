@@ -92,21 +92,40 @@ class Fixer(BaseAgent):
             FailureLayer.SCOPE: ScopeFixer(self.config),
         }
     
-    def _get_system_prompt(self) -> str:
+    def _get_system_prompt(self, command_preference: str = "auto") -> str:
         """Get system prompt for fix generation."""
         import platform
-        is_windows = platform.system() == "Windows"
+        import os
+        
+        is_windows = False
+        if command_preference == "windows":
+            is_windows = True
+        elif command_preference == "unix" or command_preference == "macos":
+            is_windows = False
+        else:
+            # Auto-detect
+            is_windows = platform.system() == "Windows" or os.name == 'nt'
         
         os_tips = ""
+        
         if is_windows:
             os_tips = """
-WINDOWS ENVIRONMENT DETECTED:
-- Use 'dir' instead of 'ls' (e.g. 'dir /s /b')
-- Use 'findstr' instead of 'grep'
-- Use 'type' instead of 'cat'
-- Use 'del' instead of 'rm'
-- Do NOT use '&&' to chain commands if possible, run them separately
-- If a build script fails, check package.json to see if it uses unix-only commands (like 'Reflect.metadata' or 'rm -rf')
+CRITICAL OS INSTRUCTIONS (WINDOWS/POWERSHELL COMPATIBILITY):
+- The environment is likely WINDOWS (Powershell/CMD).
+- NEVER use 'grep'. IT WILL FAIL. Use 'findstr' instead.
+- NEVER use 'ls'. Use 'dir'.
+- NEVER use 'cat'. Use 'type'.
+- NEVER use 'rm'. Use 'del'.
+- Do NOT use '&&' to chain commands unless you are certain it is CMD. Run commands strictly one by one.
+- If searching for text, use: findstr /s /n "search_term" *
+- You are explicitly running on Windows.
+"""
+        else:
+            os_tips = """
+CRITICAL OS INSTRUCTIONS (UNIX/LINUX/MACOS):
+- The environment is Unix-like (Linux/MacOS).
+- Use standard bash commands (ls, grep, cat, rm).
+- You can chain commands with '&&'.
 """
 
         return f"""You are the Fixer for ShipS*, an AI coding system that SHIPS WORKING CODE.
@@ -582,11 +601,18 @@ When done, respond with:
         # Execute using create_react_agent with FIXER_TOOLS
         # ================================================================
         try:
+            # Get settings
+            settings = artifacts.get("settings", {})
+            command_pref = settings.get("command_preference", "auto")
+            
+            # Use instance method for prompt
+            system_prompt = self._get_system_prompt(command_preference=command_pref)
+            
             llm = LLMFactory.get_model("fixer")
             fixer_agent = create_react_agent(
                 model=llm,
                 tools=FIXER_TOOLS,
-                prompt=AGENT_PROMPTS.get("fixer", "You are a code fixing agent."),
+                prompt=system_prompt,
             )
             
             result = await fixer_agent.ainvoke(

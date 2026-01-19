@@ -78,6 +78,25 @@ const UniversalSettings: React.FC = () => {
             
             <div className="settings-row">
               <div className="settings-label">
+                <div className="settings-label-text">Agent Command System</div>
+                <div className="settings-label-desc">Force agents to use specific OS commands</div>
+              </div>
+              <div className="settings-control">
+                <select
+                  className="settings-select"
+                  value={app.commandPreference || 'auto'}
+                  onChange={(e) => updateAppSettings({ commandPreference: e.target.value as any })}
+                >
+                  <option value="auto">Auto-detect (System Default)</option>
+                  <option value="windows">Windows (CMD/Powershell)</option>
+                  <option value="unix">Unix (Bash/Linux)</option>
+                  <option value="macos">MacOS (Zsh)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="settings-row">
+              <div className="settings-label">
                 <div className="settings-label-text">Confirm Before Exit</div>
                 <div className="settings-label-desc">Ask for confirmation when closing</div>
               </div>

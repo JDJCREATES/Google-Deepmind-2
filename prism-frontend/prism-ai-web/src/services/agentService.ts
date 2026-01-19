@@ -68,7 +68,7 @@ export interface ArtifactContext {
     orphanedFiles: string[];
   };
 }
-
+import { debouncedLogger } from '../utils/debouncedLogger';
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
 
 /**
@@ -169,26 +169,29 @@ export const agentService = {
           if (!line.trim()) continue;
           try {
             const chunk = JSON.parse(line);
-            console.group(`[AgentService] 📥 Chunk: ${chunk.type || 'NO_TYPE'}`);
-            console.log('Raw line:', line.substring(0, 200));
-            console.log('Parsed object:', chunk);
-            console.log('Has type:', !!chunk.type, 'Value:', chunk.type);
-            console.log('Has block_type:', !!chunk.block_type, 'Value:', chunk.block_type);
-            console.log('Has id:', !!chunk.id, 'Value:', chunk.id);
-            console.log('Has content:', !!chunk.content, 'Length:', chunk.content?.length);
-            console.groupEnd();
+            
+            // LOG FULL TOOL EVENTS (these are rare, not spam)
+            if (chunk.type === 'tool_start' || chunk.type === 'tool_result') {
+              console.group(`🔧 [AgentService] TOOL EVENT: ${chunk.type}`);
+              console.log('Full JSON:', JSON.stringify(chunk, null, 2));
+              console.log('Raw line:', line);
+              console.groupEnd();
+            }
+            // Debounced logging for high-frequency events
+            else if (chunk.type === 'block_delta') {
+              debouncedLogger.debug(`[AgentService] Token stream active`);
+            } else {
+              debouncedLogger.info(`[AgentService] Event: ${chunk.type}`);
+            }
+            
             onChunk(chunk);
           } catch (e) {
-            console.group('[AgentService] ❌ Parse Error');
-            console.error("Error:", e);
-            console.error("Raw line:", line);
-            console.error("Line length:", line.length);
-            console.groupEnd();
+            console.error('[AgentService] Parse error:', e, 'Line:', line.substring(0, 100));
           }
         }
       }
       
-      console.log('[AgentService] Stream completed');
+      debouncedLogger.info('[AgentService] Stream completed');
     } catch (error) {
       console.error("Agent run error:", error);
       onError(error);

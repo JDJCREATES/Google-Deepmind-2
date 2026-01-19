@@ -131,7 +131,8 @@ class Coder(BaseAgent):
         folder_map: Optional[Dict[str, Any]] = None,
         api_contracts: Optional[Dict[str, Any]] = None,
         project_type: str = "generic",
-        thought_signature: Optional[str] = None
+        thought_signature: Optional[str] = None,
+        command_preference: str = "auto"
     ) -> None:
         """
         Inject context from LangGraph state before invoke.
@@ -147,11 +148,42 @@ class Coder(BaseAgent):
         self._last_thought_signature = thought_signature
         
         # Regenerate prompt with injected context
-        self.system_prompt = self._get_system_prompt()
+        self.system_prompt = self._get_system_prompt(command_preference=command_preference)
     
-    def _get_system_prompt(self) -> str:
+    def _get_system_prompt(self, command_preference: str = "auto") -> str:
         """Get enhanced system prompt with injected context."""
         base_prompt = CODER_SYSTEM_PROMPT
+        
+        # Inject OS Command Instructions
+        import platform
+        import os
+        
+        is_windows = False
+        if command_preference == "windows":
+            is_windows = True
+        elif command_preference == "unix" or command_preference == "macos":
+            is_windows = False
+        else:
+            is_windows = platform.system() == "Windows" or os.name == 'nt'
+            
+        if is_windows:
+            base_prompt += """
+
+CRITICAL OS INSTRUCTIONS (WINDOWS):
+- Environment: Windows (Powershell/CMD)
+- Use 'findstr' instead of 'grep'
+- Use 'dir' instead of 'ls'
+- Use 'type' instead of 'cat'
+- Use 'del' instead of 'rm'
+- Do NOT chain commands with '&&' unless sure it's CMD. Run sequentially.
+"""
+        else:
+            base_prompt += """
+
+CRITICAL OS INSTRUCTIONS (UNIX):
+- Environment: Unix/Linux/MacOS
+- Use standard bash commands (ls, grep, cat, rm)
+"""
         
         # Inject folder map if available (saves list_directory calls)
         if self._injected_folder_map:
@@ -972,10 +1004,17 @@ IMPORTANT:
                 # Return trimmed messages via llm_input_messages (doesn't alter state)
                 return {"llm_input_messages": trimmed}
             
+            # Get settings and command preference
+            settings = artifacts.get("settings", {})
+            command_pref = settings.get("command_preference", "auto")
+            
+            # Use instance method for prompt to inject OS-specific context
+            system_prompt = self._get_system_prompt(command_preference=command_pref)
+            
             coder_agent = create_react_agent(
                 model=llm,
                 tools=CODER_TOOLS,
-                prompt=AGENT_PROMPTS.get("coder", "You are a code implementation agent."),
+                prompt=system_prompt,
                 pre_model_hook=pre_model_hook,  # Trim before each LLM call
             )
             

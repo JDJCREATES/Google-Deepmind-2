@@ -9,6 +9,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { AgentRun, Screenshot, RunStatus, AgentType, CreateRunRequest, ChatMessage, ThinkingSectionData, StreamBlock, PreviewStatus } from '../types';
+import { useSettingsStore } from '../../../store/settingsStore';
 
 // ============================================================================
 // Types
@@ -382,8 +383,17 @@ export const useAgentRuns = create<AgentRunsState>()(
   
   createRun: async (request) => {
     const { setLoading, setError, addRun, isElectron } = get();
+    // Access settings store directly since it's a separate store
+    const { app } = useSettingsStore.getState();
+    
     setLoading(true);
     setError(null);
+    
+    // Inject command preference from settings if not explicitly provided
+    const payload = {
+      ...request,
+      commandPreference: app.commandPreference || 'auto'
+    };
     
     try {
       // Create run via backend API
@@ -391,7 +401,7 @@ export const useAgentRuns = create<AgentRunsState>()(
         fetch(`${API_BASE}/api/runs`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(request),
+          body: JSON.stringify(payload),
           credentials: 'include',
         })
       );
