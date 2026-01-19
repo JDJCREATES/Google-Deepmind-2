@@ -1036,30 +1036,9 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
                     else:
                         logger.info(f"[PLANNER] ✅ Scope 'layer' but {target_area} exists → No scaffolding")
                         
-                elif scope == "component":
-                    # Check if basic project structure exists in the PROJECT PATH (user's folder)
-                    # NOT in the current working directory
-                    actual_project_dir = Path(self.project_root) if self.project_root else project_dir
-                    
-                    project_indicators = [
-                        actual_project_dir / "package.json",
-                        actual_project_dir / "src",
-                        actual_project_dir / "app",
-                        actual_project_dir / "index.html",  # Vite apps
-                        actual_project_dir / "tsconfig.json"  # TypeScript projects
-                    ]
-                    has_project = any(ind.exists() for ind in project_indicators)
-                    
-                    if not has_project:
-                        needs_scaffolding = True
-                        logger.info(f"[PLANNER] 🏗️ Scope 'component' but no project found at {actual_project_dir} → Scaffolding required")
-                    else:
-                        logger.info(f"[PLANNER] ✅ Scope 'component' and project exists at {actual_project_dir} → No scaffolding")
-                        needs_scaffolding = False  # CRITICAL FIX: Don't scaffold if project exists!
-                        
-                else: # feature
+                else: # feature or file - NO scaffolding (add to existing project)
                     needs_scaffolding = False
-                    logger.info(f"[PLANNER] ✅ Scope 'feature' → No scaffolding")
+                    logger.info(f"[PLANNER] ✅ Scope '{scope}' → No scaffolding (adding to existing project)")
 
                 # Execute scaffolding if needed
                 if needs_scaffolding:
@@ -1262,6 +1241,27 @@ That's it. Simple. Let the scaffolder do its job."""
                 )
                 
                 plan_md_path = dot_ships / "implementation_plan.md"
+                
+                # ================================================================
+                # AUTO-VERSIONING: Backup existing plan before overwrite
+                # ================================================================
+                if plan_md_path.exists():
+                    try:
+                        history_dir = dot_ships / "history"
+                        history_dir.mkdir(parents=True, exist_ok=True)
+                        
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        backup_name = f"implementation_plan_{timestamp}.md"
+                        backup_path = history_dir / backup_name
+                        
+                        # Copy existing content to backup
+                        existing_content = plan_md_path.read_text(encoding="utf-8")
+                        backup_path.write_text(existing_content, encoding="utf-8")
+                        
+                        logger.info(f"[PLANNER] 📦 Backed up previous plan to: .ships/history/{backup_name}")
+                    except Exception as backup_err:
+                        logger.warning(f"[PLANNER] ⚠️ Failed to backup plan: {backup_err}")
+                
                 with open(plan_md_path, "w", encoding="utf-8") as f:
                     f.write(plan_md_content)
                 

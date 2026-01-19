@@ -7,23 +7,43 @@
 
 ## 🔴 Root Causes Identified
 
-### Bug #1: Intent Misclassification
+### Bug #1: Scope Terminology Mismatch
 **Symptom**: "add a settings menu" classified as `scope: "component"` instead of `scope: "feature"`
 
-**Impact**: Triggered new project scaffolding instead of modifying existing project
+**Root Issue**: The Scope enum definition and the system prompt had conflicting definitions:
+- **Enum**: "component" = new UI/code component (new files)  
+- **Prompt**: "component" = ONLY for new projects without existing code
 
-**Fix Applied**: Updated IntentClassifier scope logic in [intent_classifier.py](ships-backend/app/agents/mini_agents/intent_classifier.py#L233-L245)
+**User Feedback**: ✅ "A component is typically like a React component, not a layer. Layer/service should be for backend stuff."
+
+**Impact**: Triggered new project scaffolding instead of adding to existing project
+
+**Fix Applied**: 
+1. **Removed confusing "component" scope** - it was ambiguous
+2. **Clarified 3 clear scopes**:
+   - `"feature"` = Add to EXISTING project (new components, pages, features)
+   - `"layer"` = Add NEW architectural layer (backend to frontend, auth system, database)
+   - `"project"` = Create brand NEW project from scratch (full scaffolding)
+
+**Files Changed**:
+- [intent_classifier.py](ships-backend/app/agents/mini_agents/intent_classifier.py#L78-L82) - Updated Scope enum
+- [intent_classifier.py](ships-backend/app/agents/mini_agents/intent_classifier.py#L247-L265) - Updated system prompt  
+- [planner.py](ships-backend/app/agents/sub_agents/planner/planner.py#L1038-L1042) - Removed component logic
 
 **Before**:
-```
-- "add a new Settings page" → scope: component (scaffolds new project)
+```python
+FEATURE = "feature"       # Modify existing files only
+COMPONENT = "component"   # New UI files (ambiguous - scaffold or not?)
+LAYER = "layer"           # Backend stuff  
+PROJECT = "project"       # New project
 ```
 
 **After**:
-```
-- "add settings menu" → scope: feature (modifies existing project)
-- "add X" (default) → scope: feature (safe default)
-- Only use "component" when EXPLICITLY creating new standalone component
+```python
+FEATURE = "feature"       # Add to existing (new OR modified files)
+LAYER = "layer"           # Add architectural layer (backend, auth, db)
+PROJECT = "project"       # Create new project from scratch
+FILE = "file"             # Single file only
 ```
 
 ---

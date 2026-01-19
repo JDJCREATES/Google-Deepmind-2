@@ -77,11 +77,10 @@ class TargetArea(str, Enum):
 
 class Scope(str, Enum):
     """Scope of the requested change - helps Planner decide scaffolding."""
-    FEATURE = "feature"       # Adding behavior to existing code (modify existing files)
-    LAYER = "layer"           # Adding new architectural layer (backend, auth, database)
-    COMPONENT = "component"   # Adding new UI/code component (new files)
-    FILE = "file"             # Single file operation
-    PROJECT = "project"       # New project/app scaffolding
+    FEATURE = "feature"       # Add to EXISTING project (new files OR modify existing)
+    LAYER = "layer"           # Add NEW architectural layer (backend, auth, database to existing frontend)
+    PROJECT = "project"       # Create brand NEW project from scratch (full scaffolding)
+    FILE = "file"             # Single file operation only
 
 
 class StructuredIntent(BaseModel):
@@ -244,18 +243,32 @@ CLASSIFICATION GUIDE (task_type + action):
 - "looks good" / "proceed" / "yes" / "go ahead" / "approved" → task_type: confirmation, action: proceed
 
 SCOPE CLASSIFICATION (CRITICAL - helps Planner decide scaffolding):
-- scope: "feature" → Adding behavior/logic to EXISTING code (e.g., "add dark mode", "add calculation", "add sorting", "add settings menu")
-- scope: "layer" → Adding a NEW architectural layer that doesn't exist (e.g., "add backend", "add authentication", "add database", "add API layer")
-- scope: "component" → Adding a NEW UI/code component to a NEW project (ONLY for new projects without existing code)
-- scope: "project" → Creating a brand new project/app from scratch (e.g., "create a todo app", "scaffold a React app")
-- scope: "file" → Single file operation (e.g., "create a utils.ts file")
 
-SCOPE DECISION LOGIC:
-- If user says "add X" or "add X to the app" → scope: feature (DEFAULT - safest, won't scaffold)
-- If user says "add X" where X is a system/layer (backend, auth, db) AND no existing project → scope: layer
-- If user says "create new app" or "scaffold" → scope: project
-- If existing project detected in folder_map → scope: feature (never component)
-- When in doubt, ALWAYS use "feature" (safest - won't scaffold unnecessarily)
+1. scope: "feature" (DEFAULT - NO scaffolding)
+   - Adding to EXISTING project (new components, features, pages, etc)
+   - Examples: "add settings menu", "add dark mode", "create a Button component", "add login page"
+   - Use when: Project already exists (has package.json, src/, etc)
+   
+2. scope: "layer" (CONDITIONAL scaffolding)
+   - Adding NEW architectural layer to existing project
+   - Examples: "add backend" (to frontend-only), "add database", "add authentication system"
+   - Use when: Adding major new infrastructure to existing codebase
+   
+3. scope: "project" (FULL scaffolding)
+   - Creating brand NEW project from scratch
+   - Examples: "create a todo app", "scaffold a React app", "build a new dashboard"
+   - Use when: No existing project, starting fresh
+   
+4. scope: "file" (NO scaffolding)
+   - Single file operation
+   - Examples: "create utils.ts", "add a helper file"
+
+SCOPE DECISION LOGIC (ALWAYS follow this order):
+1. If folder_map provided AND has entries → scope: "feature" (existing project detected)
+2. If user says "create NEW app/project" or "scaffold" → scope: "project"
+3. If user says "add backend/auth/database" to frontend → scope: "layer"
+4. If user says "add X" (anything else) → scope: "feature" (SAFE DEFAULT)
+5. When in doubt → scope: "feature" (never scaffold unless explicitly requested)
 
 AMBIGUITY TRIGGERS (set is_ambiguous=true):
 - Request is gibberish or truly nonsensical
