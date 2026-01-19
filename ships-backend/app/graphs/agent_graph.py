@@ -607,11 +607,12 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
     # ========================================================================
     # STEP 1: INTENT CLASSIFICATION (The "Mini Agent")
     # ========================================================================
-    # We run this if we have a NEW request (e.g. at start of run) or if "structured_intent" is missing
+    # CRITICAL FIX: Only classify ONCE per run (prevent re-classification mid-stream)
     structured_intent = artifacts.get("structured_intent")
+    intent_classified = artifacts.get("intent_classified", False)
     
-    # If we are in 'chat_setup' or don't have intent yet, run classification
-    if (not structured_intent or phase == "chat_setup") and user_request:
+    # ONLY classify if TRULY missing and not already classified
+    if not intent_classified and user_request:
         try:
             from app.agents.mini_agents.intent_classifier import IntentClassifier
             from langchain_core.callbacks import Callbacks
@@ -640,11 +641,12 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
             
             structured_intent = structured_intent_obj.model_dump()
             
-            # SAVE INTENT TO ARTIFACTS
+            # SAVE INTENT TO ARTIFACTS AND LOCK IT
             artifacts["structured_intent"] = structured_intent
+            artifacts["intent_classified"] = True  # ✅ LOCK - Never reclassify
             state["artifacts"] = artifacts # Update local ref
             
-            logger.info(f"[ORCHESTRATOR] ✅ Intent Classified: {structured_intent.get('scope')} / {structured_intent.get('task_type')}")
+            logger.info(f"[ORCHESTRATOR] ✅ Intent Classified ONCE: {structured_intent.get('scope')} / {structured_intent.get('task_type')}")
             
             # CRITICAL: If scope is 'feature' or 'fix', ensure we mark scaffolding as complete/skipped
             # This prevents the Router/Planner from trying to scaffold a new app
@@ -693,56 +695,48 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
     # ================================================================
     # STEP 5: LLM FALLBACK FOR AMBIGUOUS STATES
     # ================================================================
-    # LLM Fallback - Use the Master Orchestrator for ambiguous states
+    # LLM Fallback - Use structured output (NO REGEX PARSING)
     if routing_decision.requires_llm:
         logger.info("[ORCHESTRATOR] 🤖 Ambiguity detected - Calling Master Orchestrator LLM...")
         
         try:
-             # Create LLM Orchestrator (The "LLM we already have")
-             orchestrator = AgentFactory.create_orchestrator()
+             from pydantic import BaseModel, Field
+             from typing import Literal
              
-             # Enrich context for the LLM
-             system_msg = f"""You are the Master Orchestrator Fallback. 
-             The deterministic router stopped because: {routing_decision.reason}
-             Analyze the state and decide the next step (planner, coder, validator, fixer, chat, complete).
-             Return STRICT JSON (Double Quotes Only!): {{"decision": "next_agent_name", "reasoning": "..."}}"""
+             # Define structured output schema
+             class OrchestratorDecision(BaseModel):
+                 decision: Literal["planner", "coder", "validator", "fixer", "chat", "complete"] = Field(
+                     description="Next agent to invoke"
+                 )
+                 reasoning: str = Field(description="Brief explanation of the decision")
              
-             messages_with_context = [
-                 HumanMessage(content=system_msg + f"\n\nCurrent Phase: {phase}\nLast Message: {messages[-1].content if messages else 'None'}")
-             ]
+             # Create LLM with structured output
+             from app.core.llm_factory import LLMFactory
+             llm = LLMFactory.get_model("mini")
+             structured_llm = llm.with_structured_output(OrchestratorDecision)
              
-             # Invoke LLM
-             result = await orchestrator.ainvoke({"messages": messages_with_context})
-             response_content = result["messages"][-1].content
-             
-             # Simple Parsing
-             import json, re, ast
-             json_match = re.search(r'\{[\s\S]*\}', str(response_content))
-             if json_match:
-                 json_str = json_match.group()
-                 try:
-                     parsed = json.loads(json_str)
-                 except json.JSONDecodeError:
-                     # Fallback: Try ast.literal_eval for single quotes
-                     try:
-                         parsed = ast.literal_eval(json_str)
-                     except:
-                         logger.warning("[ORCHESTRATOR] ⚠️ JSON/AST parsing failed for LLM decision")
-                         parsed = {}
+             # Build context prompt
+             system_msg = f"""You are the Master Orchestrator Fallback.
 
-                 llm_decision = parsed.get("decision", "chat").lower()
-                 if "planner" in llm_decision: routing_decision.next_phase = "planner"
-                 elif "coder" in llm_decision: routing_decision.next_phase = "coder"
-                 elif "validator" in llm_decision: routing_decision.next_phase = "validator"
-                 elif "fixer" in llm_decision: routing_decision.next_phase = "fixer"
-                 elif "finish" in llm_decision: routing_decision.next_phase = "complete"
-                 else: routing_decision.next_phase = "chat"
-                 
-                 routing_decision.reason = f"LLM Override: {parsed.get('reasoning', 'No reasoning')}"
-                 logger.info(f"[ORCHESTRATOR] 🤖 LLM Decided: {routing_decision.next_phase}")
-             else:
-                 logger.warning("[ORCHESTRATOR] ⚠️ LLM returned invalid JSON, escalating to chat.")
-                 routing_decision.next_phase = "chat"
+Router stopped because: {routing_decision.reason}
+Current Phase: {phase}
+Last Message: {messages[-1].content if messages else 'None'}
+
+Analyze the state and decide the next agent to invoke.
+Choose from: planner, coder, validator, fixer, chat, complete
+
+Output your decision as JSON with 'decision' and 'reasoning' fields."""
+             
+             # Invoke with structured output (GUARANTEED valid format)
+             result: OrchestratorDecision = await structured_llm.ainvoke([
+                 HumanMessage(content=system_msg)
+             ])
+             
+             # Use result directly (no parsing needed!)
+             routing_decision.next_phase = result.decision
+             routing_decision.reason = f"LLM Override: {result.reasoning}"
+             
+             logger.info(f"[ORCHESTRATOR] 🤖 LLM Decided: {result.decision} - {result.reasoning[:100]}")
                  
         except Exception as e:
             logger.error(f"[ORCHESTRATOR] ❌ LLM Fallback Failed: {e}")
@@ -751,21 +745,24 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
     # ================================================================
     # STEP 6: UPDATE LOOP DETECTION
     # ================================================================
-    # Use router-calculated loop info if available (Single Source of Truth)
+    # SIMPLIFIED: Router is the SINGLE SOURCE OF TRUTH for loop detection
     if "loop_detection" in routing_decision.metadata:
+        # Router calculated it - trust it completely
         loop_detection = routing_decision.metadata["loop_detection"]
-    
-    # Fallback: Manual calculation (only for LLM decisions that bypass router logic)
-    elif routing_decision.next_phase == loop_detection.get("last_node"):
-        loop_detection["consecutive_calls"] = loop_detection.get("consecutive_calls", 0) + 1
+        logger.debug(f"[ORCHESTRATOR] Loop detection from router: {loop_detection.get('consecutive_calls')} calls to {loop_detection.get('last_node')}")
     else:
-        loop_detection = {
-            "last_node": routing_decision.next_phase,
-            "consecutive_calls": 1,
-            "loop_detected": False,
-            "loop_message": "",
-            "wait_attempts": loop_detection.get("wait_attempts", 0)  # Preserve wait counter
-        }
+        # LLM-only decision (bypassed router) - simple tracking
+        last_node = loop_detection.get("last_node")
+        if routing_decision.next_phase == last_node:
+            loop_detection["consecutive_calls"] = loop_detection.get("consecutive_calls", 0) + 1
+        else:
+            loop_detection = {
+                "last_node": routing_decision.next_phase,
+                "consecutive_calls": 1,
+                "loop_detected": False,
+                "loop_message": "",
+                "wait_attempts": loop_detection.get("wait_attempts", 0)
+            }
     
     # ================================================================
     # STEP 7: STEP TRACKING
@@ -790,7 +787,53 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
         pass  # Non-fatal
     
     # ================================================================
-    # STEP 8: RETURN ROUTING DECISION
+    # STEP 8: ROUTING SNAPSHOT LOGGING (For Debugging)
+    # ================================================================
+    try:
+        import json
+        from pathlib import Path
+        
+        # Build routing snapshot
+        routing_snapshot = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "current_phase": phase,
+            "next_phase": routing_decision.next_phase,
+            "reason": routing_decision.reason,
+            "used_llm": routing_decision.requires_llm,
+            "loop_detection": {
+                "last_node": loop_detection.get("last_node"),
+                "consecutive_calls": loop_detection.get("consecutive_calls"),
+                "loop_detected": loop_detection.get("loop_detected", False)
+            },
+            "artifacts_present": list(artifacts.keys()),
+            "critical_flags": {
+                "intent_classified": artifacts.get("intent_classified", False),
+                "scaffolding_complete": artifacts.get("scaffolding_complete", False),
+                "implementation_complete": state.get("implementation_complete", False),
+                "validation_status": str(state.get("validation_status", "unknown")),
+                "fix_attempts": state.get("fix_attempts", 0)
+            },
+            "messages_count": len(messages),
+            "gate_result": routing_decision.gate_result.gate_name if routing_decision.gate_result else None,
+            "gate_passed": routing_decision.gate_result.passed if routing_decision.gate_result else None
+        }
+        
+        # Log to console (always)
+        logger.info(f"[ROUTING_SNAPSHOT] {json.dumps(routing_snapshot, indent=2)}")
+        
+        # Save to file (for post-mortem analysis)
+        project_path = artifacts.get("project_path")
+        if project_path:
+            snapshot_file = Path(project_path) / ".ships" / "routing_log.jsonl"
+            snapshot_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(snapshot_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(routing_snapshot) + "\n")
+    except Exception as log_error:
+        logger.warning(f"[ORCHESTRATOR] Failed to log routing snapshot: {log_error}")
+    
+    # ================================================================
+    # STEP 9: RETURN ROUTING DECISION
     # ================================================================
     return {
         "phase": routing_decision.next_phase,

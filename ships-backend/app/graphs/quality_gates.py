@@ -129,27 +129,51 @@ def check_plan_exists(state: Dict[str, Any]) -> bool:
 
 
 def check_plan_complete(state: Dict[str, Any]) -> bool:
-    """Check if plan has all required sections."""
+    """Check if plan has all required sections AND has actual tasks."""
     artifacts = state.get("artifacts", {})
-    # Check for both 'plan' (legacy) and 'plan_manifest' (new)
-    plan = artifacts.get("plan") or artifacts.get("plan_manifest", {})
     
-    if not plan:
+    # NEW: Check task_list for actual tasks (CRITICAL)
+    task_list = artifacts.get("task_list", {})
+    tasks = task_list.get("tasks", [])
+    
+    # CRITICAL: Plan must have at least 1 task
+    if not tasks or len(tasks) == 0:
+        logger.warning("[GATE] Plan has ZERO tasks - invalid")
         return False
     
-    # Plan manifest has different structure - check for task_list or folder_map
-    if "task_list" in artifacts or "folder_map" in artifacts:
-        return True
+    # Check for folder_map
+    folder_map = artifacts.get("folder_map", {})
+    if not folder_map.get("entries"):
+        logger.warning("[GATE] Plan has no folder structure - invalid")
+        return False
     
-    # Legacy plan structure
-    required_fields = ["tasks", "architecture", "files_to_create"]
-    return any(field in plan and plan[field] for field in required_fields)
+    logger.info(f"[GATE] Plan validation passed: {len(tasks)} tasks, {len(folder_map.get('entries', []))} files")
+    return True
 
 
 def check_scaffolding_complete(state: Dict[str, Any]) -> bool:
-    """Check if scaffolding phase completed."""
+    """Check if scaffolding phase completed OR was validly skipped."""
     artifacts = state.get("artifacts", {})
-    return artifacts.get("scaffolding_complete", False)
+    
+    # Check if scaffolding is complete
+    if artifacts.get("scaffolding_complete", False):
+        return True
+    
+    # Check if scaffolding was validly skipped (feature/fix requests)
+    if artifacts.get("scaffolding_skipped", False):
+        logger.info("[GATE] Scaffolding skipped (feature/fix request)")
+        return True
+    
+    # Check if intent scope doesn't require scaffolding
+    intent = artifacts.get("structured_intent", {})
+    scope = intent.get("scope", "feature")
+    
+    if scope in ["feature", "component", "file", "layer"]:
+        logger.info(f"[GATE] Scaffolding not needed for scope: {scope}")
+        return True
+    
+    logger.warning("[GATE] Scaffolding required but not complete")
+    return False
 
 
 def check_implementation_started(state: Dict[str, Any]) -> bool:

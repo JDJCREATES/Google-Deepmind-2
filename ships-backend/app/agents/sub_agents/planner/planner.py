@@ -1097,51 +1097,72 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
                     
                     logger.info(f"[PLANNER] 🔧 Final Scaffold Command: {scaffold_command}")
                     
-                    # Don't create folders with prefix yet - wait until we know the actual project path
-                    folders_to_create = []
-                    for f in plan_result["folder_map"].entries:
-                         # Skip existing directories and .ships folder
-                         if getattr(f, 'is_directory', False) and not str(f.path).startswith(".ships"):
-                             path = f.path
-                             # FIX: Prepend subfolder if we are scaffolding into one
-                             if target_arg != ".":
-                                 # Avoid double prefixing if path already starts with target_arg
-                                 if not str(path).startswith(f"{target_arg}/"):
-                                     path = f"{target_arg}/{path}"
-                             folders_to_create.append(path)
-                    
-                    scaffold_prompt = f"""PROJECT PATH: {project_dir} (Target: {target_arg})
-
+                    scaffold_prompt = f"""PROJECT PATH: {project_dir}
+TARGET: {target_arg}
 USER REQUEST: "{user_request_summary[:200]}"
-
 TEMPLATE: {self.current_project_type}
 
-SCAFFOLDING REQUIRED: Execute these steps in order:
+SCAFFOLDING TASK - NEW PROJECT SETUP:
 
-1. First, check what exists: call list_directory(".")
+You are setting up a NEW project. The workflow is:
+1. Run official CLI scaffolder (creates base structure)
+2. Verify it worked
+3. The Coder will add custom files later
 
-2. If no package.json exists, scaffold the project:
+EXECUTE THESE STEPS:
+
+Step 1 - Check current state:
+   list_directory(".")
+
+Step 2 - Run scaffolding CLI (PRIORITY):
    run_terminal_command("{scaffold_command}")
-   Then: run_terminal_command("npm install")
+   
+   This creates:
+   - package.json, tsconfig.json, vite.config.ts (or similar configs)
+   - Base folder structure (src/, public/, etc)
+   - Entry points (index.html, main.tsx)
+   
+Step 3 - Install dependencies:
+   run_terminal_command("npm install")
 
-3. Create ALL these folders in ONE call using create_directories:
-   create_directories({json.dumps(folders_to_create[:20])})
-
-4. Verify scaffolding: call list_directory(".") to confirm structure
+Step 4 - Verify structure created:
+   list_directory(".")
 
 IMPORTANT:
-- Use -y flags to avoid prompts
-- Use create_directories (batch) NOT multiple create_directory calls
-- If a command fails, log and continue
-- Do NOT write actual code - just structure"""
+- The CLI scaffolder creates the FOUNDATION
+- The Coder will create custom components/pages/features AFTER this
+- Do NOT manually create package.json or tsconfig.json (scaffolder does this)
+- Do NOT create application code (Coder does this)
+- Your job: Run the scaffolder and verify success"""
 
+                    # Create dedicated scaffolder system prompt
+                    scaffolder_system_prompt = """You are a Project Scaffolder for ShipS*.
+
+YOUR ONLY JOB: Run official scaffolding commands to create project structures.
+
+CRITICAL RULES:
+1. ALWAYS use run_terminal_command for scaffolding (npm create, npx create-*, etc)
+2. NEVER manually create folders or files
+3. NEVER use create_directory, create_directories, or write_file
+4. The scaffolder CLI tools (vite, create-react-app, etc) create EVERYTHING
+
+WHY: Scaffolding CLIs are designed by framework authors to create perfect, complete project structures.
+Manual creation leads to missing files, incorrect configs, and broken projects.
+
+YOUR WORKFLOW:
+1. Check if project exists (list_directory)
+2. Run the scaffolding command (run_terminal_command)
+3. Install dependencies (run_terminal_command: npm install)
+4. Verify success (list_directory)
+
+That's it. Simple. Let the scaffolder do its job."""
 
                     # Create ReAct agent with planner tools
                     llm = LLMFactory.get_model("planner")
                     planner_agent = create_react_agent(
                         model=llm,
                         tools=PLANNER_TOOLS,
-                        prompt=AGENT_PROMPTS.get("planner", "You are a project scaffolder."),
+                        prompt=scaffolder_system_prompt,  # Use dedicated prompt
                     )
                     
                     # Execute scaffolding

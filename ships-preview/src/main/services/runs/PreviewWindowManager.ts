@@ -15,6 +15,7 @@
 import { BrowserWindow, app } from 'electron';
 import { ChildProcess, spawn, exec } from 'child_process';
 import { promisify } from 'util';
+import * as net from 'net';
 
 const execAsync = promisify(exec);
 
@@ -95,24 +96,35 @@ export class PreviewWindowManager {
   }
 
   /**
-   * Wait for server to be ready
+   * Wait for server to be ready (TCP Connect)
    */
-  private async waitForServer(url: string, timeout: number): Promise<boolean> {
+  private async waitForServer(port: number, timeout: number): Promise<boolean> {
     const startTime = Date.now();
     
     while (Date.now() - startTime < timeout) {
-      try {
-        const response = await fetch(url, { 
-          method: 'HEAD',
-          signal: AbortSignal.timeout(2000)
-        });
-        
-        if (response.ok || response.status === 304) {
-          return true;
-        }
-      } catch {
-        // Server not ready yet
-      }
+      const isListening = await new Promise<boolean>((resolve) => {
+          const socket = new net.Socket();
+          socket.setTimeout(200); // Fast check
+          
+          socket.on('connect', () => {
+              socket.destroy();
+              resolve(true);
+          });
+          
+          socket.on('timeout', () => {
+              socket.destroy();
+              resolve(false);
+          });
+          
+          socket.on('error', () => {
+              socket.destroy();
+              resolve(false);
+          });
+          
+          socket.connect(port, '127.0.0.1');
+      });
+
+      if (isListening) return true;
       
       await new Promise(resolve => setTimeout(resolve, CONFIG.SERVER_HEALTH_CHECK_INTERVAL));
     }
@@ -180,7 +192,7 @@ export class PreviewWindowManager {
         console.log(`[PreviewWindowManager] No nested project found in ${targetPath}, using as-is.`);
     }
 
-    const port = this.getNextPort();
+
     
     // Check if already exists
     if (this.windows.has(sanitizedId)) {
@@ -221,7 +233,7 @@ export class PreviewWindowManager {
       backgroundColor: '#1e1e1e',
     });
     
-    const url = `http://localhost:${port}`;
+    const url = `http://127.0.0.1:${port}`;
     
     const preview: PreviewWindow = {
       runId: sanitizedId,
@@ -252,7 +264,7 @@ export class PreviewWindowManager {
       preview.devServer = await this.startDevServer(port, resolvedPath);
       
       // Wait for server to be ready
-      const isReady = await this.waitForServer(url, CONFIG.SERVER_STARTUP_TIMEOUT);
+      const isReady = await this.waitForServer(port, CONFIG.SERVER_STARTUP_TIMEOUT);
       
       if (!isReady) {
         throw new Error(`Dev server failed to start within ${CONFIG.SERVER_STARTUP_TIMEOUT}ms`);

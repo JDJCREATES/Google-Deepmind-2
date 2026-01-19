@@ -70,14 +70,24 @@ class MultiPreviewManager:
         return self.BASE_PORT + offset
     
     def _is_port_listening(self, port: int, timeout: float = 0.5) -> bool:
-        """Check if a port is actually listening/accepting connections."""
+        """Check if a port is actually listening/accepting connections (IPv4/IPv6)."""
+        # Try 127.0.0.1 first (most common)
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.settimeout(timeout)
-                result = s.connect_ex(('127.0.0.1', port))
-                return result == 0  # 0 means success/port is open
-        except:
-            return False
+                if s.connect_ex(('127.0.0.1', port)) == 0:
+                    return True
+        except: pass
+
+        # Try localhost (might be IPv6 ::1)
+        try:
+            # socket.create_connection handles DNS resolution and IPv4/IPv6 automatically
+            # It tries all addresses returned by getaddrinfo
+            with socket.create_connection(("localhost", port), timeout=timeout):
+                return True
+        except: pass
+        
+        return False
 
     def _find_available_port(self) -> Optional[int]:
         """Find an available port starting from BASE_PORT."""

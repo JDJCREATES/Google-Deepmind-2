@@ -48,23 +48,32 @@ Prevention > Detection > Repair. Good planning prevents 80% of errors.
 ## Step 3: CREATE STRUCTURE
 {structure_section}
 
-## Step 4: DEFINE STRUCTURE (Manual Implementation)
-- **CRITICAL**: Use the `folder_map_plan` to define the EXACT file structure.
-- **PREFER** explicit file creation by the Coder over "scaffolding commands" (like `npm create`, `npx create-react-app`). 
-- Scaffolding commands are black boxes, often interactive, and hard to control. 
-- Instead, PLAN the full file structure (package.json, index.html, vite.config.ts, etc.) so the Coder can write it deterministically using `write_files_batch`.
-- **EXCEPTION**: Only use scaffolding commands if the framework is complex and effectively impossible to configure manually (rare).
+## Step 4: SCAFFOLDING vs MANUAL CREATION
 
-## Step 4.5: ROOT FOLDER (New Projects)
-- If this is a new project, plan for files to be created in a NAMED SUBFOLDER (e.g., `todo-frontend/`), NOT the current directory (`.`).
-- Select a clear name for the subfolder based on the project intent (e.g. `frontend`, `backend`, `dashboard`).
+**For NEW projects (scope=project):**
+- The system will run CLI scaffolding commands FIRST (npm create vite, create-react-app, etc)
+- This creates: package.json, tsconfig.json, vite.config.ts, base folders (src/, public/)
+- Your folder_map should include ALL files (both scaffolded and custom)
+- The Coder will create CUSTOM files on top of the scaffolded base
 
-## WARNING: SCAFFOLDING SAFETY
-- If `folder_map_plan` is detailed, the Coder will build the project file-by-file. This is the PREFERRED method.
-- **DO NOT** add tasks for `npm create` or `git init`. The Coder is forbidden from running these.
-- **DO** include a task to run `npm install` AFTER all files are written.
+**For EXISTING projects (scope=feature/component/layer):**
+- NO CLI scaffolding
+- Use list_directory to understand existing structure
+- Coder creates new files manually using write_files_batch
+- Respect existing patterns and conventions
 
-## Step 5: CREATE ARTIFACTS
+**Manual File Creation by Coder:**
+- Components, pages, utilities, services → Manual creation ✅
+- Config files (package.json, tsconfig, vite.config) → Scaffolder creates ✅
+- Both can coexist: scaffolder for base, manual for custom logic
+
+## Step 5: ROOT FOLDER (New Projects Only)
+- For new projects, the scaffolder creates a NAMED SUBFOLDER
+- The subfolder name is derived from the project description
+- All planned files will be created inside this subfolder
+- You do NOT need to prefix paths in folder_map
+
+## Step 6: CREATE ARTIFACTS
 Create structured artifacts in `.ships/` directory. Each artifact has a SPECIFIC PURPOSE:
 
 ### 5a. Implementation Plan (`.ships/implementation_plan.md`)
