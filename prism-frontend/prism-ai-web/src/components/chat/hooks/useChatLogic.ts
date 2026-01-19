@@ -137,14 +137,6 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
         // ============================================================
         // UNIFIED STREAMING: StreamBlock Protocol Only
         // ============================================================
-        console.group(`[useChatLogic] 📨 Processing: ${chunk.type || 'UNKNOWN'}`);
-        console.log('Full chunk:', chunk);
-        console.log('chunk.block_type:', chunk.block_type);
-        console.log('chunk.content:', chunk.content?.substring(0, 100));
-        console.log('chunk.title:', chunk.title);
-        console.log('Target runId:', targetRunId);
-        console.log('AI messageId:', aiMessageId);
-        console.groupEnd();
 
         // Block Start - Create new block in message
         if (chunk.type === 'block_start' && chunk.block_type) {
@@ -156,15 +148,8 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
                  isComplete: false,
                  metadata: { ...chunk, timestamp: Date.now() }
              };
-             console.log('[useChatLogic] ✅ Creating block:');
-             console.log('  - id:', block.id);
-             console.log('  - type:', block.type);
-             console.log('  - title:', block.title);
-             console.log('  - content:', block.content);
-             console.log('  - metadata:', block.metadata);
              if (targetRunId) {
                upsertRunMessageBlock(targetRunId, aiMessageId, block);
-               console.log('[useChatLogic] ✅ Block upserted to run:', targetRunId);
              }
              
              // Update Activity Indicator
@@ -182,9 +167,6 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
         
         // Block Delta - Append content to existing block
         else if (chunk.type === 'block_delta' && chunk.id) {
-             console.log('[useChatLogic] 📝 Block delta:', chunk.id);
-             console.log('  - Content:', chunk.content?.substring(0, 100));
-             console.log('  - Content length:', chunk.content?.length);
              if (targetRunId) {
                appendRunMessageBlockContent(targetRunId, aiMessageId, chunk.id, chunk.content || '');
              }

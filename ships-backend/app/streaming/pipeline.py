@@ -119,6 +119,9 @@ async def stream_pipeline(
     }
     
     block_mgr = StreamBlockManager()
+    current_agent = None  # Track which agent is active
+    json_buffer = ""  # Buffer for accumulating JSON tokens
+    in_json_stream = False  # Are we currently streaming JSON?
     
     # Track which agents use structured output (no token streaming)
     suppress_streaming_for = set()
@@ -151,7 +154,109 @@ async def stream_pipeline(
                             content = "".join(extracted)
                         elif not isinstance(content, str):
                             content = str(content)
+                        
+                        # DETECT JSON STREAMING (from planner's structured output)
+                        # Check if we're starting JSON or already in JSON
+                        if not in_json_stream and content.strip().startswith('{'):
+                            in_json_stream = True
+                            json_buffer = content
+                            # Start a thinking block for extracted reasoning
+                            yield block_mgr.start_block(BlockType.THINKING, "Planning...") + "\n"
+                            continue  # Don't stream raw JSON
+                        elif in_json_stream:
+                            json_buffer += content
                             
+                            # Try to extract user-facing text fields as they complete
+                            import re
+                            
+                            # Extract "reasoning": "..." field
+                            reasoning_match = re.search(r'"reasoning"\s*:\s*"([^"]*(?:\\.[^"]*)*)"', json_buffer)
+                            if reasoning_match and '"reasoning": ""' not in json_buffer:
+                                reasoning_text = reasoning_match.group(1).replace('\\"', '"').replace('\\n', '\n')
+                                delta = block_mgr.append_delta("**Reasoning:**\n" + reasoning_text + "\n\n")
+                                if delta:
+                                    yield delta + "\n"
+                                json_buffer = re.sub(r'"reasoning"\s*:\s*"[^"]*(?:\\.[^"]*)*"', '"reasoning": ""', json_buffer, count=1)
+                            
+                            # Extract "summary": "..." field  
+                            summary_match = re.search(r'"summary"\s*:\s*"([^"]*(?:\\.[^"]*)*)"', json_buffer)
+                            if summary_match and '"summary": ""' not in json_buffer:
+                                summary_text = summary_match.group(1).replace('\\"', '"').replace('\\n', '\n')
+                                delta = block_mgr.append_delta("**Summary:**\n" + summary_text + "\n\n")
+                                if delta:
+                                    yield delta + "\n"
+                                json_buffer = re.sub(r'"summary"\s*:\s*"[^"]*(?:\\.[^"]*)*"', '"summary": ""', json_buffer, count=1)
+                            
+                            # Extract "description": "..." field
+                            description_match = re.search(r'"description"\s*:\s*"([^"]*(?:\\.[^"]*)*)"', json_buffer)
+                            if description_match and '"description": ""' not in json_buffer:
+                                desc_text = description_match.group(1).replace('\\"', '"').replace('\\n', '\n')
+                                delta = block_mgr.append_delta("**Description:**\n" + desc_text + "\n\n")
+                                if delta:
+                                    yield delta + "\n"
+                                json_buffer = re.sub(r'"description"\s*:\s*"[^"]*(?:\\.[^"]*)*"', '"description": ""', json_buffer, count=1)
+                            
+                            # Extract "assumptions": [...] array
+                            assumptions_match = re.search(r'"assumptions"\s*:\s*\[(.*?)\]', json_buffer, re.DOTALL)
+                            if assumptions_match and '"assumptions": []' not in json_buffer:
+                                assumptions_raw = assumptions_match.group(1)
+                                # Extract quoted strings from array
+                                assumption_items = re.findall(r'"([^"]*(?:\\.[^"]*)*)"', assumptions_raw)
+                                if assumption_items:
+                                    delta = block_mgr.append_delta("**Assumptions:**\n")
+                                    if delta: yield delta + "\n"
+                                    for item in assumption_items:
+                                        clean_item = item.replace('\\"', '"').replace('\\n', ' ')
+                                        delta = block_mgr.append_delta(f"• {clean_item}\n")
+                                        if delta: yield delta + "\n"
+                                    delta = block_mgr.append_delta("\n")
+                                    if delta: yield delta + "\n"
+                                json_buffer = re.sub(r'"assumptions"\s*:\s*\[.*?\]', '"assumptions": []', json_buffer, count=1, flags=re.DOTALL)
+                            
+                            # Extract "decision_notes": [...] array
+                            decisions_match = re.search(r'"decision_notes"\s*:\s*\[(.*?)\]', json_buffer, re.DOTALL)
+                            if decisions_match and '"decision_notes": []' not in json_buffer:
+                                decisions_raw = decisions_match.group(1)
+                                decision_items = re.findall(r'"([^"]*(?:\\.[^"]*)*)"', decisions_raw)
+                                if decision_items:
+                                    delta = block_mgr.append_delta("**Key Decisions:**\n")
+                                    if delta: yield delta + "\n"
+                                    for item in decision_items:
+                                        clean_item = item.replace('\\"', '"').replace('\\n', ' ')
+                                        delta = block_mgr.append_delta(f"• {clean_item}\n")
+                                        if delta: yield delta + "\n"
+                                    delta = block_mgr.append_delta("\n")
+                                    if delta: yield delta + "\n"
+                                json_buffer = re.sub(r'"decision_notes"\s*:\s*\[.*?\]', '"decision_notes": []', json_buffer, count=1, flags=re.DOTALL)
+                            
+                            # Extract "clarifying_questions": [...] array
+                            questions_match = re.search(r'"clarifying_questions"\s*:\s*\[(.*?)\]', json_buffer, re.DOTALL)
+                            if questions_match and '"clarifying_questions": []' not in json_buffer:
+                                questions_raw = questions_match.group(1)
+                                question_items = re.findall(r'"([^"]*(?:\\.[^"]*)*)"', questions_raw)
+                                if question_items:
+                                    delta = block_mgr.append_delta("**Questions:**\n")
+                                    if delta: yield delta + "\n"
+                                    for item in question_items:
+                                        clean_item = item.replace('\\"', '"').replace('\\n', ' ')
+                                        delta = block_mgr.append_delta(f"• {clean_item}\n")
+                                        if delta: yield delta + "\n"
+                                    delta = block_mgr.append_delta("\n")
+                                    if delta: yield delta + "\n"
+                                json_buffer = re.sub(r'"clarifying_questions"\s*:\s*\[.*?\]', '"clarifying_questions": []', json_buffer, count=1, flags=re.DOTALL)
+                            
+                            # Check if JSON is complete
+                            if json_buffer.count('{') > 0 and json_buffer.count('{') == json_buffer.count('}'):
+                                in_json_stream = False
+                                json_buffer = ""
+                                # Close the thinking block
+                                end_block = block_mgr.end_current_block()
+                                if end_block:
+                                    yield end_block + "\n"
+                            
+                            continue  # Don't stream raw JSON tokens
+                        
+                        # Regular token streaming (non-JSON)
                         # Default to Thinking if no block active
                         if not block_mgr.active_block or block_mgr.active_block.type not in [
                             BlockType.THINKING, BlockType.TEXT, BlockType.CODE, BlockType.PLAN
@@ -173,12 +278,17 @@ async def stream_pipeline(
                 if isinstance(tool_metadata, dict):
                     file_path = tool_metadata.get("file_path") or tool_metadata.get("filename")
                 
-                yield json.dumps({
+                tool_start_json = json.dumps({
                     "type": "tool_start",
                     "tool": event_name,
-                    "file": file_path
-                }) + "\n"
-                debounced_log.info(f"[PIPELINE] Tool: {event_name}")
+                    "file": file_path,
+                    "timestamp": int(time.time() * 1000)
+                })
+                yield tool_start_json + "\n"
+                
+                # LOG COMPLETE EMITTED JSON
+                logger.info(f"🔧 [PIPELINE] EMITTED tool_start NDJSON:")
+                logger.info(f"   {tool_start_json}")
                 
             elif event_type == "on_tool_end":
                 import json
@@ -251,18 +361,25 @@ async def stream_pipeline(
                 elif isinstance(output, dict):
                     success = output.get("success", True)
                 
-                yield json.dumps({
+                tool_result_json = json.dumps({
                     "type": "tool_result",
                     "tool": event_name,
                     "file": file_path,
-                    "success": success
-                }) + "\n"
-                logger.info(f"[PIPELINE DEBUG] Emitted tool_result JSON: tool={event_name}, file={file_path}, success={success}")
+                    "success": success,
+                    "timestamp": int(time.time() * 1000)
+                })
+                yield tool_result_json + "\n"
+                
+                # LOG COMPLETE EMITTED JSON
+                logger.info(f"✅ [PIPELINE] EMITTED tool_result NDJSON:")
+                logger.info(f"   {tool_result_json}")
 
             # 3. NODE TRANSITIONS
             elif event_type == "on_chain_start":
+                current_agent = event_name  # Track which agent started
                 if event_name == "planner":
-                     yield block_mgr.start_block(BlockType.PLAN, "Developing Implementation Plan") + "\n"
+                     # Planner will stream JSON - we'll extract reasoning in on_chat_model_stream
+                     pass
                 elif event_name == "coder":
                      yield block_mgr.start_block(BlockType.CODE, "Writing Code...") + "\n"
                 elif event_name == "validator":

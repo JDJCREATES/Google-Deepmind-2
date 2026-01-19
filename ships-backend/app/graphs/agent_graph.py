@@ -137,7 +137,7 @@ class AgentGraphState(TypedDict):
     current_task_index: int
     
     # Validation status
-    validation_passed: bool
+    validation_passed: Optional[bool]
     
     # Fix attempts
     fix_attempts: int
@@ -521,6 +521,7 @@ async def fixer_node(state: AgentGraphState) -> Dict[str, Any]:
             "phase": "orchestrator",
             "pending_fix_context": pending_fix_context,
             "fix_request": None, # Clear request
+            "validation_passed": None, # Reset validation status to force re-validation
             "agent_status": {"status": "fixed", "attempt": fix_attempts},
             "stream_events": result.get("stream_events", [])
         }
@@ -1024,7 +1025,7 @@ async def run_full_pipeline(
         "phase": "planning",
         "artifacts": {},
         "current_task_index": 0,
-        "validation_passed": False,
+        "validation_passed": None,
         "fix_attempts": 0,
         "max_fix_attempts": 3,
         "result": None,

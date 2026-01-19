@@ -16,6 +16,7 @@ export interface AppSettings {
   autoSaveDelay: number; // in milliseconds
   confirmBeforeExit: boolean;
   showWelcomeScreen: boolean;
+  commandPreference: 'auto' | 'windows' | 'unix' | 'macos';
 }
 
 export interface SecuritySettings {
@@ -59,6 +60,7 @@ const defaultAppSettings: AppSettings = {
   autoSaveDelay: 1000,
   confirmBeforeExit: true,
   showWelcomeScreen: true,
+  commandPreference: 'auto',
 };
 
 const defaultArtifactSettings: ArtifactSettings = {
