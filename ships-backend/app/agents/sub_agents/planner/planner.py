@@ -1037,17 +1037,25 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
                         logger.info(f"[PLANNER] ✅ Scope 'layer' but {target_area} exists → No scaffolding")
                         
                 elif scope == "component":
-                    # Check if basic project structure exists
+                    # Check if basic project structure exists in the PROJECT PATH (user's folder)
+                    # NOT in the current working directory
+                    actual_project_dir = Path(self.project_root) if self.project_root else project_dir
+                    
                     project_indicators = [
-                        project_dir / "package.json",
-                        project_dir / "src",
-                        project_dir / "app"
+                        actual_project_dir / "package.json",
+                        actual_project_dir / "src",
+                        actual_project_dir / "app",
+                        actual_project_dir / "index.html",  # Vite apps
+                        actual_project_dir / "tsconfig.json"  # TypeScript projects
                     ]
-                    if not any(ind.exists() for ind in project_indicators):
+                    has_project = any(ind.exists() for ind in project_indicators)
+                    
+                    if not has_project:
                         needs_scaffolding = True
-                        logger.info(f"[PLANNER] 🏗️ Scope 'component' but no project → Scaffolding required")
+                        logger.info(f"[PLANNER] 🏗️ Scope 'component' but no project found at {actual_project_dir} → Scaffolding required")
                     else:
-                        logger.info(f"[PLANNER] ✅ Scope 'component' and project exists → No scaffolding")
+                        logger.info(f"[PLANNER] ✅ Scope 'component' and project exists at {actual_project_dir} → No scaffolding")
+                        needs_scaffolding = False  # CRITICAL FIX: Don't scaffold if project exists!
                         
                 else: # feature
                     needs_scaffolding = False

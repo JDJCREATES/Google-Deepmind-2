@@ -244,18 +244,18 @@ CLASSIFICATION GUIDE (task_type + action):
 - "looks good" / "proceed" / "yes" / "go ahead" / "approved" → task_type: confirmation, action: proceed
 
 SCOPE CLASSIFICATION (CRITICAL - helps Planner decide scaffolding):
-- scope: "feature" → Adding behavior/logic to EXISTING code (e.g., "add dark mode", "add calculation", "add sorting")
+- scope: "feature" → Adding behavior/logic to EXISTING code (e.g., "add dark mode", "add calculation", "add sorting", "add settings menu")
 - scope: "layer" → Adding a NEW architectural layer that doesn't exist (e.g., "add backend", "add authentication", "add database", "add API layer")
-- scope: "component" → Adding a NEW UI/code component (e.g., "add a new Settings page", "create a Button component")
+- scope: "component" → Adding a NEW UI/code component to a NEW project (ONLY for new projects without existing code)
 - scope: "project" → Creating a brand new project/app from scratch (e.g., "create a todo app", "scaffold a React app")
 - scope: "file" → Single file operation (e.g., "create a utils.ts file")
 
 SCOPE DECISION LOGIC:
-- If user says "add X to the app" where X is a feature/behavior → scope: feature
-- If user says "add X" where X is a system/layer (backend, auth, db) → scope: layer
+- If user says "add X" or "add X to the app" → scope: feature (DEFAULT - safest, won't scaffold)
+- If user says "add X" where X is a system/layer (backend, auth, db) AND no existing project → scope: layer
 - If user says "create new app" or "scaffold" → scope: project
-- If user says "add a new X component/page" → scope: component
-- When in doubt, use "feature" (safest - won't scaffold unnecessarily)
+- If existing project detected in folder_map → scope: feature (never component)
+- When in doubt, ALWAYS use "feature" (safest - won't scaffold unnecessarily)
 
 AMBIGUITY TRIGGERS (set is_ambiguous=true):
 - Request is gibberish or truly nonsensical

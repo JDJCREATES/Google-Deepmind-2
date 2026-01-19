@@ -68,9 +68,14 @@ interface AgentRunsState {
   addRunMessage: (runId: string, message: ChatMessage) => void;
   updateRunMessage: (runId: string, messageId: string, updates: Partial<ChatMessage>) => void;
   appendRunMessageContent: (runId: string, messageId: string, contentDelta: string) => void;
+  // Message Management
+  truncateRunMessages: (runId: string, messageId: string, keepMessage?: boolean) => void;
+  
   // Structured Streaming
   upsertRunMessageBlock: (runId: string, messageId: string, block: StreamBlock) => void;
   appendRunMessageBlockContent: (runId: string, messageId: string, blockId: string, contentDelta: string) => void;
+  
+
   
   updateRunThinking: (runId: string, sectionId: string, content: string) => void;
   addRunThinkingSection: (runId: string, section: ThinkingSectionData) => void;
@@ -353,6 +358,25 @@ export const useAgentRuns = create<AgentRunsState>()(
                 newBlocks[idx] = { ...newBlocks[idx], content: newBlocks[idx].content + contentDelta };
                 return { ...msg, blocks: newBlocks };
               }),
+            }
+          : run
+      ),
+    })),
+
+  truncateRunMessages: (runId, messageId, keepMessage = true) =>
+    set((state) => ({
+      runs: state.runs.map((run) =>
+        run.id === runId
+          ? {
+              ...run,
+              messages: (() => {
+                const msgs = run.messages || [];
+                const index = msgs.findIndex(m => m.id === messageId);
+                if (index === -1) return msgs;
+                // Keep the target message and everything before it (if keepMessage is true)
+                // If keepMessage is false, keep everything BEFORE only.
+                return msgs.slice(0, keepMessage ? index + 1 : index);
+              })(),
             }
           : run
       ),

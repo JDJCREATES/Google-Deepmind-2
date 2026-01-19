@@ -31,7 +31,9 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
     currentActivity,
     activityType,
     messagesEndRef,
-    openFile
+    openFile,
+    handleMessageEdit,
+    handleMessageRewind
   } = useChatLogic({ electronProjectPath });
   
   // HITL state - reactive subscription
@@ -69,7 +71,12 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
          )}
          
          {messages.map((message) => (
-           <ChatMessage key={message.id} message={message} />
+           <ChatMessage 
+             key={message.id} 
+             message={message} 
+             onEdit={handleMessageEdit}
+             onRewind={handleMessageRewind}
+           />
          ))}
 
          {/* Activity & Thinking */}
