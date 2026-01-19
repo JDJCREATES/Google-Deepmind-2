@@ -268,16 +268,25 @@ class MultiPreviewManager:
         
         # Check if deterministic port is available
         if det_port not in self.port_map:
+            if self._is_port_listening(det_port):
+                # ZOMBIE DETECTED - Kill it!
+                logger.warning(f"[PREVIEW] 🧟 Zombie process detected on port {det_port}. Killing it...")
+                self._kill_process_by_port(det_port)
+                # Brief wait for OS release
+                import time
+                time.sleep(0.5)
+                
             try:
                 import socket
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     s.bind(('127.0.0.1', det_port))
                     final_port = det_port
             except OSError:
-                logger.warning(f"[PREVIEW] ⚠️ Deterministic port {det_port} is busy. Falling back to search.")
+                logger.warning(f"[PREVIEW] ⚠️ Deterministic port {det_port} is still busy after kill attempt. Falling back.")
         
         # Fallback to search if needed
         if final_port is None:
+            # First, clean zombies in the search range too
             final_port = self._find_available_port()
             
         if final_port is None:
@@ -612,22 +621,47 @@ class MultiPreviewManager:
         return killed
 
     def _kill_process_by_port(self, port: int):
-        """Kill any process listening on the port using psutil."""
+        """Kill any process listening on the port using robust methods."""
+        # Method 1: Windows Taskkill (Most Robust for Windows)
+        if os.name == 'nt':
+            try:
+                # Find PID using netstat (more reliable than psutil sometimes for zombies)
+                cmd = f'netstat -ano | findstr :{port}'
+                # We use shell=True to pipe
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                
+                killed_any = False
+                for line in result.stdout.splitlines():
+                    parts = line.strip().split()
+                    # Proto Local Address Foreign Address State PID
+                    # TCP    0.0.0.0:5200   0.0.0.0:0       LISTENING   1234
+                    if len(parts) >= 5:
+                        pid = parts[-1]
+                        if pid.isdigit() and pid != "0":
+                            logger.info(f"[PREVIEW] 🔪 TaskKilling PID {pid} on port {port}")
+                            subprocess.run(f"taskkill /F /T /PID {pid}", shell=True, capture_output=True)
+                            killed_any = True
+                
+                if killed_any:
+                    return
+            except Exception as e:
+                logger.error(f"[PREVIEW] Taskkill failed: {e}")
+
+        # Method 2: Cross-platform psutil (Fallback)
         try:
             import psutil
             for proc in psutil.process_iter(['pid', 'name']):
                 try:
                     for conn in proc.connections(kind='inet'):
                         if conn.laddr.port == port:
-                            logger.info(f"[PREVIEW] 🔪 Killing zombie on port {port}: {proc.info['name']} ({proc.pid})")
+                            logger.info(f"[PREVIEW] 🔪 PSUtil Killing zombie on port {port}: {proc.info['name']} ({proc.pid})")
                             proc.kill()
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
         except ImportError:
-            # Fallback to netstat if psutil fails/missing
-            self._kill_process_by_port_legacy(port)
+            pass
         except Exception as e:
-            logger.error(f"Error killing by port: {e}")
+            logger.error(f"Error killing by port (psutil): {e}")
 
     def _kill_process_by_port_legacy(self, port: int):
         """Kill any process listening on the port (Windows Netstat fallback)."""

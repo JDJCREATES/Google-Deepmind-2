@@ -537,10 +537,20 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
         # Intent
         parts.append(f"INTENT ANALYSIS:\n{json.dumps(intent, indent=2, default=str)}")
         
-        # CRITICAL: Detect if this is a FIX/MODIFY request
+        # CRITICAL: Detect request type and existing project state
         action = intent.get("action", "create")
         task_type = intent.get("task_type", "feature")
+        scope = intent.get("scope", "feature")
         is_fix_or_modify = action in ["fix", "modify", "update", "change"] or task_type == "fix"
+        
+        # Check if project already exists (has files beyond .ships/)
+        file_tree = context.get("file_tree", {})
+        existing_files = []
+        if file_tree.get("success"):
+            entries = file_tree.get("entries", [])
+            existing_files = [e for e in entries if not e.get('path', '').startswith('.ships/')]
+        
+        has_existing_project = len(existing_files) > 0
         
         if is_fix_or_modify:
             parts.append("""
@@ -572,6 +582,49 @@ EXAMPLE FIX PLAN:
     "expected_outputs": [{"path": "app/page.tsx", "description": "Add missing component import"}]
   }]
 }""")
+        elif has_existing_project and scope == "feature":
+            parts.append(f"""
+⚠️ CRITICAL CONTEXT: This project ALREADY EXISTS with {len(existing_files)} files!
+
+YOU ARE ADDING A FEATURE TO AN EXISTING PROJECT - NOT CREATING A NEW ONE!
+
+STRATEGY FOR ADDING TO EXISTING PROJECT:
+1. DO NOT create "Project Initialization" or "Setup" tasks
+2. DO NOT scaffold package.json, vite.config, or other base files (they already exist!)
+3. CREATE ONLY the new feature files needed (components, hooks, styles, etc.)
+4. INTEGRATE with existing code (update imports, add routes, etc.)
+
+MINIMAL TASK PLAN:
+- Task 1: Create new feature component(s)
+- Task 2: Integrate into existing App/routes
+- Task 3: Add any feature-specific utilities/hooks
+
+EXAMPLE PLAN FOR ADDING SETTINGS MENU:
+{{
+  "summary": "Add settings menu component and integrate into app",
+  "tasks": [
+    {{
+      "title": "Create SettingsMenu component",
+      "description": "Build SettingsMenu component with state management",
+      "complexity": "medium",
+      "expected_outputs": [
+        {{"path": "src/components/SettingsMenu.tsx", "description": "Settings menu UI component"}},
+        {{"path": "src/hooks/useSettings.ts", "description": "Settings state hook"}}
+      ]
+    }},
+    {{
+      "title": "Integrate settings menu into app",
+      "description": "Import and add SettingsMenu to main App component",
+      "complexity": "small",
+      "expected_outputs": [
+        {{"path": "src/App.tsx", "description": "Updated to include SettingsMenu"}}
+      ]
+    }}
+  ]
+}}
+
+DO NOT OUTPUT: "Project Initialization", "Setup scaffolding", "Create package.json" - THESE ALREADY EXIST!
+""")
         
         # Framework
         parts.append(f"\nFRAMEWORK: {context.get('framework', 'react')}")

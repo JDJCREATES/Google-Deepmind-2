@@ -338,10 +338,34 @@ ipcMain.handle('run-command-stream', async (_event, command: string, cwd: string
 });
 
 // Cleanup on app quit
-app.on('before-quit', () => {
+app.on('before-quit', async () => {
   console.log('[TERMINAL] Killing all processes...');
+  
+  // 1. Kill local terminals
   killAllProcesses();
   killAllPTY();
+  
+  // 2. Notify Backend to kill preview servers (Zombies)
+  const API_URL = process.env.VITE_API_URL || 'http://localhost:8001';
+  try {
+      console.log(`[APP] Requesting backend cleanup at ${API_URL}...`);
+      // Use built-in net module since fetch might have issues in some Electron main envs, 
+      // but fetch is standard in recent Node. Let's try fetch with short timeout.
+      // We don't await this to block quit too long, but we want it to fire.
+      // Actually we should preventDefault, wait, then quit.
+      
+      const { net } = require('electron');
+      const request = net.request({
+          method: 'POST',
+          url: `${API_URL}/preview/cleanup`
+      });
+      request.on('error', (err: any) => console.log('Cleanup request failed:', err));
+      request.end();
+      
+      console.log('[APP] Cleanup signal sent.');
+  } catch (e) {
+      console.error('[APP] Failed to send cleanup signal:', e);
+  }
 });
 
 // ============================================================================
