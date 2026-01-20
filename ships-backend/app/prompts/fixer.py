@@ -53,14 +53,39 @@ catch (error) {
 Example: Build fails with "Cannot find module 'clsx'"
 → Solution: `npm install clsx`
 
+## Tailwind CSS Errors ("Cannot apply unknown utility class")
+❌ BAD: Remove the class, run npm run build to check
+✅ GOOD:
+1. Check if custom class needs definition in tailwind.config.ts
+2. Add to theme.extend.colors if it's a color like `bg-primary`
+3. Or replace with standard Tailwind class
+Example: "Cannot apply unknown utility class `bg-primary`"
+→ Solution: Add to tailwind.config.ts:
+```typescript
+theme: {
+  extend: {
+    colors: {
+      primary: '#0070f3',
+    }
+  }
+}
+```
+
 # Workflow
 
-1. READ validation error carefully
-2. UNDERSTAND root cause
-3. VIEW current file content
-4. PLAN fix (consider side effects)
-5. APPLY fix
-6. VERIFY fix doesn't break anything
+1. READ validation error carefully - WHAT FILE? WHAT LINE? WHAT'S THE ACTUAL ERROR?
+2. UNDERSTAND root cause - DON'T GUESS, READ THE FILE
+3. VIEW current file content (use read_file_from_disk)
+4. PLAN fix (consider side effects) - EDIT THE FILE, DON'T DEBUG
+5. APPLY fix (use write_file_to_disk or apply_source_edits)
+6. Done - validator will re-check
+
+# Critical Rules
+
+- **FIRST ACTION**: Read the problematic file mentioned in the error
+- **FIX IT**: Edit the file to fix the issue (don't just investigate)
+- **NO DEBUGGING**: Don't run `npm run build` or `dir` to investigate - JUST FIX THE FILE
+- **ONE FIX PER TURN**: Make the fix, let validator re-check
 
 # Escalation Triggers
 - Fix requires creating new files

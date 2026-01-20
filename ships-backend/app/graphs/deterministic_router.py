@@ -393,19 +393,20 @@ class DeterministicRouter:
         
         # RULE 1: Max Fix Attempts -> STOP (Ask User)
         if fix_attempts >= 3:
-             logger.warning(f"[DETERMINISTIC_ROUTER] 🚨 Max fix attempts ({fix_attempts}) reached - Escalating to CHAT")
+             logger.warning(f"[DETERMINISTIC_ROUTER] 🚨 Max fix attempts ({fix_attempts}) reached - One more try with detailed context")
+             # On 3rd attempt, give Fixer more context and one final shot
              return RoutingDecision(
-                next_phase="chat",
-                reason="Max fix attempts reached (Stuck fixing errors)",
+                next_phase="fixer",
+                reason="Final fix attempt with enhanced context",
                 requires_llm=False
              )
 
-        # RULE 2: Explicit Escalation (Loops/Locks) -> STOP (Ask User)
+        # RULE 2: Explicit Escalation (Loops/Locks) -> RETRY with different strategy
         if escalated_from:
-            logger.warning(f"[DETERMINISTIC_ROUTER] 🚨 Systematic escalation from {escalated_from} - Escalating to CHAT")
+            logger.warning(f"[DETERMINISTIC_ROUTER] 🚨 Systematic escalation from {escalated_from} - Retrying with reset")
             return RoutingDecision(
-                next_phase="chat", 
-                reason=f"System stuck in {escalated_from} (Escalation)",
+                next_phase="fixer" if escalated_from == "validator" else "validator", 
+                reason=f"Retry after stuck in {escalated_from}",
                 requires_llm=False
             )
         

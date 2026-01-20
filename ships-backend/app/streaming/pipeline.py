@@ -259,7 +259,8 @@ async def stream_pipeline(
                     is_important_terminal = any(cmd in command for cmd in user_facing_commands)
                 
                 # Parse and format output for important tools only
-                if event_name in important_tools or is_important_terminal
+                if event_name in important_tools or is_important_terminal:
+                    formatted_output = None
                     if isinstance(output_content, str):
                         try:
                             parsed = json.loads(output_content)

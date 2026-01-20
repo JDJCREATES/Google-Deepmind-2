@@ -106,8 +106,13 @@ class FixRequest(BaseModel):
         raw_violations = validation_report.get("violations", [])
         
         for v in raw_violations:
+            # Ensure file_path is never None (Pydantic requires string)
+            file_path = v.get("file_path") or "project_root"
+            if not file_path or file_path == "unknown":
+                file_path = "globals.css"  # Educated guess for CSS build errors
+            
             violations.append(ViolationDetail(
-                file_path=v.get("file_path", "unknown"),
+                file_path=file_path,
                 line_number=v.get("line_number"),
                 column=v.get("column"),
                 error_code=v.get("error_code", "UNKNOWN"),
