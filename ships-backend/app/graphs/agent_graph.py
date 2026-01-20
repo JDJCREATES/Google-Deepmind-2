@@ -363,7 +363,7 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
         # Return State Update
         # Return State Update
         return {
-            "validation_status": ValidationStatus.PASSED if validation_passed else ValidationStatus.FAILED_RECOVERABLE,
+            "validation_status": "passed" if validation_passed else "failed_recoverable",
             "phase": "orchestrator",
             "error_log": state.get("error_log", []) + ([f"Validation Failed [{failure_layer}]"] if not validation_passed else []),
             "artifacts": {**artifacts, **result.get("artifacts", {})},
@@ -382,7 +382,7 @@ async def validator_node(state: AgentGraphState) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"[VALIDATOR] ❌ Validator failed: {e}")
         return {
-            "validation_status": ValidationStatus.FAILED_CRITICAL,
+            "validation_status": "failed_critical",
             "phase": "orchestrator",
             "error_log": state.get("error_log", []) + [f"Validator error: {str(e)}"],
             "messages": [AIMessage(content=f"Validation error: {e}")]
@@ -871,8 +871,16 @@ async def complete_node(state: AgentGraphState) -> Dict[str, Any]:
     
     artifacts = state.get("artifacts", {})
     project_path = artifacts.get("project_path")
+    run_id = artifacts.get("run_id")
+    
+    # CRITICAL FIX: run_id can be None if not set - generate fallback
+    if not run_id:
+        import uuid
+        run_id = str(uuid.uuid4())
+        logger.warning(f"[COMPLETE] run_id was None - generated fallback: {run_id}")
     
     logger.info(f"[COMPLETE] Project path from artifacts: {project_path}")
+    logger.info(f"[COMPLETE] Run ID: {run_id}")
     
     if not project_path:
         logger.warning("[COMPLETE] ❌ No project path set, cannot launch preview")
@@ -896,22 +904,28 @@ async def complete_node(state: AgentGraphState) -> Dict[str, Any]:
     
     if package_json.exists():
         # React/Vite project - start dev server via preview_manager
-        # This sets current_url which ships-preview polls via /preview/status
-        logger.info("[COMPLETE] 🚀 Starting dev server via preview_manager...")
-        result = preview_manager.start_dev_server(project_path)
+        # CRITICAL: Use the actual run_id so port matches what the API expects
+        logger.info(f"[COMPLETE] 🚀 Starting dev server via preview_manager for run {run_id}...")
+        result = preview_manager.get_or_start(run_id, project_path)
         logger.info(f"[COMPLETE] start_dev_server result: {result}")
         
-        if result.get("status") == "starting":
+        if result.get("status") == "running":
+            preview_url = result.get("url")
+            logger.info(f"[COMPLETE] 🌐 Dev server already running at: {preview_url}")
+        elif result.get("status") == "starting":
             # Wait briefly for URL to be detected
             import asyncio
             for _ in range(10):  # Wait up to 5 seconds
                 await asyncio.sleep(0.5)
-                if preview_manager.current_url:
-                    preview_url = preview_manager.current_url
+                status = preview_manager.get_status(run_id)
+                if status and status.get("url"):
+                    preview_url = status.get("url")
                     break
             
             if not preview_url:
-                preview_url = "http://localhost:5173"  # Default Vite port
+                # Use the port from the result
+                port = result.get("port", 5173)
+                preview_url = f"http://localhost:{port}"
                 
             logger.info(f"[COMPLETE] 🌐 Dev server started at: {preview_url}")
     

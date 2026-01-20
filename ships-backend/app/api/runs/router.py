@@ -232,18 +232,21 @@ def _model_to_response(run: AgentRunModel) -> dict:
     short_id = full_id[:8]
     
     live_status = preview_manager.get_status(full_id)
-    if not live_status or not live_status.get("is_alive"):
+    if not live_status:
         live_status = preview_manager.get_status(short_id)
             
-    # Use live port if running, otherwise DB metadata
-    port = metadata.get("port", 3000)
-    status = run.status
+    # Use live data if running, otherwise metadata
+    port = metadata.get("port", 0)
     url = None
     
-    if live_status:
+    if live_status and live_status.get("is_alive"):
+        # Process is actually running - use live data
         port = live_status.get("port", port)
-        if live_status.get("is_alive") or live_status.get("status") in ("starting", "running"):
-            url = live_status.get("url")
+        url = live_status.get("url")
+    
+    # If no live status and no metadata port, don't show fake port
+    if port == 0:
+        port = None
 
     return {
         "id": str(run.id)[:8],  # Short ID for UI
@@ -256,7 +259,7 @@ def _model_to_response(run: AgentRunModel) -> dict:
         "port": port,
         "previewUrl": url, 
         "previewStatus": live_status.get("status") if live_status else "stopped",
-        "status": status,
+        "status": run.status,  # Run status from database (pending/running/complete/error)
         "currentAgent": metadata.get("current_agent"),
         "agentMessage": metadata.get("agent_message", ""),
         "screenshots": [],  # TODO: Load from separate table

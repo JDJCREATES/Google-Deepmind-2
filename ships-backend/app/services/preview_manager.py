@@ -708,17 +708,9 @@ class MultiPreviewManager:
                     "logs": instance.logs[-20:]
                 }
             
-            # Not running, but return deterministic info
-            det_port = self._get_deterministic_port(run_id)
-            return {
-                "run_id": run_id,
-                "status": "stopped",
-                "url": f"http://localhost:{det_port}",
-                "port": det_port,
-                "is_alive": False,
-                "error": None,
-                "logs": []
-            }
+            # Not running - return None to indicate no preview exists
+            # Don't return deterministic port info - it's misleading
+            return None
         
         # Return summary of all
         return {

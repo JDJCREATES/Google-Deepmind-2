@@ -574,28 +574,19 @@ Output your reasoning, then use tools to implement the fix."""
         # ================================================================
         # Build fix prompt with error context
         # ================================================================
-        fixer_prompt = f"""PROJECT PATH: {project_path}
+        fixer_prompt = f"""PROJECT: {project_path}
+ATTEMPT: {fix_attempts}/{max_attempts}
 
-FIX ATTEMPT: {fix_attempts}/{max_attempts}
-
-ERRORS TO FIX:
+ERRORS:
 {chr(10).join(['- ' + str(e) for e in recent_errors])}
 
-YOUR TASK:
-1. Read the relevant files using read_file_from_disk
-2. Analyze what's broken based on the errors
-3. Apply TARGETED fixes using write_file_to_disk
-4. Only fix what is broken - do NOT rewrite entire files
+Fix these errors. Read files to understand the issue, then apply minimal fixes.
 
-IMPORTANT CONSTRAINTS:
-- Make MINIMAL changes
-- Do NOT change file structure
-- Do NOT add new dependencies without good reason
-- If the fix requires architecture changes, respond with:
-  {{"escalate": true, "reason": "..."}}
+If build fails with "Cannot find module 'xxx'" → run: npm install xxx
 
-When done, respond with:
-{{"status": "fixed", "files_patched": [...]}}"""
+If you can't fix it (architectural issue), respond: {{"escalate": true, "reason": "why"}}
+
+When fixed, respond: {{"status": "fixed"}}"""
 
         # ================================================================
         # Execute using create_react_agent with FIXER_TOOLS
@@ -617,7 +608,7 @@ When done, respond with:
             
             result = await fixer_agent.ainvoke(
                 {"messages": [HumanMessage(content=fixer_prompt)]},
-                config={"recursion_limit": 25}
+                config={"recursion_limit": 12}  # Reduced to 12 for surgical fixes
             )
             
             # Analyze result

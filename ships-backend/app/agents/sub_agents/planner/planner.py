@@ -171,14 +171,8 @@ You are operating on an **EXISTING PROJECT**.
 - **DO** simply add the requested feature files to the EXISTING structure.
 - **DO** update `package.json` only if adding dependencies.
 """
-        else:
-             # Only show subfolder rule if NEW project
-             scaffold_warning = """
-# CRITICAL: NEW PROJECT DETECTED
-You are creating a **NEW PROJECT from scratch**.
-- You MUST scaffold into a **NAMED SUBFOLDER** (e.g. `todo-frontend/`), NOT root (`.`).
-- Prefix all file paths in `folder_map_plan.json` with this subfolder.
-"""
+        # For new projects, the scaffolding logic handles subfolder decisions automatically
+        # No need for explicit prompt instructions about subfolders
 
         # Append task granularity rules (these are project-agnostic)
         task_rules = f"""
@@ -1093,9 +1087,44 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
                     needs_scaffolding = False
                     logger.info(f"[PLANNER] ✅ Scope '{scope}' → No scaffolding (adding to existing project)")
 
+                # CRITICAL: Check artifacts FIRST - prevent duplicate scaffolding from loops
+                if artifacts.get("scaffolding_complete", False):
+                    logger.info("[PLANNER] ⏭️ Scaffolding already complete (artifacts flag set) - preventing duplicate")
+                    needs_scaffolding = False
+                    plan_artifacts["scaffolding_complete"] = True
+                    plan_artifacts["scaffolding_skipped"] = True
+                    plan_artifacts["scaffolding_reason"] = "Already scaffolded - preventing loop"
+
                 # Execute scaffolding if needed
                 if needs_scaffolding:
+                    # IDEMPOTENCY CHECK: Don't scaffold if package.json already exists
+                    # Check both current dir and likely subfolder location
+                    pkg_json_path = project_dir / "package.json"
                     
+                    # Also check if we already have a project subfolder from previous run
+                    existing_entries = list(project_dir.iterdir()) if project_dir.exists() else []
+                    for entry in existing_entries:
+                        if entry.is_dir() and not entry.name.startswith('.'):
+                            pkg_json_in_sub = entry / "package.json"
+                            if pkg_json_in_sub.exists():
+                                logger.info(f"[PLANNER] ⏭️ Skipping scaffolding - project already exists at {entry}")
+                                needs_scaffolding = False
+                                plan_artifacts["scaffolding_complete"] = True
+                                plan_artifacts["scaffolding_skipped"] = True
+                                plan_artifacts["scaffolding_reason"] = f"Project already exists at {entry.name}"
+                                # Update project_path to existing folder
+                                plan_artifacts["project_path"] = str(entry)
+                                project_path = str(entry)
+                                break
+                    
+                    if pkg_json_path.exists() and needs_scaffolding:
+                        logger.info("[PLANNER] ⏭️ Skipping scaffolding - package.json already exists in root")
+                        needs_scaffolding = False
+                        plan_artifacts["scaffolding_complete"] = True
+                        plan_artifacts["scaffolding_skipped"] = True
+                        plan_artifacts["scaffolding_reason"] = "Package.json already exists"
+                
+                if needs_scaffolding:
                     # Get user request for context in scaffolding
                     user_request_summary = intent.get("description", "")
                     
@@ -1111,10 +1140,23 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
                     # ============================================================
                     import re
                     
-                    # Generate a suggested slug for the LLM, but it may pick its own name
-                    # We'll detect the actual folder post-scaffolding
-                    raw_desc = intent.get("description", "my-app")
-                    suggested_slug = re.sub(r'[^a-z0-9]+', '-', raw_desc.lower()).strip('-')
+                    # PREFER LLM-chosen name if provided, fallback to extraction
+                    llm_project_name = plan_artifacts.get("project_name", "")
+                    if llm_project_name and isinstance(llm_project_name, str):
+                        suggested_slug = re.sub(r'[^a-z0-9-]+', '-', llm_project_name.lower()).strip('-')
+                        logger.info(f"[PLANNER] 📝 Using LLM-chosen project name: '{suggested_slug}'")
+                    else:
+                        # Fallback: Extract from user description
+                        raw_desc = intent.get("description", "my-app")
+                        words = raw_desc.lower().split()
+                        if len(words) >= 2 and words[1] in ['app', 'application', 'system', 'website', 'site']:
+                            suggested_slug = words[0]
+                        else:
+                            meaningful = [w for w in words[:3] if w not in ['a', 'an', 'the', 'with', 'and', 'create', 'build', 'make']]
+                            suggested_slug = '-'.join(meaningful[:2]) if meaningful else "my-app"
+                        suggested_slug = re.sub(r'[^a-z0-9]+', '-', suggested_slug).strip('-')
+                        logger.info(f"[PLANNER] 🔍 Extracted project name from description: '{suggested_slug}'")
+                    
                     if not suggested_slug: suggested_slug = "my-app"
                     suggested_slug = suggested_slug[:30]
                     
@@ -1139,78 +1181,35 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
                     
                     logger.info(f"[PLANNER] 🔧 Final Scaffold Command: {scaffold_command}")
                     
-                    scaffold_prompt = f"""PROJECT PATH: {project_dir}
-TARGET: {target_arg}
-USER REQUEST: "{user_request_summary[:200]}"
-TEMPLATE: {self.current_project_type}
+                    scaffold_prompt = f"""PROJECT: {project_dir}
+TARGET: "{target_arg}"
+COMMAND: {scaffold_command}
 
-SCAFFOLDING TASK - NEW PROJECT SETUP:
+Run the scaffolding command above. If it succeeds, stop. If it fails, figure out why and fix it (don't retry blindly).
 
-You are setting up a NEW project. The workflow is:
-1. Run official CLI scaffolder (creates base structure)
-2. Verify it worked
-3. The Coder will add custom files later
+The command will create package.json, config files, and base folders. After it succeeds, run "npm install" to install deps.
 
-EXECUTE THESE STEPS:
+That's it. The Coder will add the actual application code later."""
 
-Step 1 - Check current state:
-   list_directory(".")
+                    # Simple system prompt - trust the LLM
+                    scaffolder_system_prompt = """You're scaffolding a project using official CLI tools.
 
-Step 2 - Run scaffolding CLI (PRIORITY):
-   run_terminal_command("{scaffold_command}")
-   
-   This creates:
-   - package.json, tsconfig.json, vite.config.ts (or similar configs)
-   - Base folder structure (src/, public/, etc)
-   - Entry points (index.html, main.tsx)
-   
-Step 3 - Install dependencies:
-   run_terminal_command("npm install")
+Run the command. If it fails, read the error and fix the issue. Don't retry the same failing command.
 
-Step 4 - Verify structure created:
-   list_directory(".")
-
-IMPORTANT:
-- The CLI scaffolder creates the FOUNDATION
-- The Coder will create custom components/pages/features AFTER this
-- Do NOT manually create package.json or tsconfig.json (scaffolder does this)
-- Do NOT create application code (Coder does this)
-- Your job: Run the scaffolder and verify success"""
-
-                    # Create dedicated scaffolder system prompt
-                    scaffolder_system_prompt = """You are a Project Scaffolder for ShipS*.
-
-YOUR ONLY JOB: Run official scaffolding commands to create project structures.
-
-CRITICAL RULES:
-1. ALWAYS use run_terminal_command for scaffolding (npm create, npx create-*, etc)
-2. NEVER manually create folders or files
-3. NEVER use create_directory, create_directories, or write_file
-4. The scaffolder CLI tools (vite, create-react-app, etc) create EVERYTHING
-
-WHY: Scaffolding CLIs are designed by framework authors to create perfect, complete project structures.
-Manual creation leads to missing files, incorrect configs, and broken projects.
-
-YOUR WORKFLOW:
-1. Check if project exists (list_directory)
-2. Run the scaffolding command (run_terminal_command)
-3. Install dependencies (run_terminal_command: npm install)
-4. Verify success (list_directory)
-
-That's it. Simple. Let the scaffolder do its job."""
+Use run_terminal_command for commands. Use list_directory to check results."""
 
                     # Create ReAct agent with planner tools
                     llm = LLMFactory.get_model("planner")
                     planner_agent = create_react_agent(
                         model=llm,
                         tools=PLANNER_TOOLS,
-                        prompt=scaffolder_system_prompt,  # Use dedicated prompt
+                        prompt=scaffolder_system_prompt,
                     )
                     
-                    # Execute scaffolding
+                    # Execute scaffolding with MUCH lower recursion limit
                     scaffold_result = await planner_agent.ainvoke(
                         {"messages": [HumanMessage(content=scaffold_prompt)]},
-                        config={"recursion_limit": 30}
+                        config={"recursion_limit": 10}  # Reduced from 30
                     )
                     
                     # ============================================================
@@ -1235,12 +1234,17 @@ That's it. Simple. Let the scaffolder do its job."""
                                         logger.info(f"[PLANNER] 🔍 Detected scaffolded project at: {actual_project_path}")
                                         break
                         
-                        # Update project_path to the ACTUAL created folder
+                        # Update project_path to the ACTUAL created folder (ONLY if this is first scaffolding)
                         if actual_project_path and actual_project_path != project_path:
-                            logger.info(f"[PLANNER] 📦 Updating project_path: {project_path} → {actual_project_path}")
-                            project_path = actual_project_path
-                            plan_artifacts["project_path"] = actual_project_path
-                            plan_artifacts["project_name"] = Path(actual_project_path).name
+                            # CRITICAL: Only update if we haven't already set a project_path subfolder
+                            # This prevents nested "todo-app/robust" scenarios
+                            if project_path == str(project_dir):
+                                logger.info(f"[PLANNER] 📦 Updating project_path: {project_path} → {actual_project_path}")
+                                project_path = actual_project_path
+                                plan_artifacts["project_path"] = actual_project_path
+                                plan_artifacts["project_name"] = Path(actual_project_path).name
+                            else:
+                                logger.warning(f"[PLANNER] ⚠️ Skipping project_path update - already in subfolder {project_path}")
                     except Exception as detect_err:
                         logger.warning(f"[PLANNER] ⚠️ Could not detect scaffolded folder: {detect_err}")
                     

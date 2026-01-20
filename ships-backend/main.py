@@ -397,8 +397,14 @@ async def run_agent(request: Request, body: PromptRequest):
             logger.info("[STREAM] 🚀 Starting agent pipeline stream...")
             logger.info(f"[STREAM] Passing to stream_pipeline: '{body.prompt[:100]}...'")
             
-            # Simplified pass-through: stream_pipeline now yields strings (StreamBlock events) directly
-            async for chunk in stream_pipeline(body.prompt, project_path=effective_project_path, settings=body.settings, artifact_context=body.artifact_context):
+            # CRITICAL FIX: Pass user_id so run_id can be generated for step tracking
+            async for chunk in stream_pipeline(
+                body.prompt, 
+                project_path=effective_project_path, 
+                settings=body.settings, 
+                artifact_context=body.artifact_context,
+                user_id=user_id  # Pass user_id for run tracking
+            ):
                 yield chunk
 
             

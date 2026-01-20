@@ -1038,7 +1038,7 @@ IMPORTANT:
             
             result = await coder_agent.ainvoke(
                 {"messages": [HumanMessage(content=coder_prompt)]},
-                config={"recursion_limit": 20}  # Reduced from 50 - rarely need more
+                config={"recursion_limit": 15}  # Reduced to 15 per Google recommendations
             )
             
             # Extract completion status from messages

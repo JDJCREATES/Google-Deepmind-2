@@ -115,31 +115,19 @@ export default function ChatMessage({ message, onEdit, onRewind }: ChatMessagePr
 
       {/* Timestamp & Actions Row (BELOW BUBBLE) */}
       {!isEditing && (
-        <div className="message-footer flex items-center justify-end mt-1 gap-3 mr-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <div className="message-time text-[10px] opacity-40">
+        <div className="message-footer flex items-center justify-end mt-0.5 gap-2 mr-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="message-time text-[10px] opacity-30 select-none">
             {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </div>
             
-            <div className="message-actions flex items-center gap-2">
-                {onEdit && (
-                    <button 
-                        onClick={() => {
-                            setEditContent(message.content);
-                            setIsEditing(true);
-                        }}
-                        className="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white transition-colors flex items-center gap-1 text-[10px]"
-                        title="Edit message"
-                    >
-                        <VscEdit size={12} /> Edit
-                    </button>
-                )}
+            <div className="message-actions flex items-center">
                 {onRewind && (
                     <button 
                         onClick={() => onRewind(message.id)}
-                        className="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white transition-colors flex items-center gap-1 text-[10px]"
-                        title="Revert to this message (clears history after)"
+                        className="p-1 hover:bg-white/5 rounded text-slate-500 hover:text-red-400 transition-colors flex items-center gap-1 text-[10px]"
+                        title="Rewind to here"
                     >
-                        <VscDebugRestart size={12} /> Rewind
+                        <VscDebugRestart size={11} /> <span className="text-[9px]">Rewind</span>
                     </button>
                 )}
             </div>

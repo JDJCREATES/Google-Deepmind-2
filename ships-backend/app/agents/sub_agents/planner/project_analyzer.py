@@ -172,16 +172,16 @@ def _infer_framework_from_request(request: str) -> str:
 def _get_scaffold_command(framework: str) -> str:
     """Get the scaffold command for a framework."""
     commands = {
-        "react-vite": "npx create-vite@latest . --template react-ts",
-        "react": "npx create-vite@latest . --template react-ts",
-        "nextjs": "npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\"",
-        "vue": "npx create-vue@latest .",
-        "svelte": "npx sv create .",
-        "angular": "npx @angular/cli new . --skip-git",
+        "react-vite": "npx create-vite@latest . --template react-ts -- --yes",
+        "react": "npx create-vite@latest . --template react-ts -- --yes",
+        "nextjs": "npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-npm --no-git --yes",
+        "vue": "npx create-vue@latest . --typescript --yes",
+        "svelte": "npx sv create . --template minimal --types ts --no-add-ons --yes",
+        "angular": "npx @angular/cli new . --skip-git --interactive=false",
         "python": "pip install fastapi uvicorn",
         "html": "",  # No scaffold needed
     }
-    return commands.get(framework, "npx create-vite@latest . --template react-ts")
+    return commands.get(framework, "npx create-vite@latest . --template react-ts -- --yes")
 
 
 def _analyze_package_json(package_json_path: Path) -> Tuple[ProjectType, str]:

@@ -389,6 +389,10 @@ async def stream_pipeline(
 
             elif event_type == "on_chain_end":
                 
+                # SKIP DISPLAY FOR INTERNAL OUTPUTS (routing metadata, not user-facing)
+                if event_name in ["orchestrator", "IntentClassifier", "intent_classifier"]:
+                    continue  # Internal processing - logged but not streamed to UI
+                
                 # PARSE STRUCTURED OUTPUTS from planner/coder
                 import json
                 output = event_data.get("output", {})

@@ -100,14 +100,23 @@ export const useStreamingStore = create<StreamingState>()(
       
       resetStreaming: () => 
         set({ 
-          // Keep toolEvents - they should persist for the run
+          toolEvents: [], // CLEAR tool events on new run
           agentPhase: 'idle', 
           currentActivity: '',
           activityType: 'thinking',
           awaitingConfirmation: false,
           planSummary: '',
+          terminalOutput: '', // CLEAR terminal too
         }),
     }),
+    {
+      name: 'streaming-store',
+      // Persist terminal/tool events but NOT across browser sessions
+      partialize: (state) => ({
+        terminalOutput: state.terminalOutput,
+        toolEvents: state.toolEvents,
+      }),
+    }
     { name: 'streaming-store' }
   )
 );

@@ -44,6 +44,15 @@ catch (error) {
 ❌ BAD: `@ts-ignore` or `any`
 ✅ GOOD: Fix the actual type mismatch
 
+## Missing Dependency (Build Error: "Cannot find module 'xxx'")
+❌ BAD: Run random dir commands, remove the import
+✅ GOOD:
+1. Identify the missing package name from error
+2. Run: `npm install <package-name>`
+3. Verify package.json was updated
+Example: Build fails with "Cannot find module 'clsx'"
+→ Solution: `npm install clsx`
+
 # Workflow
 
 1. READ validation error carefully

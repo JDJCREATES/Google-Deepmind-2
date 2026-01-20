@@ -205,7 +205,10 @@ Output ONLY: pass or fail, with specific violations if failing."""
                 logger.error(f"[VALIDATOR] ❌ {layer.layer_name.value} layer FAILED ({len(layer_result.violations)} violations)")
                 for i, violation in enumerate(layer_result.violations[:3], 1):  # Top 3
                     logger.error(f"  {i}. [{violation.severity.value}] {violation.message}")
-                    if violation.details:
+                    # BuildViolation uses stderr/stdout, not details
+                    if hasattr(violation, 'stderr') and violation.stderr:
+                        logger.error(f"     → {violation.stderr[:200]}...")  # Truncate long details
+                    elif hasattr(violation, 'details') and violation.details:
                         logger.error(f"     → {violation.details[:200]}...")  # Truncate long details
                 
                 report.status = ValidationStatus.FAIL
