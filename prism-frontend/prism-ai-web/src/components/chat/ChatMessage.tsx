@@ -25,7 +25,7 @@ export default function ChatMessage({ message, onEdit, onRewind }: ChatMessagePr
   if (message.centered) {
     return (
       <div className="message message-centered" role="status">
-        <div className="welcome-content">{message.content}</div>
+        <div className="welcome-content">{typeof message.content === 'string' ? message.content : ''}</div>
       </div>
     );
   }
@@ -38,7 +38,7 @@ export default function ChatMessage({ message, onEdit, onRewind }: ChatMessagePr
         return (
             <div className={`message ${isSystem ? 'message-system' : 'message-ai'}`}>
                 <div className="message-content no-bubble" style={{ width: '100%' }}>
-                    {message.blocks.map((block) => {
+                    {message.blocks.filter(block => block && block.id).map((block) => {
                         return <BlockRenderer key={block.id} block={block} />;
                     })}
                 </div>
@@ -50,7 +50,7 @@ export default function ChatMessage({ message, onEdit, onRewind }: ChatMessagePr
     return (
       <div className={`message ${isSystem ? 'message-system' : 'message-ai'}`}>
         <div className="message-content no-bubble" style={{ userSelect: 'text', cursor: 'text' }}>
-          {message.content}
+          {typeof message.content === 'string' ? message.content : ''}
         </div>
       </div>
     );
@@ -109,7 +109,7 @@ export default function ChatMessage({ message, onEdit, onRewind }: ChatMessagePr
             </div>
           </div>
         ) : (
-          <div className="message-content whitespace-pre-wrap">{message.content}</div>
+          <div className="message-content whitespace-pre-wrap">{typeof message.content === 'string' ? message.content : ''}</div>
         )}
       </div>
 

@@ -133,7 +133,7 @@ export const AgentDashboard: React.FC = () => {
              const block: StreamBlock = {
                  id: chunk.id!,
                  type: chunk.block_type,
-                 title: chunk.title,
+                 title: typeof chunk.title === 'string' ? chunk.title : (chunk.title ? String(chunk.title) : ''),
                  content: '',
                  isComplete: false,
                  metadata: { ...chunk, timestamp: Date.now() }
@@ -155,7 +155,7 @@ export const AgentDashboard: React.FC = () => {
                 type: 'text', // merged by UI
                 content: '', 
                 isComplete: true, 
-                final_content: chunk.final_content 
+                final_content: typeof chunk.final_content === 'string' ? chunk.final_content : ''
              } as StreamBlock);
           }
           // Legacy phase updates

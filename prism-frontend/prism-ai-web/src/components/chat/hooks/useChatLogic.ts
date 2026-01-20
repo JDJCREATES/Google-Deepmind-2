@@ -177,7 +177,7 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
                    type: 'text',
                    content: '',
                    isComplete: true,
-                   final_content: chunk.final_content
+                   final_content: typeof chunk.final_content === 'string' ? chunk.final_content : ''
                 } as StreamBlock);
               }
          }

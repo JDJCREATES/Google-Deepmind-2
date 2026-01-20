@@ -70,24 +70,37 @@ Files must be created at the EXACT paths specified in folder_map_plan. This prev
 ## For Fixes/Modifications
 When fixing bugs or modifying existing code:
 
-**1. Understand First**
-- Read the broken file with `read_file_from_disk`
-- Read files it depends on (imports)
-- Read files that depend on it (consumers)
-- Identify what's broken vs what's working
+**CRITICAL: YOU MUST ACTUALLY FIX THE CODE**
 
-**2. Surgical Changes**
-- Use `apply_source_edits` for targeted patches
+**1. Read → Understand (1-2 tool calls MAX)**
+- Read the broken file with `read_file_from_disk`
+- Understand the exact problem
+- **DO NOT** read every related file endlessly
+- **DO NOT** analyze for multiple turns without acting
+
+**2. FIX IT NOW (REQUIRED)**
+- Use `apply_source_edits` or `write_file_to_disk` to fix the code
 - Change only the broken code
-- Preserve all working code
-- Typically affects 1-3 files maximum
+- **YOU MUST MAKE THE EDIT** - understanding without fixing = failure
+- If you identified the problem, FIX IT IMMEDIATELY
 
 **3. Validate**
 - Does this fix the specific issue?
 - Is working code untouched?
 - Do imports/exports still work?
 
+**WRONG WORKFLOW:**
+- ❌ Read file → Read another file → Read another file → Scan tree → Stop (NO FIX)
+- ❌ "I understand the issue is duplicate @tailwind directives" → Return without editing
+- ❌ Analyze for 5+ turns, then give up
+
+**CORRECT WORKFLOW:**
+- ✅ Read broken file → Identify issue → Edit file with fix → Done (3 turns)
+- ✅ "Found duplicate @tailwind" → Remove duplicate → Validate
+
 **Why surgical edits matter:** Rewriting entire files "to be safe" often breaks working code. The `apply_source_edits` tool forces you to identify exact changes.
+
+**If you read the code and understand the problem but don't fix it, you FAILED the task.**
 
 ## For New Features: ACT IMMEDIATELY
 

@@ -5,29 +5,24 @@
 
 import React from 'react';
 
-export function formatMarkdown(text: string): React.ReactNode {
-  if (!text) return null;
+export function formatMarkdown(text: string | undefined | null): React.ReactNode {
+  // Handle non-string inputs gracefully
+  if (!text || typeof text !== 'string') return null;
+  
+  // Handle empty string
+  if (text.trim() === '') return null;
 
   const lines = text.split('\n');
   const elements: React.ReactNode[] = [];
   
   lines.forEach((line, idx) => {
-    let processedLine: React.ReactNode = line;
-    
-    // Bold: **text**
-    if (line.includes('**')) {
-      const parts = line.split('**');
-      processedLine = parts.map((part, i) => 
-        i % 2 === 1 ? <strong key={i}>{part}</strong> : part
-      );
-    }
-    
     // List item: - text or * text
     if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
+      const content = line.replace(/^[-*]\s+/, '');
       elements.push(
         <div key={idx} style={{ paddingLeft: '16px', marginBottom: '4px' }}>
           <span style={{ color: '#60A5FA', marginRight: '8px' }}>•</span>
-          {processedLine.toString().replace(/^[-*]\s+/, '')}
+          {renderInlineMarkdown(content)}
         </div>
       );
       return;
@@ -41,7 +36,7 @@ export function formatMarkdown(text: string): React.ReactNode {
           <span style={{ color: '#60A5FA', marginRight: '8px', fontWeight: 'bold' }}>
             {numberedMatch[1]}.
           </span>
-          {numberedMatch[2]}
+          {renderInlineMarkdown(numberedMatch[2])}
         </div>
       );
       return;
@@ -53,13 +48,32 @@ export function formatMarkdown(text: string): React.ReactNode {
       return;
     }
     
-    // Regular line
+    // Regular line with inline formatting
     elements.push(
       <div key={idx} style={{ marginBottom: '2px' }}>
-        {processedLine}
+        {renderInlineMarkdown(line)}
       </div>
     );
   });
   
   return <>{elements}</>;
+}
+
+// Helper function to render inline markdown (bold, etc.)
+function renderInlineMarkdown(text: string | undefined | null): React.ReactNode {
+  // Handle non-string inputs
+  if (!text || typeof text !== 'string') return '';
+  
+  // Handle empty string
+  if (text.trim() === '') return '';
+  
+  // Bold: **text**
+  if (text.includes('**')) {
+    const parts = text.split('**');
+    return parts.map((part, i) => 
+      i % 2 === 1 ? <strong key={i}>{part}</strong> : <React.Fragment key={i}>{part}</React.Fragment>
+    );
+  }
+  
+  return text;
 }

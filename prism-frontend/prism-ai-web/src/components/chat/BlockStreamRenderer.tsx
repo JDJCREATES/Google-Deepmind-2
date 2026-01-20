@@ -7,6 +7,15 @@ interface BlockProps {
     block: StreamBlock;
 }
 
+// Helper to safely convert any value to string for rendering
+const safeString = (value: any): string => {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    // If it's an object, don't render it
+    return '';
+};
+
 export const BlockRenderer: React.FC<BlockProps> = ({ block }) => {
     switch (block.type) {
         case 'thinking':
@@ -21,11 +30,11 @@ export const BlockRenderer: React.FC<BlockProps> = ({ block }) => {
                     cursor: 'text'
                 }}>
                     <div style={{ fontWeight: 'bold', marginBottom: '4px', color: '#888', userSelect: 'none' }}>
-                         {block.isComplete ? '✓ ' : '⚡ '}{block.title || 'Thinking...'}
+                         {block.isComplete ? '✓ ' : '⚡ '}{safeString(block.title) || 'Thinking...'}
                     </div>
                     {(block.content || !block.isComplete) && (
                         <div style={{ opacity: 0.9, lineHeight: '1.5', userSelect: 'text' }}>
-                            {formatMarkdown(block.content)}
+                            {formatMarkdown(safeString(block.content))}
                         </div>
                     )}
                 </div>
@@ -43,10 +52,10 @@ export const BlockRenderer: React.FC<BlockProps> = ({ block }) => {
                     border: '1px solid #333'
                 }}>
                     <div style={{ color: '#6B7280', marginBottom: '6px', userSelect: 'none' }}>
-                        $ {block.title || 'Command'}
+                        $ {safeString(block.title) || 'Command'}
                     </div>
                     <div style={{ whiteSpace: 'pre-wrap', overflowX: 'auto' }}>
-                        {block.content}
+                        {safeString(block.content)}
                     </div>
                 </div>
              );
@@ -62,7 +71,7 @@ export const BlockRenderer: React.FC<BlockProps> = ({ block }) => {
                      <Editor 
                         height="200px" // Dynamic height would be better but requires more logic
                         defaultLanguage="typescript"
-                        value={block.content}
+                        value={safeString(block.content)}
                         theme="vs-dark"
                         options={{
                             readOnly: true,
@@ -85,10 +94,10 @@ export const BlockRenderer: React.FC<BlockProps> = ({ block }) => {
                     margin: '12px 0'
                 }}>
                     <h3 style={{ color: '#60A5FA', fontWeight: 'bold', marginBottom: '12px', fontSize: '1.1em' }}>
-                        {block.title || 'Implementation Plan'}
+                        {safeString(block.title) || 'Implementation Plan'}
                     </h3>
                     <div style={{ lineHeight: '1.5', color: '#D1D5DB' }}>
-                        {formatMarkdown(block.content)}
+                        {formatMarkdown(safeString(block.content))}
                     </div>
                 </div>
             )
@@ -102,10 +111,10 @@ export const BlockRenderer: React.FC<BlockProps> = ({ block }) => {
                     margin: '8px 0'
                 }}>
                     <div style={{ color: '#10B981', fontWeight: 'bold', marginBottom: '8px' }}>
-                        {block.title || '🔧 Preflight Checks'}
+                        {safeString(block.title) || '🔧 Preflight Checks'}
                     </div>
                     <div style={{ lineHeight: '1.5', color: '#D1D5DB' }}>
-                        {formatMarkdown(block.content)}
+                        {formatMarkdown(safeString(block.content))}
                     </div>
                 </div>
             )
@@ -120,10 +129,10 @@ export const BlockRenderer: React.FC<BlockProps> = ({ block }) => {
                     margin: '8px 0'
                 }}>
                     <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>
-                        {block.title || 'Error'}
+                        {safeString(block.title) || 'Error'}
                     </div>
                     <div style={{ lineHeight: '1.5' }}>
-                        {formatMarkdown(block.content)}
+                        {formatMarkdown(safeString(block.content))}
                     </div>
                 </div>
              );
@@ -140,7 +149,7 @@ export const BlockRenderer: React.FC<BlockProps> = ({ block }) => {
                 }}>
                     {block.title && (
                         <div style={{ color: '#6B7280', marginBottom: '8px', fontSize: '0.9em' }}>
-                            {block.title}
+                            {safeString(block.title)}
                         </div>
                     )}
                     <div style={{ 
@@ -149,7 +158,7 @@ export const BlockRenderer: React.FC<BlockProps> = ({ block }) => {
                         lineHeight: '1.5',
                         overflowX: 'auto'
                     }}>
-                        {formatMarkdown(block.content)}
+                        {formatMarkdown(safeString(block.content))}
                     </div>
                 </div>
             );
@@ -167,11 +176,11 @@ export const BlockRenderer: React.FC<BlockProps> = ({ block }) => {
                     gap: '8px'
                 }}>
                     <div style={{ color: '#fbbf24', fontWeight: '600', fontSize: '0.85em', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        {block.title || 'TOOL'}
+                        {safeString(block.title) || 'TOOL'}
                     </div>
                     {block.content && (
                         <div style={{ color: '#E5E7EB', fontFamily: 'monospace', opacity: 0.9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {block.content}
+                            {safeString(block.content)}
                         </div>
                     )}
                 </div>
@@ -184,7 +193,7 @@ export const BlockRenderer: React.FC<BlockProps> = ({ block }) => {
                     margin: '8px 0',
                     lineHeight: '1.5'
                 }}>
-                    {block.content}
+                    {safeString(block.content)}
                 </div>
             );
     }

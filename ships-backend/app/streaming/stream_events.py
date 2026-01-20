@@ -75,7 +75,9 @@ class StreamBlock:
             payload["content"] = delta
             
         if event_type == "block_end":
-            payload["final_content"] = self.content
+            # DEFENSIVE: Ensure final_content is a string
+            final_content = self.content if isinstance(self.content, str) else str(self.content) if self.content else ""
+            payload["final_content"] = final_content
             payload["duration_ms"] = int((time.time() - self.start_time) * 1000)
             
         return json.dumps(payload)
@@ -115,6 +117,10 @@ class StreamBlockManager:
             # Fallback: Create default text block if none active
              # (Or should we simplify and ignore? Better to catch it)
              return self.start_block(BlockType.TEXT, title=None) + "\n" + self.append_delta(text)
+        
+        # DEFENSIVE: Ensure text is actually a string
+        if not isinstance(text, str):
+            text = str(text) if text is not None else ""
              
         self.active_block.content += text
         return self.active_block.to_event("block_delta", delta=text)

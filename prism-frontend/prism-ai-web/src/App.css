@@ -675,10 +675,25 @@ body {
   text-align: right;
 }
 
+/* Container for block-based messages - no default bubble styling */
 .no-bubble {
-  background-color: transparent !important;
-  padding: 0 !important;
+  background-color: transparent;
+  padding: 0;
   color: var(--text-primary);
+}
+
+/* Preserve block-specific styles (don't let no-bubble override) */
+.no-bubble .block-plan,
+.no-bubble .block-thinking,
+.no-bubble .block-preflight,
+.no-bubble .block-error,
+.no-bubble .block-command,
+.no-bubble .block-cmd-output,
+.no-bubble .block-tool-use,
+.no-bubble .block-code {
+  background-color: revert !important;
+  padding: revert !important;
+  border: revert !important;
 }
 
 /* Explicitly allow text selection in chat */

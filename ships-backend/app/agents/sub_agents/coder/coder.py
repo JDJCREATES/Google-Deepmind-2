@@ -875,21 +875,61 @@ Use these type definitions. Do NOT read from disk.
             # FIX MODE: Emphasize read-first, surgical edits
             task_instructions = f"""## 🔧 FIX MODE ACTIVATED
 
+⚠️ **YOU MUST EDIT AT LEAST ONE FILE TO COMPLETE THIS TASK** ⚠️
+
 You are FIXING existing code, not creating new features.
 
-MANDATORY WORKFLOW:
-1. **READ FIRST**: Use `read_file_from_disk` to read the broken file(s)
-2. **ANALYZE**: Identify what's broken vs what's working
-3. **SURGICAL FIX**: Use `apply_source_edits` to fix ONLY the broken part
-4. **VERIFY**: Ensure working code is preserved
+MANDATORY WORKFLOW (NO EXCEPTIONS):
 
-CRITICAL RULES:
+**STEP 1: CAPTURE THE ACTUAL ERROR (if not provided)**
+If the user mentions "runtime error", "build error", "error", or "not loading" but didn't provide the actual error message:
+1. Use `run_command` to execute: `npm run build` or `npm run dev`
+2. Look for the actual error message in the output (e.g., "Module not found", "Unexpected token", "Cannot find module")
+3. Note the file path and line number from the error
+
+**STEP 2: READ THE BROKEN FILE**
+- Use `read_file_from_disk` to read the file mentioned in the error (MAX 2-3 files)
+- Find the exact line causing the problem
+
+**STEP 3: IDENTIFY THE EXACT BUG**
+- Look at the error message - what is it complaining about?
+- Common issues:
+  * "Module not found" → Missing import or wrong path
+  * "Unexpected token" → Syntax error (missing bracket, comma, etc.)
+  * "Cannot find module" → Typo in import path
+  * Duplicate CSS directives → Remove duplicate @tailwind lines
+  * Missing dependencies → Wrong import statement
+
+**STEP 4: FIX IT NOW (REQUIRED)**
+- Use `apply_source_edits` or `write_file_to_disk` to fix the broken code
+- Fix ONLY the specific error - don't rewrite working code
+
+**STEP 5: VERIFY & COMPLETE**
+- (Optional) Run `npm run build` again to confirm fix
+- Say "Implementation complete."
+
+🚫 **FORBIDDEN RESPONSES:**
+- ❌ "I found the issue: [explanation]" WITHOUT editing the file
+- ❌ "The problem is [description]" WITHOUT fixing it
+- ❌ Reading 5+ files without making edits
+- ❌ Skipping Step 1 when the error isn't clear
+
+✅ **REQUIRED RESPONSE:**
+1. Run diagnostic command (if error unclear)
+2. Read broken file  
+3. Apply fix using `apply_source_edits` or `write_file_to_disk`
+4. Say "Implementation complete."
+
+**CRITICAL RULES:**
+- You MUST call `apply_source_edits` or `write_file_to_disk` at least ONCE
+- Understanding the problem ≠ completing the task
 - Modify 1-3 files MAXIMUM for a fix
-- Use `apply_source_edits` (surgical patches), NOT `write_file_to_disk`
 - Preserve ALL working code
 - Make the MINIMAL change needed
 
-If you're touching 5+ files for a "simple fix", you're over-fixing. Read more carefully.
+**COMPLETION CRITERIA:**
+✅ Complete = You edited at least ONE file with the fix
+❌ Incomplete = You only read files and explained the problem
 
 CURRENT TASK:
 {scoped_task_str}
@@ -936,10 +976,11 @@ IMPLEMENTATION PLAN:
 
 {task_instructions}
 
-IMPORTANT:
-- Respect existing code style
-- Write complete working code (no TODOs)
-- When task is complete, respond with "Implementation complete." """
+COMPLETION CRITERIA:
+{"- You MUST edit at least ONE file with write_file_to_disk or apply_source_edits" if is_fix_task else "- Write complete working code (no TODOs)"}
+{"- Understanding the problem is NOT completion - you must APPLY THE FIX" if is_fix_task else "- When ALL files are created and integrated, respond with 'Implementation complete.'"}
+{"- Respond 'Implementation complete.' ONLY after editing the file" if is_fix_task else ""}
+"""
 
         # ================================================================
         # Execute using create_react_agent with CODER_TOOLS
@@ -1211,6 +1252,13 @@ IMPORTANT:
                                     logger.info(f"[CODER] 📁 Tracked existing file from disk: {rel_path}")
                 except Exception as scan_err:
                     logger.debug(f"[CODER] Disk scan failed: {scan_err}")
+
+            # CRITICAL: For fix mode, if zero writes happened, force incomplete status
+            # This must happen AFTER message processing to override any LLM "implementation complete" claim
+            is_fix_mode = task_type == "fix"
+            if is_fix_mode and write_calls == 0:
+                logger.warning(f"[CODER] ❌ FIX MODE: Zero writes detected - marking incomplete (read-only analysis is not a fix)")
+                implementation_complete = False  # Override any "implementation complete" from LLM
 
             # Emit agent_complete event
             if implementation_complete:

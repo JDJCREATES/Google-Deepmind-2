@@ -30,6 +30,7 @@ export interface StreamBlock {
   type: 'text' | 'code' | 'command' | 'plan' | 'thinking' | 'tool_use' | 'error' | 'preflight' | 'cmd_output';
   title?: string;
   content: string;
+  final_content?: string;  // Final content when block completes
   isComplete: boolean;
   metadata?: any;
 }

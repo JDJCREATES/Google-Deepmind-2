@@ -671,15 +671,92 @@ class BuildLayer(ValidationLayer):
             # No project path, cannot build
             logger.debug("[BUILD] No project_path provided, skipping build validation")
             return self._create_result(True, [], 0, 0)
-            
-        # Check for package.json
-        pkg_path = os.path.join(project_path, "package.json")
-        if not os.path.exists(pkg_path):
-            # No package.json, maybe not a node project. Skip.
-            logger.debug("[BUILD] No package.json found, skipping build validation")
-            return self._create_result(True, [], 0, 0)
         
-        logger.info(f"[BUILD] 🔨 Running build validation for: {project_path}")
+        # SMART DETECTION: Find package.json based on actual file paths from this run
+        # Look at file_changes to determine the actual working directory
+        file_changes = context.get("file_changes", [])
+        folder_map = context.get("folder_map", {})
+        working_dir = None
+        
+        if file_changes:
+            # Extract directory from first file change
+            for change in file_changes:
+                file_path = change.get("path", "")
+                if file_path:
+                    # File path might be relative or absolute
+                    # Example: "ships-test-scaffold/src/app/page.tsx" or "/full/path/to/file.tsx"
+                    parts = file_path.replace("\\", "/").split("/")
+                    
+                    # Find the root-most directory that might contain package.json
+                    # Typically: if path is "subfolder/src/...", the root is "subfolder"
+                    if len(parts) > 1:
+                        # Check if it's an absolute path starting with project_path
+                        if os.path.isabs(file_path):
+                            # Absolute path - extract relative to project_path
+                            try:
+                                rel_path = os.path.relpath(file_path, project_path)
+                                first_dir = rel_path.split(os.sep)[0]
+                                if first_dir != "..":
+                                    potential_root = os.path.join(project_path, first_dir)
+                                    if os.path.exists(os.path.join(potential_root, "package.json")):
+                                        working_dir = potential_root
+                                        break
+                            except ValueError:
+                                pass
+                        else:
+                            # Relative path - first component is likely the project root
+                            first_dir = parts[0]
+                            potential_root = os.path.join(project_path, first_dir)
+                            if os.path.exists(os.path.join(potential_root, "package.json")):
+                                working_dir = potential_root
+                                logger.info(f"[BUILD] 📁 Detected project root from file_changes: {first_dir}")
+                                break
+        
+        # FALLBACK 1: If no file_changes, try folder_map entries
+        if not working_dir and folder_map:
+            entries = folder_map.get("entries", [])
+            for entry in entries:
+                file_path = entry.get("path", "")
+                if file_path:
+                    parts = file_path.replace("\\", "/").split("/")
+                    if len(parts) > 1:
+                        first_dir = parts[0]
+                        potential_root = os.path.join(project_path, first_dir)
+                        if os.path.exists(os.path.join(potential_root, "package.json")):
+                            working_dir = potential_root
+                            logger.info(f"[BUILD] 📁 Detected project root from folder_map: {first_dir}")
+                            break
+        
+        # FALLBACK 2: Scan immediate subdirectories for package.json
+        if not working_dir:
+            try:
+                for item in os.listdir(project_path):
+                    item_path = os.path.join(project_path, item)
+                    if os.path.isdir(item_path):
+                        pkg_check = os.path.join(item_path, "package.json")
+                        if os.path.exists(pkg_check):
+                            working_dir = item_path
+                            logger.info(f"[BUILD] 📁 Detected project root from directory scan: {item}")
+                            break
+            except Exception as scan_err:
+                logger.debug(f"[BUILD] Directory scan failed: {scan_err}")
+        
+        # Fallback: Check project_path root first, then fail
+        pkg_path = os.path.join(project_path, "package.json") if not working_dir else os.path.join(working_dir, "package.json")
+        actual_project_root = working_dir if working_dir else project_path
+        
+        if not os.path.exists(pkg_path):
+            # Try root as last resort
+            root_pkg = os.path.join(project_path, "package.json")
+            if os.path.exists(root_pkg):
+                pkg_path = root_pkg
+                actual_project_root = project_path
+            else:
+                # No package.json found based on actual file paths - not a node project
+                logger.debug(f"[BUILD] No package.json found at {pkg_path} or {root_pkg}, skipping build validation")
+                return self._create_result(True, [], 0, 0)
+        
+        logger.info(f"[BUILD] 🔨 Running build validation for: {actual_project_root}")
         
         # Check for build script
         checks_run += 1
@@ -695,7 +772,7 @@ class BuildLayer(ValidationLayer):
             try:
                 install_result = subprocess.run(
                     "npm install",
-                    cwd=project_path,
+                    cwd=actual_project_root,
                     shell=True,
                     capture_output=True,
                     text=True,
@@ -742,7 +819,7 @@ class BuildLayer(ValidationLayer):
                         # Run dev server briefly to catch import errors
                         dev_result = subprocess.run(
                             "npm run dev",
-                            cwd=project_path,
+                            cwd=actual_project_root,
                             shell=True,
                             capture_output=True,
                             text=True,
@@ -775,7 +852,7 @@ class BuildLayer(ValidationLayer):
                     # Capture output
                     result = subprocess.run(
                         "npm run build",
-                        cwd=project_path,
+                        cwd=actual_project_root,
                         shell=True,
                         capture_output=True,
                         text=True,
