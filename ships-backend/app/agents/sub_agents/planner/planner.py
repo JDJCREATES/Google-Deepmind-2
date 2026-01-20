@@ -459,7 +459,11 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
             # Use Pydantic schema for guaranteed structured output
             structured_llm = self.llm.with_structured_output(LLMPlanOutput)
             
-            logger.info(f"[PLANNER] 🎯 Invoking LLM with structured output (LLMPlanOutput schema)")
+            # ================================================================
+            # DIAGNOSTIC LOGGING: Track structured output effectiveness
+            # ================================================================
+            prompt_size = len(self.system_prompt) + len(prompt)
+            logger.info(f"[PLANNER] 🎯 Invoking LLM with_structured_output (prompt={prompt_size//1000}KB, schema=LLMPlanOutput)")
             
             result: LLMPlanOutput = await structured_llm.ainvoke(messages)
             
@@ -467,13 +471,27 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
             plan_dict = result.model_dump()
             
             # ================================================================
-            # VISIBILITY LOGS: Show what Planner produced
+            # DIAGNOSTIC LOGGING: Measure schema output quality
             # ================================================================
+            reasoning_length = len(plan_dict.get('reasoning', ''))
+            decision_notes_count = len(plan_dict.get('decision_notes', []))
+            has_dependencies = bool(plan_dict.get('dependencies', {}).get('runtime', []))
+            
             logger.info(
-                f"[PLANNER] ✅ Structured output received: "
+                f"[PLANNER] ✅ Structured output: "
                 f"{len(plan_dict.get('tasks', []))} tasks, "
-                f"{len(plan_dict.get('folders', []))} folders"
+                f"{len(plan_dict.get('folders', []))} folders, "
+                f"reasoning={reasoning_length} chars, "
+                f"decisions={decision_notes_count}"
             )
+            
+            # Check if reasoning is generic (potential Field description issue)
+            reasoning_text = plan_dict.get('reasoning', '').lower()
+            if reasoning_length < 500:
+                logger.warning(f"[PLANNER] ⚠️ Reasoning too short ({reasoning_length} chars) - may be generic")
+            if 'this project' not in reasoning_text and 'user wants' not in reasoning_text:
+                logger.warning(f"[PLANNER] ⚠️ Reasoning lacks project-specific analysis - Field descriptions may not be working")
+            
             dev_log(logger, f"[PLANNER] 📋 Summary: {truncate_for_log(plan_dict.get('summary', 'N/A'), 200)}")
             
             # Log task titles in dev mode for debugging
@@ -483,7 +501,8 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
             return plan_dict
             
         except Exception as e:
-            logger.warning(f"[PLANNER] ⚠️ Structured output failed: {e}, falling back to raw parsing")
+            logger.warning(f"[PLANNER] ⚠️ Structured output FAILED (schema validation error): {e}, falling back to raw parsing")
+            logger.warning(f"[PLANNER] ⚠️ This suggests Field descriptions or schema constraints are too strict")
             
             # Fallback to raw parsing if structured output fails
             try:

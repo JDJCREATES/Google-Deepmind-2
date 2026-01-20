@@ -154,18 +154,21 @@ export const BlockRenderer: React.FC<BlockProps> = ({ block }) => {
         case 'tool_use':
             return (
                 <div className="block-tool-use" style={{
-                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                    border: '1px solid rgba(59, 130, 246, 0.3)',
-                    borderRadius: '6px',
-                    padding: '10px 12px',
-                    margin: '6px 0',
-                    fontSize: '0.9em'
+                    backgroundColor: 'rgba(251, 191, 36, 0.05)', // Even more transparent
+                    border: '1px solid rgba(251, 191, 36, 0.2)',
+                    borderRadius: '4px',
+                    padding: '6px 10px', // Reduced padding
+                    margin: '4px 0',
+                    fontSize: '0.9em',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
                 }}>
-                    <div style={{ color: '#60A5FA', fontWeight: '500' }}>
-                        {block.title || 'Tool'}
+                    <div style={{ color: '#fbbf24', fontWeight: '600', fontSize: '0.85em', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        {block.title || 'TOOL'}
                     </div>
                     {block.content && (
-                        <div style={{ color: '#9CA3AF', marginTop: '4px' }}>
+                        <div style={{ color: '#E5E7EB', fontFamily: 'monospace', opacity: 0.9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {block.content}
                         </div>
                     )}

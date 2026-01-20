@@ -1020,6 +1020,17 @@ IMPORTANT:
             # Use instance method for prompt to inject OS-specific context
             system_prompt = self._get_system_prompt(command_preference=command_pref)
             
+            # ================================================================
+            # DIAGNOSTIC LOGGING: Track what context we're giving the LLM
+            # ================================================================
+            prompt_size = len(coder_prompt)
+            artifact_size = len(artifact_context)
+            has_folder_map = "FOLDER_MAP_PLAN" in artifact_context
+            has_task_details = "CURRENT TASK" in artifact_context
+            file_count_in_context = artifact_context.count('"path":') if artifact_context else 0
+            
+            logger.info(f"[CODER] 📊 Context Stats: prompt={prompt_size//1000}KB, artifacts={artifact_size//1000}KB, folder_map={has_folder_map}, files_in_context={file_count_in_context}")
+            
             coder_agent = create_react_agent(
                 model=llm,
                 tools=CODER_TOOLS,
@@ -1045,6 +1056,7 @@ IMPORTANT:
                 }
             ))
             
+            logger.info(f"[CODER] 🎬 Starting ReAct agent (recursion_limit=25)")
             result = await coder_agent.ainvoke(
                 {"messages": [HumanMessage(content=coder_prompt)]},
                 config={"recursion_limit": 25}  # Increased to 25 for complex features with many files
@@ -1055,13 +1067,29 @@ IMPORTANT:
             implementation_complete = False
             files_written = []
             
-            # DEBUG: Log message types to diagnose tracking issue
-            logger.debug(f"[CODER] Processing {len(new_messages)} messages for file tracking")
+            # ================================================================
+            # DIAGNOSTIC LOGGING: Track LLM's ReAct behavior turn-by-turn
+            # ================================================================
+            tool_sequence = []
             for i, msg in enumerate(new_messages):
                 msg_type = type(msg).__name__
-                has_tool_calls = hasattr(msg, 'tool_calls') and bool(msg.tool_calls)
-                tool_name = getattr(msg, 'name', None)
-                logger.debug(f"[CODER]   Message {i}: {msg_type}, tool_calls={has_tool_calls}, name={tool_name}")
+                if isinstance(msg, AIMessage) and hasattr(msg, 'tool_calls') and msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        tc_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
+                        tool_sequence.append(tc_name)
+                elif hasattr(msg, 'name'):
+                    tool_name = getattr(msg, 'name', None)
+                    if tool_name:
+                        tool_sequence.append(f"✓{tool_name}")  # ✓ = completed
+            
+            logger.info(f"[CODER] 🔍 ReAct Tool Sequence ({len(tool_sequence)} calls): {' → '.join(tool_sequence[:15])}")
+            if len(tool_sequence) > 15:
+                logger.info(f"[CODER]    ... and {len(tool_sequence) - 15} more tool calls")
+            
+            # Count writes vs reads
+            write_calls = sum(1 for t in tool_sequence if 'write' in t.lower())
+            read_calls = sum(1 for t in tool_sequence if 'read' in t.lower() or 'get' in t.lower())
+            logger.info(f"[CODER] 📈 Action Ratio: {write_calls} writes, {read_calls} reads")
             
             # IMPROVED: Track files from both AIMessage.tool_calls AND ToolMessage responses
             from langchain_core.messages import AIMessage, ToolMessage

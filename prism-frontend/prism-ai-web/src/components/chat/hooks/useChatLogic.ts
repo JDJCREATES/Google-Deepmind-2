@@ -246,14 +246,15 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
            else if (toolName.includes('delete')) action = 'Deleted';
            else action = 'Modified';
            
-           const fileBlock: StreamBlock = {
-             id: `${Date.now()}-file-op`,
-             type: 'tool_use',
-             title: `${action}: ${chunk.file}`,
-             content: `✓ ${action} \`${chunk.file}\``,
-             isComplete: true,
-             metadata: chunk
-           };
+            const fileName = chunk.file || 'File';
+            const fileBlock: StreamBlock = {
+              id: `${Date.now()}-file-op`,
+              type: 'tool_use',
+              title: action,          // e.g. "Modified"
+              content: fileName,      // e.g. "src/App.tsx"
+              isComplete: true,
+              metadata: chunk
+            };
            if (targetRunId) {
              upsertRunMessageBlock(targetRunId, aiMessageId, fileBlock);
            }
