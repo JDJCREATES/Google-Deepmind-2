@@ -96,6 +96,19 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
     return agentNames[run.currentAgent] || run.currentAgent;
   };
 
+  // Phase display (for active runs)
+  const getPhaseDisplay = () => {
+    if (run.status === 'completed') return 'Complete';
+    if (run.status === 'error') return 'Error';
+    if (run.status === 'paused') return 'Paused';
+    
+    // Active phases
+    const agent = getAgentDisplay();
+    if (agent) return agent; // "Planner", "Coder", etc.
+    
+    return 'Running';
+  };
+
   // Handle pause/resume
   const handleTogglePause = () => {
     if (run.status === 'paused') {
@@ -281,7 +294,7 @@ export const RunCard: React.FC<RunCardProps> = ({ run, isSelected = false, onSel
         <div className="run-card__meta">
           <span className="run-card__port" title="Deterministic Port">Port: {activePort}</span>
           <span className="run-card__status">
-            {isActive && getAgentDisplay() ? getAgentDisplay() : run.status}
+            {getPhaseDisplay()}
           </span>
         </div>
 

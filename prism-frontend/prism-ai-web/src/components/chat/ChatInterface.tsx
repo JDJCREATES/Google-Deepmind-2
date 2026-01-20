@@ -1,5 +1,5 @@
 import ChatMessage from './ChatMessage';
-import { ToolProgress, PhaseIndicator } from '../streaming';
+import { ToolProgress } from '../streaming';
 import { ActivityIndicator } from '../streaming/ActivityIndicator';
 import { PlanReviewActions } from '../streaming/PlanReviewActions';
 import { useChatLogic } from './hooks/useChatLogic';
@@ -60,7 +60,7 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
       <main className="chat-messages">
          {/* Phase Indicator */}
          {isAgentRunning && agentPhase !== 'idle' && agentPhase !== 'done' && (
-           <PhaseIndicator phase={agentPhase} />
+           {/* Phase indicator moved to RunCard */}
          )}
          
          {/* Messages - All content (including thinking) rendered as StreamBlocks */}

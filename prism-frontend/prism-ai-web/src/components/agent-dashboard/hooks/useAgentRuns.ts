@@ -259,13 +259,16 @@ export const useAgentRuns = create<AgentRunsState>()(
     })),
 
   addRunMessage: (runId, message) =>
-    set((state) => ({
-      runs: state.runs.map((run) =>
+    set((state) => {
+      const updatedRuns = state.runs.map((run) =>
         run.id === runId
           ? { ...run, messages: [...(run.messages || []), message] }
           : run
-      ),
-    })),
+      );
+      const targetRun = updatedRuns.find(r => r.id === runId);
+      console.log('[useAgentRuns] 💬 Added message to run', runId, '- Total messages:', targetRun?.messages?.length || 0);
+      return { runs: updatedRuns };
+    }),
 
   updateRunMessage: (runId, messageId, updates) =>
     set((state) => ({
@@ -878,12 +881,17 @@ export const useAgentRuns = create<AgentRunsState>()(
     {
       name: 'ships-agent-runs-v2',
       storage: createJSONStorage(() => localStorage),
-      // Persist runs and activeRunId so messages don't disappear
+      // Persist runs (with messages) and activeRunId
       partialize: (state) => ({
-        runs: state.runs,
+        runs: state.runs.map(run => ({
+          ...run,
+          // Explicitly include messages to ensure they persist
+          messages: run.messages || [],
+        })),
         activeRunId: state.activeRunId,
       }),
-      // Handle date serialization
+      // Handle date serialization and add version check
+      version: 2, // Increment when structure changes
       onRehydrateStorage: () => (state) => {
         if (state) {
           // Rehydrate dates in runs
@@ -896,7 +904,8 @@ export const useAgentRuns = create<AgentRunsState>()(
               timestamp: new Date(msg.timestamp),
             })) || [],
           }));
-          console.log('[useAgentRuns] Rehydrated', state.runs.length, 'runs from storage');
+          console.log('[useAgentRuns] ✅ Rehydrated', state.runs.length, 'runs with', 
+            state.runs.reduce((sum, run) => sum + (run.messages?.length || 0), 0), 'total messages from localStorage');
         }
       },
     }

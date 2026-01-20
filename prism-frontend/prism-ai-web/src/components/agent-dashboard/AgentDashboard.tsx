@@ -163,6 +163,10 @@ export const AgentDashboard: React.FC = () => {
              setPhase(chunk.phase);
              setActivity(`Phase: ${chunk.phase}`);
           }
+          // Stream completion
+          else if (chunk.type === 'stream:complete') {
+             setActivity('', 'idle'); // Clear activity indicator
+          }
           else if (chunk.type === 'error') {
              console.error("Stream Error:", chunk);
              // Could update UI to show error block

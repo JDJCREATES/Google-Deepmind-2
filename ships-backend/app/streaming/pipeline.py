@@ -581,6 +581,10 @@ async def stream_pipeline(
 
         final = block_mgr.end_current_block()
         if final: yield final + "\n"
+        
+        # Signal stream completion
+        import json
+        yield json.dumps({"type": "stream:complete", "timestamp": int(time.time() * 1000)}) + "\n"
 
     except Exception as e:
         logger.error(f"[STREAM] Error: {e}", exc_info=True)
