@@ -215,7 +215,7 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
            setActivity(activityText, type);
            const toolEvent = {
              id: `${Date.now()}-${chunk.tool}`,
-             type: 'tool_start',
+             type: 'tool_start' as const,
              tool: chunk.tool || 'unknown',
              file: chunk.file,
              timestamp: Date.now()
@@ -230,7 +230,7 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
            // Add to ToolProgress sidebar
            const toolEvent = {
              id: `${Date.now()}-${chunk.tool}-result`,
-             type: 'tool_result',
+             type: 'tool_result' as const,
              tool: chunk.tool || 'unknown',
              file: chunk.file,
              success: chunk.success,
@@ -246,12 +246,25 @@ export function useChatLogic({ electronProjectPath }: UseChatLogicProps) {
            else if (toolName.includes('delete')) action = 'Deleted';
            else action = 'Modified';
            
-            const fileName = chunk.file || 'File';
+            let fileName = chunk.file;
+            
+            // Try explicit metadata fallbacks if top-level file is missing
+            if (!fileName || fileName === 'null' || fileName === 'undefined') {
+                if (chunk.metadata) {
+                    fileName = chunk.metadata.file || chunk.metadata.file_path || chunk.metadata.filename;
+                }
+            }
+            
+            if (!fileName || fileName === 'null' || fileName === 'undefined') {
+                // Fallback to tool name if file is completely missing
+                fileName = chunk.tool || 'Unknown Tool';
+            }
+            
             const fileBlock: StreamBlock = {
               id: `${Date.now()}-file-op`,
               type: 'tool_use',
-              title: action,          // e.g. "Modified"
-              content: fileName,      // e.g. "src/App.tsx"
+              title: action,
+              content: fileName,
               isComplete: true,
               metadata: chunk
             };

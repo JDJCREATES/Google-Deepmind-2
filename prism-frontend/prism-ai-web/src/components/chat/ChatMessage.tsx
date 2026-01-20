@@ -49,7 +49,7 @@ export default function ChatMessage({ message, onEdit, onRewind }: ChatMessagePr
     // Legacy text fallback - just display content normally
     return (
       <div className={`message ${isSystem ? 'message-system' : 'message-ai'}`}>
-        <div className="message-content no-bubble">
+        <div className="message-content no-bubble" style={{ userSelect: 'text', cursor: 'text' }}>
           {message.content}
         </div>
       </div>

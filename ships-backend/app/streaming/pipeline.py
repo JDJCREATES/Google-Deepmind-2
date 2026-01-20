@@ -156,105 +156,24 @@ async def stream_pipeline(
                             content = str(content)
                         
                         # DETECT JSON STREAMING (from planner's structured output)
-                        # Check if we're starting JSON or already in JSON
+                        # Just accumulate - final output formatted in on_chain_end
                         if not in_json_stream and content.strip().startswith('{'):
                             in_json_stream = True
                             json_buffer = content
-                            # Start a thinking block for extracted reasoning
-                            yield block_mgr.start_block(BlockType.THINKING, "Planning...") + "\n"
                             continue  # Don't stream raw JSON
                         elif in_json_stream:
                             json_buffer += content
-                            
-                            # Try to extract user-facing text fields as they complete
-                            import re
-                            
-                            # Extract "reasoning": "..." field
-                            reasoning_match = re.search(r'"reasoning"\s*:\s*"([^"]*(?:\\.[^"]*)*)"', json_buffer)
-                            if reasoning_match and '"reasoning": ""' not in json_buffer:
-                                reasoning_text = reasoning_match.group(1).replace('\\"', '"').replace('\\n', '\n')
-                                delta = block_mgr.append_delta("**Reasoning:**\n" + reasoning_text + "\n\n")
-                                if delta:
-                                    yield delta + "\n"
-                                json_buffer = re.sub(r'"reasoning"\s*:\s*"[^"]*(?:\\.[^"]*)*"', '"reasoning": ""', json_buffer, count=1)
-                            
-                            # Extract "summary": "..." field  
-                            summary_match = re.search(r'"summary"\s*:\s*"([^"]*(?:\\.[^"]*)*)"', json_buffer)
-                            if summary_match and '"summary": ""' not in json_buffer:
-                                summary_text = summary_match.group(1).replace('\\"', '"').replace('\\n', '\n')
-                                delta = block_mgr.append_delta("**Summary:**\n" + summary_text + "\n\n")
-                                if delta:
-                                    yield delta + "\n"
-                                json_buffer = re.sub(r'"summary"\s*:\s*"[^"]*(?:\\.[^"]*)*"', '"summary": ""', json_buffer, count=1)
-                            
-                            # Extract "description": "..." field
-                            description_match = re.search(r'"description"\s*:\s*"([^"]*(?:\\.[^"]*)*)"', json_buffer)
-                            if description_match and '"description": ""' not in json_buffer:
-                                desc_text = description_match.group(1).replace('\\"', '"').replace('\\n', '\n')
-                                delta = block_mgr.append_delta("**Description:**\n" + desc_text + "\n\n")
-                                if delta:
-                                    yield delta + "\n"
-                                json_buffer = re.sub(r'"description"\s*:\s*"[^"]*(?:\\.[^"]*)*"', '"description": ""', json_buffer, count=1)
-                            
-                            # Extract "assumptions": [...] array
-                            assumptions_match = re.search(r'"assumptions"\s*:\s*\[(.*?)\]', json_buffer, re.DOTALL)
-                            if assumptions_match and '"assumptions": []' not in json_buffer:
-                                assumptions_raw = assumptions_match.group(1)
-                                # Extract quoted strings from array
-                                assumption_items = re.findall(r'"([^"]*(?:\\.[^"]*)*)"', assumptions_raw)
-                                if assumption_items:
-                                    delta = block_mgr.append_delta("**Assumptions:**\n")
-                                    if delta: yield delta + "\n"
-                                    for item in assumption_items:
-                                        clean_item = item.replace('\\"', '"').replace('\\n', ' ')
-                                        delta = block_mgr.append_delta(f"• {clean_item}\n")
-                                        if delta: yield delta + "\n"
-                                    delta = block_mgr.append_delta("\n")
-                                    if delta: yield delta + "\n"
-                                json_buffer = re.sub(r'"assumptions"\s*:\s*\[.*?\]', '"assumptions": []', json_buffer, count=1, flags=re.DOTALL)
-                            
-                            # Extract "decision_notes": [...] array
-                            decisions_match = re.search(r'"decision_notes"\s*:\s*\[(.*?)\]', json_buffer, re.DOTALL)
-                            if decisions_match and '"decision_notes": []' not in json_buffer:
-                                decisions_raw = decisions_match.group(1)
-                                decision_items = re.findall(r'"([^"]*(?:\\.[^"]*)*)"', decisions_raw)
-                                if decision_items:
-                                    delta = block_mgr.append_delta("**Key Decisions:**\n")
-                                    if delta: yield delta + "\n"
-                                    for item in decision_items:
-                                        clean_item = item.replace('\\"', '"').replace('\\n', ' ')
-                                        delta = block_mgr.append_delta(f"• {clean_item}\n")
-                                        if delta: yield delta + "\n"
-                                    delta = block_mgr.append_delta("\n")
-                                    if delta: yield delta + "\n"
-                                json_buffer = re.sub(r'"decision_notes"\s*:\s*\[.*?\]', '"decision_notes": []', json_buffer, count=1, flags=re.DOTALL)
-                            
-                            # Extract "clarifying_questions": [...] array
-                            questions_match = re.search(r'"clarifying_questions"\s*:\s*\[(.*?)\]', json_buffer, re.DOTALL)
-                            if questions_match and '"clarifying_questions": []' not in json_buffer:
-                                questions_raw = questions_match.group(1)
-                                question_items = re.findall(r'"([^"]*(?:\\.[^"]*)*)"', questions_raw)
-                                if question_items:
-                                    delta = block_mgr.append_delta("**Questions:**\n")
-                                    if delta: yield delta + "\n"
-                                    for item in question_items:
-                                        clean_item = item.replace('\\"', '"').replace('\\n', ' ')
-                                        delta = block_mgr.append_delta(f"• {clean_item}\n")
-                                        if delta: yield delta + "\n"
-                                    delta = block_mgr.append_delta("\n")
-                                    if delta: yield delta + "\n"
-                                json_buffer = re.sub(r'"clarifying_questions"\s*:\s*\[.*?\]', '"clarifying_questions": []', json_buffer, count=1, flags=re.DOTALL)
                             
                             # Check if JSON is complete
                             if json_buffer.count('{') > 0 and json_buffer.count('{') == json_buffer.count('}'):
                                 in_json_stream = False
                                 json_buffer = ""
-                                # Close the thinking block
-                                end_block = block_mgr.end_current_block()
-                                if end_block:
-                                    yield end_block + "\n"
                             
                             continue  # Don't stream raw JSON tokens
+                        
+                        # Filter out internal markers (IntentClassifier final output)
+                        if "__INTENT_RESULT__:" in content:
+                            continue  # Skip - this is internal metadata, not for UI
                         
                         # Regular token streaming (non-JSON)
                         # Default to Thinking if no block active
@@ -266,14 +185,42 @@ async def stream_pipeline(
                         delta = block_mgr.append_delta(content)
                         if delta: yield delta + "\n"
 
-            # 2. TOOL EXECUTION
+            # 2. TOOL EXECUTION - Only show important actions, not every read
             elif event_type == "on_tool_start":
-                # Skip internal tools if needed, but showing all is usually transparent
-                yield block_mgr.start_block(BlockType.COMMAND, f"Running {event_name}...") + "\n"
+                # Filter: Only show write/modify operations, not reads or debugging
+                important_tools = [
+                    "write_files_batch", "write_file_to_disk", "apply_source_edits",
+                    "delete_file_from_disk", "install_dependencies",
+                    "create_directory", "scaffold_project"
+                ]
                 
-                # ALSO emit tool_start for ToolProgress sidebar
-                import json
+                # Special case: Terminal commands - only show user-facing ones
                 tool_metadata = event_data.get("input", {})
+                is_important_terminal = False
+                if event_name == "run_terminal_command" and isinstance(tool_metadata, dict):
+                    command = tool_metadata.get("command", "")
+                    # Only show: npm install, npm run dev, package installs (not builds/tests during debugging)
+                    user_facing_commands = ["npm install", "npm run dev", "npm start", "pip install", "yarn install"]
+                    is_important_terminal = any(cmd in command for cmd in user_facing_commands)
+                
+                # Show block only for important operations
+                if event_name in important_tools or is_important_terminal:
+                    # Conversational action description
+                    action_map = {
+                        "write_files_batch": "Writing files",
+                        "write_file_to_disk": "Creating file",
+                        "apply_source_edits": "Editing code",
+                        "delete_file_from_disk": "Deleting file",
+                        "run_terminal_command": "Running command",
+                        "install_dependencies": "Installing packages",
+                        "create_directory": "Creating directory",
+                        "scaffold_project": "Setting up project structure"
+                    }
+                    action_text = action_map.get(event_name, event_name)
+                    yield block_mgr.start_block(BlockType.COMMAND, action_text) + "\n"
+                
+                # ALWAYS emit tool_start for ToolProgress sidebar (even if not shown in chat)
+                import json
                 file_path = None
                 if isinstance(tool_metadata, dict):
                     file_path = tool_metadata.get("file_path") or tool_metadata.get("filename")
@@ -286,10 +233,6 @@ async def stream_pipeline(
                 })
                 yield tool_start_json + "\n"
                 
-                # LOG COMPLETE EMITTED JSON
-                logger.info(f"🔧 [PIPELINE] EMITTED tool_start NDJSON:")
-                logger.info(f"   {tool_start_json}")
-                
             elif event_type == "on_tool_end":
                 import json
                 output = event_data.get("output", "")
@@ -299,52 +242,52 @@ async def stream_pipeline(
                 if hasattr(output, 'content'):
                     output_content = output.content
                 
-                # Parse JSON tool responses for clean display
-                formatted_output = None
-                if isinstance(output_content, str):
-                    try:
-                        parsed = json.loads(output_content)
-                        # Format common tool response patterns
-                        if isinstance(parsed, dict):
-                            if parsed.get("success"):
-                                parts = [f"✓ Success"]
-                                
-                                # Use message if available (highest priority)
-                                if "message" in parsed:
-                                    parts.append(f": {parsed['message']}")
-                                # Terminal output - show it formatted
-                                elif "output" in parsed and parsed["output"]:
-                                    parts.append(f"\n```\n{parsed['output'][:500]}\n```")
-                                # Artifact loaded - show name only
-                                elif "name" in parsed and event_name == "get_artifact":
-                                    parts.append(f": Loaded {parsed['name']}")
-                                # File tree - show summary only
-                                elif "stats" in parsed and event_name == "get_file_tree":
-                                    stats = parsed["stats"]
-                                    parts.append(f": Found {stats.get('files', 0)} files, {stats.get('directories', 0)} directories")
-                                # Write operations - already have message, skip
-                                # For everything else, show success but NO raw data
-                                
-                                formatted_output = "".join(parts)
-                            else:
-                                formatted_output = f"✗ Failed: {parsed.get('error', 'Unknown error')}"
-                    except:
-                        # Not JSON, use as-is but truncate
-                        formatted_output = str(output_content)[:300]
-                else:
-                    formatted_output = str(output_content)[:300]
+                # Only show results for important tools (same filter as on_tool_start)
+                important_tools = [
+                    "write_files_batch", "write_file_to_disk", "apply_source_edits",
+                    "delete_file_from_disk", "run_terminal_command", "install_dependencies",
+                    "create_directory", "scaffinstall_dependencies",
+                    "create_directory", "scaffold_project"
+                ]
                 
-                end_block = block_mgr.end_current_block()
-                if end_block:
-                     yield end_block + "\n"
-                
-                # Only show output block if there's meaningful content
-                if formatted_output and formatted_output.strip():
-                    block_json = block_mgr.create_block(BlockType.CMD_OUTPUT, f"{event_name} result", formatted_output)
-                    yield block_json + "\n"
-                
-                # ALSO emit tool_result for ToolProgress sidebar
+                # Check terminal command filter
                 tool_metadata = event_data.get("input", {})
+                is_important_terminal = False
+                if event_name == "run_terminal_command" and isinstance(tool_metadata, dict):
+                    command = tool_metadata.get("command", "")
+                    user_facing_commands = ["npm install", "npm run dev", "npm start", "pip install", "yarn install"]
+                    is_important_terminal = any(cmd in command for cmd in user_facing_commands)
+                
+                # Parse and format output for important tools only
+                if event_name in important_tools or is_important_terminal
+                    if isinstance(output_content, str):
+                        try:
+                            parsed = json.loads(output_content)
+                            if isinstance(parsed, dict):
+                                if parsed.get("success"):
+                                    # Concise success messages
+                                    if "message" in parsed:
+                                        formatted_output = f"✓ {parsed['message']}"
+                                    elif event_name == "write_files_batch":
+                                        file_count = parsed.get("files_written", parsed.get("count", 0))
+                                        formatted_output = f"✓ Created {file_count} files"
+                                    else:
+                                        formatted_output = "✓ Done"
+                                else:
+                                    formatted_output = f"✗ {parsed.get('error', 'Failed')}"
+                        except:
+                            formatted_output = "✓ Complete"
+                    
+                    end_block = block_mgr.end_current_block()
+                    if end_block:
+                        yield end_block + "\n"
+                    
+                    # Show concise result
+                    if formatted_output:
+                        block_json = block_mgr.create_block(BlockType.CMD_OUTPUT, "", formatted_output)
+                        yield block_json + "\n"
+                
+                # ALWAYS emit tool_result for ToolProgress sidebar (even if not shown in chat)
                 file_path = None
                 if isinstance(tool_metadata, dict):
                     file_path = tool_metadata.get("file_path") or tool_metadata.get("filename")
@@ -374,30 +317,34 @@ async def stream_pipeline(
                 logger.info(f"✅ [PIPELINE] EMITTED tool_result NDJSON:")
                 logger.info(f"   {tool_result_json}")
 
-            # 3. NODE TRANSITIONS
+            # 3. NODE TRANSITIONS - Conversational agent status
             elif event_type == "on_chain_start":
                 current_agent = event_name  # Track which agent started
+                
+                # Show conversational status for main agents only
                 if event_name == "planner":
-                     # Planner will stream JSON - we'll extract reasoning in on_chat_model_stream
-                     pass
+                    yield block_mgr.start_block(BlockType.THINKING, "Planning your project...") + "\n"
                 elif event_name == "coder":
-                     yield block_mgr.start_block(BlockType.CODE, "Writing Code...") + "\n"
+                    yield block_mgr.start_block(BlockType.CODE, "Implementing code...") + "\n"
                 elif event_name == "validator":
-                     yield block_mgr.start_block(BlockType.TEXT, "Validating Changes...") + "\n"
+                    yield block_mgr.start_block(BlockType.TEXT, "Reviewing changes...") + "\n"
                 elif event_name == "fixer":
-                     yield block_mgr.start_block(BlockType.PREFLIGHT, "Applying Fixes...") + "\n"
+                    yield block_mgr.start_block(BlockType.TEXT, "Fixing issues...") + "\n"
+                # Orchestrator and IntentClassifier are silent (internal routing)
 
             elif event_type == "on_chain_end":
                 
                 # SKIP DISPLAY FOR INTERNAL OUTPUTS (routing metadata, not user-facing)
-                if event_name in ["orchestrator", "IntentClassifier", "intent_classifier"]:
-                    continue  # Internal processing - logged but not streamed to UI
+                if event_name in ["orchestrator", "IntentClassifier", "intent_classifier", "Orchestrator"]:
+                    # Internal orchestration - user doesn't need to see routing decisions
+                    logger.debug(f"[PIPELINE] Filtered internal event: {event_name}")
+                    continue
                 
                 # PARSE STRUCTURED OUTPUTS from planner/coder
                 import json
                 output = event_data.get("output", {})
                 
-                # PLANNER STRUCTURED OUTPUT - Display nicely formatted plan
+                # PLANNER STRUCTURED OUTPUT - Conversational presentation
                 if event_name == "planner" and isinstance(output, dict):
                     reasoning = output.get("reasoning", "")
                     summary = output.get("summary", "")
@@ -405,83 +352,85 @@ async def stream_pipeline(
                     decision_notes = output.get("decision_notes", [])
                     folders = output.get("folders", [])
                     dependencies = output.get("dependencies", {})
-                    api_endpoints = output.get("api_endpoints", [])
                     risks = output.get("risks", [])
                     clarifying_questions = output.get("clarifying_questions", [])
                     
-                    # Summary first
+                    # BUILD CONVERSATIONAL NARRATIVE
+                    narrative = ""
+                    
+                    # 1. Summary (what we're building)
                     if summary:
-                        yield block_mgr.create_block(BlockType.PLAN, "📋 Plan Summary", summary) + "\n"
+                        narrative += f"{summary}\n\n"
                     
-                    # Reasoning
-                    if reasoning:
-                        yield block_mgr.create_block(BlockType.THINKING, "💭 Design Thinking", reasoning) + "\n"
+                    # 2. Reasoning (why/how) - but only if substantial
+                    if reasoning and len(reasoning) > 200:
+                        narrative += f"**Design Approach:**\n{reasoning}\n\n"
                     
-                    # Key decisions
-                    if decision_notes:
-                        notes_text = "\n".join(f"• {note}" for note in decision_notes)
-                        yield block_mgr.create_block(BlockType.TEXT, "🎯 Key Decisions", notes_text) + "\n"
-                    
-                    # Tasks breakdown
+                    # 3. Implementation plan (tasks)
                     if tasks:
-                        task_summary = f"**{len(tasks)} implementation tasks:**\n\n"
-                        for i, task in enumerate(tasks, 1):
+                        narrative += f"**Implementation Plan ({len(tasks)} tasks):**\n\n"
+                        for i, task in enumerate(tasks[:5], 1):  # Show top 5
                             title = task.get("title", "Untitled")
-                            desc = task.get("description", "")
-                            complexity = task.get("complexity", "unknown")
-                            priority = task.get("priority", "medium")
-                            est_minutes = task.get("estimated_minutes", 0)
-                            
-                            task_summary += f"**{i}. {title}**\n"
-                            if desc:
-                                task_summary += f"   {desc[:100]}{'...' if len(desc) > 100 else ''}\n"
-                            task_summary += f"   _Complexity: {complexity} | Priority: {priority}"
-                            if est_minutes:
-                                task_summary += f" | ~{est_minutes}min"
-                            task_summary += "_\n\n"
+                            complexity = task.get("complexity", "medium")
+                            narrative += f"{i}. **{title}** (_{complexity}_)\n"
                         
-                        yield block_mgr.create_block(BlockType.PLAN, "✅ Tasks", task_summary) + "\n"
+                        if len(tasks) > 5:
+                            narrative += f"\n... and {len(tasks) - 5} more tasks\n"
+                        narrative += "\n"
                     
-                    # Files/folders to create
+                    # 4. File structure (concise)
                     if folders:
-                        files_list = []
-                        for folder in folders[:10]:  # Show first 10
+                        file_count = len(folders)
+                        narrative += f"**File Structure:** Creating {file_count} files\n\n"
+                        # Show key files only (components, pages, main files)
+                        key_files = [f for f in folders if any(x in f.get("path", "").lower() 
+                                    for x in ["component", "page", "app", "main", "index"])]
+                        for folder in key_files[:5]:
                             path = folder.get("path", "")
-                            desc = folder.get("description", "")
                             if path:
-                                files_list.append(f"• `{path}`" + (f" - {desc[:50]}" if desc else ""))
-                        
-                        files_text = "\n".join(files_list)
-                        if len(folders) > 10:
-                            files_text += f"\n\n... and {len(folders) - 10} more files"
-                        
-                        yield block_mgr.create_block(BlockType.TEXT, "📁 Files to Create", files_text) + "\n"
+                                narrative += f"• `{path}`\n"
+                        if file_count > 5:
+                            narrative += f"• ... and {file_count - 5} more files\n"
+                        narrative += "\n"
                     
-                    # Dependencies
-                    if dependencies:
-                        runtime = dependencies.get("runtime", [])
-                        dev = dependencies.get("dev", [])
-                        
-                        if runtime or dev:
-                            dep_text = ""
-                            if runtime:
-                                dep_text += "**Runtime:**\n" + "\n".join(f"• {pkg.get('name', pkg)}" for pkg in runtime[:10])
-                            if dev:
-                                if runtime:
-                                    dep_text += "\n\n"
-                                dep_text += "**Dev:**\n" + "\n".join(f"• {pkg.get('name', pkg)}" for pkg in dev[:10])
-                            
-                            yield block_mgr.create_block(BlockType.TEXT, "📦 Dependencies", dep_text) + "\n"
+                    # 5. Tech stack (dependencies) - very concise
+                    runtime = dependencies.get("runtime", [])
+                    if runtime and len(runtime) > 0:
+                        main_deps = [pkg.get("name", pkg) if isinstance(pkg, dict) else pkg for pkg in runtime[:3]]
+                        narrative += f"**Tech Stack:** {', '.join(main_deps)}"
+                        if len(runtime) > 3:
+                            narrative += f" +{len(runtime) - 3} more"
+                        narrative += "\n\n"
                     
-                    # Risks/warnings
-                    if risks:
-                        risk_text = "\n".join(f"⚠️ {risk.get('description', str(risk))}" for risk in risks[:5])
-                        yield block_mgr.create_block(BlockType.TEXT, "⚠️ Risks", risk_text) + "\n"
+                    # 6. Important decisions (only if present)
+                    if decision_notes and len(decision_notes) > 0:
+                        narrative += f"**Key Decisions:**\n"
+                        for note in decision_notes[:3]:  # Top 3
+                            narrative += f"• {note}\n"
+                        narrative += "\n"
                     
-                    # Questions for user
-                    if clarifying_questions:
-                        q_text = "\n".join(f"{i}. {q}" for i, q in enumerate(clarifying_questions, 1))
-                        yield block_mgr.create_block(BlockType.TEXT, "❓ Clarifying Questions", q_text) + "\n"
+                    # 7. Risks/warnings (only if critical)
+                    if risks and len(risks) > 0:
+                        narrative += f"**⚠️ Considerations:**\n"
+                        for risk in risks[:2]:  # Top 2 only
+                            desc = risk.get("description", str(risk)) if isinstance(risk, dict) else risk
+                            narrative += f"• {desc}\n"
+                        narrative += "\n"
+                    
+                    # Output as single conversational block
+                    yield block_mgr.create_block(BlockType.TEXT, "Plan", narrative.strip()) + "\n"
+                    
+                    # Questions ONLY if actually stopping for user input (not just rhetorical)
+                    # For now, skip questions since we don't pause for answers
+                    # if clarifying_questions:
+                    #     q_text = "\n".join(f"{i}. {q}" for i, q in enumerate(clarifying_questions, 1))
+                    #     yield block_mgr.create_block(BlockType.TEXT, "Questions", q_text) + "\n"
+                
+                # CODER/VALIDATOR/FIXER - Silent completion (actions already shown via tool events)
+                elif event_name in ["coder", "validator", "fixer"]:
+                    # These agents show their work through tool calls and custom events
+                    # No need to dump their final output dict
+                    pass
                 
                 # CAPTURE CUSTOM NODE EVENTS (e.g. file_written, run:complete)
                 # These are returned in the "stream_events" key of the node output

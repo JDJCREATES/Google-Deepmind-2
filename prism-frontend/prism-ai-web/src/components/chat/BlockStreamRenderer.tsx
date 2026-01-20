@@ -16,13 +16,15 @@ export const BlockRenderer: React.FC<BlockProps> = ({ block }) => {
                     paddingLeft: '12px', 
                     margin: '8px 0', 
                     color: '#999',
-                    fontSize: '0.9em'
+                    fontSize: '0.9em',
+                    userSelect: 'text',
+                    cursor: 'text'
                 }}>
-                    <div style={{ fontWeight: 'bold', marginBottom: '4px', color: '#888' }}>
+                    <div style={{ fontWeight: 'bold', marginBottom: '4px', color: '#888', userSelect: 'none' }}>
                          {block.isComplete ? '✓ ' : '⚡ '}{block.title || 'Thinking...'}
                     </div>
                     {(block.content || !block.isComplete) && (
-                        <div style={{ opacity: 0.9, lineHeight: '1.5' }}>
+                        <div style={{ opacity: 0.9, lineHeight: '1.5', userSelect: 'text' }}>
                             {formatMarkdown(block.content)}
                         </div>
                     )}
