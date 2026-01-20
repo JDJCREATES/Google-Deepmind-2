@@ -827,27 +827,42 @@ class PlanManifest(BaseModel):
 
 class LLMPlanTask(BaseModel):
     """Single task in the LLM plan output."""
-    title: str = Field(description="Short task title")
-    description: str = Field(description="Detailed description of what to do")
-    complexity: str = Field(default="medium", description="small, medium, or large")
-    priority: str = Field(default="medium", description="high, medium, or low")
-    estimated_minutes: int = Field(default=60, description="Estimated time in minutes")
-    acceptance_criteria: List[str] = Field(default_factory=list, description="Success criteria")
-    expected_outputs: List[Dict[str, str]] = Field(default_factory=list, description="Files to create")
+    title: str = Field(description="Concise task title (e.g., 'Implement user authentication flow')")
+    description: str = Field(description="Detailed description of implementation approach, architecture decisions, and technical requirements. Must be specific and actionable.")
+    complexity: str = Field(default="medium", description="Task complexity: 'small' (1-2 files, <1hr), 'medium' (3-5 files, 1-3hrs), 'large' (6+ files, 3+hrs)")
+    priority: str = Field(default="medium", description="Priority level: 'high' (blocking), 'medium' (important), 'low' (nice-to-have)")
+    estimated_minutes: int = Field(default=60, description="Realistic time estimate in minutes")
+    acceptance_criteria: List[str] = Field(
+        default_factory=list, 
+        description="Specific, testable success criteria. Each should prove functionality works (e.g., 'User can login with valid credentials and sees dashboard', 'Invalid password shows error message')"
+    )
+    expected_outputs: List[Dict[str, str]] = Field(
+        default_factory=list, 
+        description="Files to create/modify with detailed descriptions. Format: [{'path': 'src/components/LoginForm.tsx', 'description': 'LoginForm component with email/password inputs, validation, loading state, error handling'}]"
+    )
 
 
 class LLMPlanFolder(BaseModel):
-    """Folder entry in the LLM plan output."""
-    path: str = Field(description="Path like src/components")
+    """Folder/file entry in the LLM plan output."""
+    path: str = Field(description="Full path like 'src/components/auth/LoginForm.tsx' or 'src/stores'")
     is_directory: bool = Field(default=True, description="True for folder, False for file")
-    description: str = Field(default="", description="Purpose of this folder/file")
+    description: str = Field(
+        description="DETAILED description of what this file/folder contains. For files: describe exports, responsibilities, props/params, state/data managed. For folders: describe what types of files it contains. NEVER use generic labels like 'Helper functions' or 'UI components' - be specific about WHAT functions/components and their purpose."
+    )
 
 
 class LLMPlanOutput(BaseModel):
     """Structured output schema for LLM planning - enforces exact format."""
-    reasoning: str = Field(description="Detailed architectural reasoning and design thinking process")
-    summary: str = Field(description="Brief executive summary of the plan")
-    decision_notes: List[str] = Field(default_factory=list, description="Key technical decisions")
+    reasoning: str = Field(
+        description="DEEP architectural reasoning specific to THIS request. Must include: 1) Analysis of user requirements (what makes THIS project unique - e.g., 'pink/blue aesthetic', 'comprehensive task management'), 2) Technology choices and WHY (e.g., 'Zustand over Context API because X'), 3) Architecture decisions (folder structure, state patterns, component organization), 4) Trade-offs considered (performance vs complexity, features vs scope). This should be 3-5 paragraphs of thoughtful analysis, NOT generic boilerplate."
+    )
+    summary: str = Field(
+        description="One sentence capturing what makes THIS project unique. Reference specific features, technologies, or constraints mentioned by user."
+    )
+    decision_notes: List[str] = Field(
+        default_factory=list, 
+        description="3-5 key technical decisions with rationale. Each should explain a choice made: 'Using X instead of Y because...', 'Organizing components by feature because...', 'Adding Z library for...'. Make them specific to THIS project's needs."
+    )
     tasks: List[LLMPlanTask] = Field(default_factory=list, description="Ordered list of tasks")
     folders: List[LLMPlanFolder] = Field(default_factory=list, description="Folders/files to create")
     

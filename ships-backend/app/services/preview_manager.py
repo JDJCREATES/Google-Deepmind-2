@@ -64,6 +64,10 @@ class MultiPreviewManager:
     def _get_deterministic_port(self, run_id: str) -> int:
         """Calculate a consistent port based on run_id."""
         import zlib
+        import uuid
+        # Handle None run_id (fallback to random port)
+        if run_id is None:
+            run_id = str(uuid.uuid4())
         # Use CRC32 to map string to integer range
         # Use utf-8 encoding for consistency
         offset = zlib.crc32(run_id.encode('utf-8')) % self.MAX_INSTANCES

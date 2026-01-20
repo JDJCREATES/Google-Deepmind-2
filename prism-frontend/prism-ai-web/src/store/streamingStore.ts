@@ -117,6 +117,5 @@ export const useStreamingStore = create<StreamingState>()(
         toolEvents: state.toolEvents,
       }),
     }
-    { name: 'streaming-store' }
   )
 );

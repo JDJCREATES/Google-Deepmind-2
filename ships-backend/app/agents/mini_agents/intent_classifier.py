@@ -92,59 +92,59 @@ class StructuredIntent(BaseModel):
     """
     # Core classification
     task_type: TaskType = Field(
-        description="Type of task being requested"
+        description="Primary task type: 'feature' (adding new functionality), 'fix' (debugging/correcting), 'refactor' (improving without behavioral changes), 'modify' (changing existing behavior), 'delete' (removing code), 'question' (seeking information only), 'confirmation' (approving a proposal), 'unclear' (cannot determine)"
     )
     action: ActionType = Field(
-        description="Action to perform on the codebase"
+        description="Concrete action to take: 'create' (new files/components), 'modify' (edit existing files), 'delete' (remove files/code), 'explain' (provide information only), 'analyze' (review without changes), 'proceed' (continue with current plan)"
     )
     target_area: TargetArea = Field(
-        description="Which part of the codebase is affected"
+        description="Primary codebase area affected: 'frontend' (UI/client), 'backend' (server/API), 'database' (schema/queries), 'full-stack' (both frontend and backend), 'configuration' (build/deploy config), 'documentation' (docs/README), 'testing' (test files), 'system' (pipeline/workflow control), 'unknown' (cannot determine)"
     )
     scope: str = Field(
         default="feature",
-        description="Scope of change: feature (modify existing), layer (new arch layer), component (new files), project (full scaffold)"
+        description="Change scope determining scaffolding needs: 'feature' (adding to EXISTING project - new files OR modifying existing), 'layer' (adding entirely NEW architectural layer like backend to frontend-only project), 'project' (brand NEW project from scratch requiring full scaffolding), 'file' (single file operation only)"
     )
     
     # Clarified description
     description: str = Field(
-        description="Clear, specific description of what needs to be done"
+        description="Crystal-clear, actionable description of what to build/fix. Remove ambiguity and add specifics. Example: Instead of 'add auth', use 'Implement email/password authentication with JWT tokens, login form, protected routes, and session persistence'"
     )
     original_request: str = Field(
-        description="The original user request"
+        description="The exact original user request without modification"
     )
     
     # Predicted impact
     affected_areas: List[str] = Field(
         default_factory=list,
-        description="Predicted areas/files that will be affected"
+        description="Specific areas/directories that will be modified. Examples: ['src/components/auth/', 'src/stores/', 'src/types/user.ts']. Be as specific as possible based on project structure."
     )
     suggested_files: List[str] = Field(
         default_factory=list,
-        description="Suggested files to create or modify"
+        description="Concrete file paths to create or modify. Examples: ['src/components/LoginForm.tsx', 'src/hooks/useAuth.ts', 'src/stores/authStore.ts']. Include file extensions and organize by layer (components, hooks, types, stores)."
     )
     
     # Dependencies and constraints
     requires_database: bool = Field(
         default=False,
-        description="Whether this task requires database changes"
+        description="True if task involves database schema changes, migrations, queries, or database configuration. False for pure UI/logic work."
     )
     requires_api: bool = Field(
         default=False,
-        description="Whether this task requires API changes"
+        description="True if task needs new API endpoints, API client changes, or backend service modifications. False for frontend-only or static changes."
     )
     
     # Ambiguity handling
     is_ambiguous: bool = Field(
         default=False,
-        description="True if the request needs clarification"
+        description="True if the request lacks critical information needed for implementation (unclear requirements, missing specifications, multiple valid interpretations). False if intent is clear and actionable."
     )
     clarification_questions: List[str] = Field(
         default_factory=list,
-        description="Questions to ask user if ambiguous"
+        description="Specific questions to resolve ambiguity. Ask about: missing requirements, technology choices, scope boundaries, edge case handling. Example: 'Should login support OAuth providers or just email/password?'"
     )
     assumptions: List[str] = Field(
         default_factory=list,
-        description="Assumptions made during classification"
+        description="Explicit assumptions made when user didn't specify details. Example: 'Assuming JWT tokens for auth', 'Assuming mobile-responsive design', 'Assuming TypeScript for new files'"
     )
     
     # Confidence

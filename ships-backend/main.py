@@ -36,6 +36,12 @@ async def startup_event():
     # Filter uvicorn access logs
     logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
     
+    # Kill orphaned preview processes (survived from previous backend crash/restart)
+    logger.info("[STARTUP] Cleaning up orphaned preview processes...")
+    result = preview_manager.kill_zombies()
+    if result["killed_count"] > 0:
+        logger.info(f"[STARTUP] 🧟 Killed {result['killed_count']} orphaned processes")
+    
     # Check database health
     db_healthy = await health_check()
     if not db_healthy:

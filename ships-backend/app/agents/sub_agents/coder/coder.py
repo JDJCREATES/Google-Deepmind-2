@@ -758,25 +758,34 @@ Use these type definitions. Do NOT read from disk.
                 except Exception:
                     pass
             
-            # Read folder_map_plan.json
+            # Read folder_map_plan.json - FULL JSON with descriptions
             folder_map_path = ships_dir / "folder_map_plan.json"
             if folder_map_path.exists():
                 try:
                     folder_data = json.loads(folder_map_path.read_text(encoding="utf-8"))
                     entries = folder_data.get("entries", [])
-                    files_to_create = [e.get("path") for e in entries if not e.get("is_directory", False)]
+                    files_to_create = [e for e in entries if not e.get("is_directory", False)]
                     
                     # DEBUG: Log expected files
                     logger.info(f"[CODER] 📋 Expected files from folder_map_plan: {len(files_to_create)}")
                     for f in files_to_create[:10]:
-                        logger.info(f"[CODER]    📄 {f}")
+                        logger.info(f"[CODER]    📄 {f.get('path', 'unknown')}")
                     if len(files_to_create) > 10:
                         logger.info(f"[CODER]    ... and {len(files_to_create) - 10} more")
                     
                     if files_to_create:
-                        artifact_context += "\n## FILES TO CREATE (from folder_map):\n"
-                        for f in files_to_create[:15]:
-                            artifact_context += f"  - {f}\n"
+                        artifact_context += "\n## FOLDER_MAP_PLAN - Files you MUST create:\n```json\n"
+                        # Include path, description, and role for each file
+                        compact_entries = [
+                            {
+                                "path": e.get("path"),
+                                "description": e.get("description", ""),
+                                "role": e.get("role", "source")
+                            }
+                            for e in files_to_create[:20]  # Limit to prevent token bloat
+                        ]
+                        artifact_context += json.dumps(compact_entries, indent=2)
+                        artifact_context += "\n```\n"
                 except Exception as e:
                     logger.warning(f"[CODER] ⚠️ Failed to read folder_map: {e}")
             
@@ -1038,7 +1047,7 @@ IMPORTANT:
             
             result = await coder_agent.ainvoke(
                 {"messages": [HumanMessage(content=coder_prompt)]},
-                config={"recursion_limit": 15}  # Reduced to 15 per Google recommendations
+                config={"recursion_limit": 25}  # Increased to 25 for complex features with many files
             )
             
             # Extract completion status from messages

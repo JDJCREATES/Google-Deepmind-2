@@ -707,9 +707,11 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
              # Define structured output schema
              class OrchestratorDecision(BaseModel):
                  decision: Literal["planner", "coder", "validator", "fixer", "chat", "complete"] = Field(
-                     description="Next agent to invoke"
+                     description="Next agent to invoke based on current state: 'planner' (no plan exists or plan needs revision), 'coder' (plan exists, need to implement files), 'validator' (code written, need to validate), 'fixer' (validation failed, need to fix issues), 'chat' (need user input/clarification), 'complete' (all work successfully finished)"
                  )
-                 reasoning: str = Field(description="Brief explanation of the decision")
+                 reasoning: str = Field(
+                     description="Clear explanation of WHY this agent should run next. Reference specific state (e.g., 'Plan exists with 5 tasks, implementation_complete=False, so coder should continue' or 'Validation failed with 3 build errors, fixer should address them')"
+                 )
              
              # Create LLM with structured output
              from app.core.llm_factory import LLMFactory

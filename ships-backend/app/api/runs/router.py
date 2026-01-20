@@ -480,16 +480,11 @@ async def delete_run(
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     
-    # 1. STOP PREVIEW (Kills processes)
-    # Use full UUID or whatever runs map uses (usually same ID)
-    preview_manager.stop_all() # Or stop specific?
-    # Actually, preview_manager keys by run_id. Use the full ID from DB if possible, or the one passed?
-    # The run_id passed in might be short. Let's use the one from DB.
+    # 1. STOP PREVIEW (Nuclear kill - handles zombies even if not tracked)
     try:
-        preview_manager._stop_instance(str(run.id))
-        # Also try short ID just in case
-        if len(run_id) < 32:
-             preview_manager._stop_instance(run_id)
+        project_path = run.run_metadata.get("project_path") if run.run_metadata else None
+        result = preview_manager.kill_run_process(str(run.id), project_path)
+        logger.info(f"[RUNS] Killed preview for {run_id}: {result}")
     except Exception as e:
         logger.warning(f"[RUNS] Failed to stop preview for {run_id}: {e}")
 
