@@ -60,7 +60,6 @@ function App() {
       setStatusMessage(`Connecting to backend...`);
       setIsConnecting(true);
       
-      // Set a timeout - don't wait forever
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
       
@@ -77,10 +76,8 @@ function App() {
       if (data.status === 'success') {
         setCurrentPath(path);
         setBackendConnected(true);
-        setIsConnecting(false);  // Re-enable button immediately
+        setIsConnecting(false); 
         setStatusMessage('✓ Project linked to backend');
-        
-        // Start polling for preview URL
         startPreviewPolling();
       } else {
         setStatusMessage(`Error: ${data.message}`);
@@ -88,24 +85,14 @@ function App() {
       }
     } catch (e: any) {
       console.error("Backend error:", e);
-      if (e.name === 'AbortError') {
-        setStatusMessage('⚠ Backend not responding. Is it running?');
-      } else {
-        setStatusMessage('⚠ Could not connect to backend');
-      }
+      setStatusMessage(e.name === 'AbortError' ? '⚠ Backend not responding. Is it running?' : '⚠ Could not connect to backend');
       setBackendConnected(false);
       setIsConnecting(false);
     }
   };
 
-  // Poll for preview URL
   const startPreviewPolling = () => {
-    // Clear any existing timeout
-    if (connectionTimeoutRef.current) {
-      clearTimeout(connectionTimeoutRef.current);
-    }
-    
-    // Set a 30-second timeout for polling
+    if (connectionTimeoutRef.current) clearTimeout(connectionTimeoutRef.current);
     connectionTimeoutRef.current = window.setTimeout(() => {
       if (isConnecting && !projectUrl) {
         setStatusMessage('⚠ Preview server not starting. You can still code!');
@@ -114,123 +101,136 @@ function App() {
     }, 30000);
   };
 
-  // 2. Poll Backend for Preview Status - ALWAYS poll, not just when backendConnected
-  // This allows picking up previews started by prism-ai-web
-  useEffect(() => {
-    // Helper to probe if a URL is reachable - improved version
-    const probeUrl = async (url: string): Promise<boolean> => {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 2000);
-        
-        // Use regular fetch - will throw on connection refused
-        // Note: CORS may block the response, but connection success means server is running
-        const response = await fetch(url, { 
-          method: 'HEAD',  // Just check if server responds
-          signal: controller.signal 
-        });
-        clearTimeout(timeout);
-        console.log(`[Preview] Probe ${url}: OK (${response.status})`);
+  // Helper to probe if a URL is reachable
+  const probeUrl = async (url: string): Promise<boolean> => {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2000);
+      
+      const response = await fetch(url, { 
+        method: 'HEAD',
+        signal: controller.signal 
+      });
+      clearTimeout(timeout);
+      console.log(`[Preview] Probe ${url}: OK (${response.status})`);
+      return true;
+    } catch (e: any) {
+      if (e.name === 'TypeError' && e.message?.includes('CORS')) {
+        console.log(`[Preview] Probe ${url}: CORS error (server is running)`);
         return true;
-      } catch (e: any) {
-        // Distinguish between CORS error (server running) vs connection refused (not running)
-        // CORS errors mean the server IS running but denying our request
-        if (e.name === 'TypeError' && e.message?.includes('CORS')) {
-          console.log(`[Preview] Probe ${url}: CORS error (server is running)`);
-          return true;
-        }
-        // AbortError means timeout - server probably not running
-        if (e.name === 'AbortError') {
-          console.log(`[Preview] Probe ${url}: Timeout`);
-          return false;
-        }
-        console.log(`[Preview] Probe ${url}: Failed - ${e.message || e}`);
+      }
+      if (e.name === 'AbortError') {
         return false;
       }
-    };
-
-    // Try common dev server ports
-    const tryCommonPorts = async () => {
-      const ports = ['5177', '5173', '3000', '3001', '8080'];
-      console.log('[Preview] Auto-detecting dev server on ports:', ports);
-      
-      for (const port of ports) {
-        const url = `http://localhost:${port}`;
-        if (await probeUrl(url)) {
-          console.log(`[Preview] ✓ Auto-detected dev server at ${url}`);
-          setProjectUrl(url);
-          setIsConnecting(false);
-          setStatusMessage(`✓ Auto-detected: ${url}`);
-          return true;
-        }
-      }
-      console.log('[Preview] No dev server found on common ports');
       return false;
-    };
+    }
+  };
 
+  // Try backend ports ONLY (5200-5250) - PARALLEL SCAN
+  const tryBackendPorts = async () => {
+    const currentPort = window.location.port;
+    const backendPorts = Array.from({length: 51}, (_, i) => String(5200 + i)); 
+    const ports = backendPorts.filter(p => p !== currentPort);
+    
+    console.log(`[Preview] Scanning ShipS backend ports (${ports.length}) in parallel...`);
+    setStatusMessage(`Scanning ${ports.length} ports (5200-5250)...`);
+
+    // Scan in chunks of 10 to avoid flooding but speed up checks
+    const chunkSize = 10;
+    for (let i = 0; i < ports.length; i += chunkSize) {
+        const chunk = ports.slice(i, i + chunkSize);
+        
+        // Create checking promises
+        const promises = chunk.map(async (port) => {
+            const url = `http://localhost:${port}`;
+            // Skip self and forbidden
+            if (url === window.location.origin) return null;
+            
+            const alive = await probeUrl(url);
+            return alive ? url : null;
+        });
+
+        // Wait for this chunk
+        const results = await Promise.all(promises);
+        const foundUrl = results.find(url => url !== null);
+        
+        if (foundUrl) {
+            console.log(`[Preview] ✓ Auto-detected dev server at ${foundUrl}`);
+            setProjectUrl(foundUrl);
+            setIsConnecting(false);
+            setStatusMessage(`✓ Auto-detected: ${foundUrl}`);
+            return true;
+        }
+    }
+    
+    return false;
+  };
+
+  // 2. Poll Backend for Preview Status
+  useEffect(() => {
     const checkStatus = async () => {
         try {
             const res = await fetch('http://localhost:8001/preview/status');
             const data = await res.json();
-            console.log('[Preview] Backend status:', { 
-              is_running: data.is_running, 
-              url: data.url, 
-              project_path: data.project_path,
-              error: data.error 
-            });
             
             // Set error if present
-            if (data.error) {
-                setError(data.error);
-                setIsConnecting(false);
-            } else {
-                setError(null);
-            }
-            
+            if (data.error) setError(data.error);
+
             if (data.is_running && data.url) {
-                console.log('[Preview] ✓ Backend has running server at:', data.url, 'Setting projectUrl...');
-                setProjectUrl(data.url);
+                if (projectUrl !== data.url) {
+                   console.log('[Preview] ✓ Backend has running server at:', data.url);
+                   setProjectUrl(data.url);
+                   setStatusMessage('');
+                   setBackendConnected(true);
+                }
                 setIsConnecting(false);
+            } else if (!projectUrl && !isConnecting) {
+                // If backend says nothing running and we aren't scanning/connecting, show idle
                 setStatusMessage('');
-                if (connectionTimeoutRef.current) {
-                  clearTimeout(connectionTimeoutRef.current);
-                }
-                
-                // Sync project path if backend has one but we don't
-                if (data.project_path && !currentPath) {
-                  setCurrentPath(data.project_path);
-                  setBackendConnected(true);
-                }
-            } else if (!projectUrl) {
-                // Backend doesn't have a running server - try to auto-detect
-                console.log('[Preview] Backend has no server, trying auto-detect...');
-                await tryCommonPorts();
             }
 
-            // Check for focus request (Reverse Focus)
+            // Check for focus request
             if (data.focus_requested) {
-                console.log("Backend requested focus!");
-                if (window.electron && window.electron.focusWindow) {
+                if (window.electron?.focusWindow) {
                     await window.electron.focusWindow();
-                    // Acknowledge to clear the flag
                     await fetch('http://localhost:8001/preview/ack-focus', { method: 'POST' });
                 }
             }
         } catch (e) {
-            console.log('[Preview] Backend not reachable, trying auto-detect...');
-            // Backend not running - try to auto-detect dev servers directly
-            if (!projectUrl) {
-                await tryCommonPorts();
-            }
+            // Backend down - say nothing, let manual scan handle it
         }
     };
     
-    // Poll immediately on mount
     checkStatus();
-    
     const interval = setInterval(checkStatus, 2000);
     return () => clearInterval(interval);
-  }, [currentPath, projectUrl]); // Re-run if currentPath or projectUrl changes
+  }, [projectUrl, isConnecting]); // Removed currentPath dependency to prevent loops
+
+  // Manual Scan Trigger
+  const handleManualScan = async () => {
+    if (isConnecting) return;
+    setIsConnecting(true);
+    setError(null);
+    
+    // 1. Try backend list first (fastest source of truth)
+    try {
+        setStatusMessage("Checking backend...");
+        const res = await fetch('http://localhost:8001/preview/status');
+        const data = await res.json();
+        if (data.is_running && data.url) {
+            setProjectUrl(data.url);
+            setIsConnecting(false);
+            return;
+        }
+    } catch(e) {}
+
+    // 2. Fallback to physical port scan
+    const found = await tryBackendPorts();
+    if (!found) {
+        setStatusMessage("No running servers found.");
+        setIsConnecting(false);
+    }
+  };
 
   // 3. User selects folder
   const handleSelectProject = async () => {
@@ -319,6 +319,23 @@ function App() {
     }
   }, [backendConnected]); // Trigger when backend connection status flips to true
 
+  // Add event listeners to webview (Moved to top level)
+  useEffect(() => {
+    const webview = webviewRef.current;
+    if (webview && projectUrl) {
+        const handleFailLoad = (e: any) => {
+            console.log('Webview failed to load:', e);
+            setStatusMessage(`⚠ Preview failed to load: ${e.errorDescription || 'Unknown error'}`);
+        };
+        
+        webview.addEventListener('did-fail-load', handleFailLoad);
+        
+        return () => {
+            webview.removeEventListener('did-fail-load', handleFailLoad);
+        };
+    }
+  }, [projectUrl, backendConnected]); // Re-bind if URL changes or backend reconnects
+
   if (projectUrl) {
       return (
           <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -384,8 +401,6 @@ function App() {
                 style={{ width: '100%', flex: 1, border: 'none' }}
                 // @ts-ignore
                 allowpopups="true"
-                // Listen for failures to help debug
-                onDidFailLoad={(e: any) => console.log('Webview failed to load:', e)}
              />
           </div>
       )
@@ -489,6 +504,30 @@ function App() {
                 Reconnect
             </button>
           )}
+
+          {/* Manual Scan Button */}
+          {!isConnecting && !projectUrl && (
+             <button
+                onClick={handleManualScan}
+                style={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    color: '#aaa',
+                    border: '1px solid #444',
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    transition: 'all 0.2s',
+                }}
+             >
+                <VscRefresh size={16} />
+                Scan for Servers
+             </button>
+          )}
+
         </div>
       </div>
     </div>

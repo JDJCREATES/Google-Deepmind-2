@@ -9,7 +9,7 @@
     <!-- Content Security Policy: Allow localhost backend -->
     <meta http-equiv="Content-Security-Policy" content="
       default-src 'self';
-      connect-src 'self' http://localhost:8001 ws://localhost:8001 http://127.0.0.1:8001 ws://127.0.0.1:8001;
+      connect-src 'self' http://localhost:* ws://localhost:* http://127.0.0.1:* ws://127.0.0.1:* data: blob:;
       script-src 'self' 'unsafe-inline' 'unsafe-eval';
       style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
       font-src 'self' https://fonts.gstatic.com data:;
