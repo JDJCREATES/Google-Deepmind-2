@@ -87,6 +87,7 @@ class CoderComponentConfig(BaseModel):
     project_root: str = "."
     diff_context_lines: int = 3
     test_framework: str = "jest"
+    enable_reflexion: bool = True  # Self-correction step
 
 
 

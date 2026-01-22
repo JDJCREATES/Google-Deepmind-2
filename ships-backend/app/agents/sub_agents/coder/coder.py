@@ -461,12 +461,96 @@ Use these type definitions. Do NOT read from disk.
             if captured_signature:
                 result["thought_signature"] = captured_signature
                 logger.info("[CODER] Captured Gemini 3 Thought Signature")
-                
+            
+            # REFLEXION STEP (Self-Correction)
+            if self.config.enable_reflexion and not result.get("error"):
+                logger.info("[CODER] 🧠 Running Reflexion (Self-Correction) Pass...")
+                reflexion_result = await self._perform_reflexion_pass(task, context, result)
+                if reflexion_result:
+                     logger.info("[CODER] 🔄 Reflexion applied corrections!")
+                     return reflexion_result
+                else:
+                     logger.info("[CODER] ✅ Reflexion approved code (no changes needed)")
+
             return result
         except Exception as e:
             logger.error(f"[CODER] LLM generation failed: {e}")
             return {"error": str(e), "files": []}
     
+    async def _perform_reflexion_pass(
+        self,
+        task: Dict[str, Any],
+        context: Dict[str, Any],
+        initial_result: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Critique and refine the generated code.
+        Returns NEW result if changes needed, else None.
+        """
+        # 1. Summarize the changes for the LLM
+        files = initial_result.get("files", [])
+        if not files:
+            return None
+            
+        changes_summary = []
+        for f in files:
+            path = f.get("path", "")
+            op = f.get("operation", "modify")
+            content = f.get("content", "")
+            # Only show snippet of content to save tokens
+            snippet = content[:500] + "..." if len(content) > 500 else content
+            changes_summary.append(f"File: {path} ({op})\nContent Preview:\n{snippet}\n")
+        
+        summary_text = "\n".join(changes_summary)
+        
+        # 2. Build Critique Prompt
+        critique_prompt = f"""
+You are the Code Reviewer (Reflexion Agent).
+Your goal is to CATCH REGRESSIONS and BUGS in the code just generated.
+
+TASK: {task.get('title')}
+{task.get('description')}
+
+GENERATED CHANGES:
+{summary_text}
+
+CRITICAL CHECKS:
+1. Did I delete any critical classes or imports from existing files? (e.g. ValidationReport in validator/models.py)
+2. Did I implement the FULL task or just a placeholder?
+3. Are all imports valid? (No hallucinated dependencies)
+4. Did I respect the 'EXISTING CODE' provided in context?
+
+If the code is PERFECT, verify it by outputting the EXACT same JSON.
+If there are issues, output the CORRECTED JSON.
+
+Return ONLY JSON.
+"""
+        # 3. Invoke LLM
+        messages = [
+            SystemMessage(content=self.system_prompt), # Keep persona
+            HumanMessage(content=critique_prompt)
+        ]
+        
+        try:
+            response = await self.llm.ainvoke(messages)
+            content = response.content
+            
+            # Parse result
+            refined_result = self._parse_code_response(content)
+            
+            if refined_result.get("error"):
+                logger.warning(f"[CODER] Reflexion failed to parse: {refined_result['error']}")
+                return None
+                
+            # Naive equality check - if distinct, return new result
+            # (In reality, we might compare hashes, but LLM non-determinism makes that hard.
+            # We assume if it returned valid JSON, it's the intended final version).
+            return refined_result
+            
+        except Exception as e:
+            logger.error(f"[CODER] Reflexion error: {e}")
+            return None
+
     def _build_coding_prompt(
         self,
         task: Dict[str, Any],

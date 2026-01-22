@@ -99,17 +99,16 @@ from app.services.knowledge.hooks import capture_coder_pattern, capture_fixer_su
 from app.services.lock_manager import lock_manager # File locking service
 
 
+# Collective Intelligence - capture successful patterns and fixes
+from app.services.knowledge.hooks import capture_coder_pattern, capture_fixer_success
+from app.services.lock_manager import lock_manager # File locking service
+
+# Import robust ValidationStatus Enum (2025 Architecture)
+from app.agents.sub_agents.validator.models import ValidationStatus
 
 # ============================================================================
 # STATE DEFINITION  
 # ============================================================================
-
-class ValidationStatus(str, Enum):
-    PENDING = "pending"       # Initial state / Needs validation (e.g. after code changes)
-    PASSED = "passed"         # Validation run and passed
-    FAILED_RECOVERABLE = "failed_recoverable" # Failed but can be fixed (lint errors)
-    FAILED_CRITICAL = "failed_critical"       # Failed and cannot be auto-fixed (config errors)
-    SKIPPED = "skipped"       # Explicitly skipped
 
 class AgentGraphState(TypedDict):
     """

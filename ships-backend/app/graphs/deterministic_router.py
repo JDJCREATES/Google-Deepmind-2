@@ -418,11 +418,14 @@ class DeterministicRouter:
         # PRIORITY 1: Validation Status
         validation_status = state.get("validation_status")
         
-        if validation_status == "pending":
+        # Import Enum for comparison (Lazy import to avoid circular dependency if router is imported early)
+        from app.agents.sub_agents.validator.models import ValidationStatus
+        
+        if validation_status == ValidationStatus.PENDING:
              logger.info("[DETERMINISTIC_ROUTER] Validation PENDING - Routing to VALIDATOR")
              return RoutingDecision(next_phase="validator", reason="Validation pending", requires_llm=False)
              
-        if validation_status in ["passed", "failed_recoverable", "failed_critical"]:
+        if validation_status in [ValidationStatus.PASSED, ValidationStatus.FAILED_RECOVERABLE, ValidationStatus.FAILED_CRITICAL]:
              return self._route_from_validating(state)
         
         # PRIORITY 2: Are we in a fix loop?
