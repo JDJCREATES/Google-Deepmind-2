@@ -260,13 +260,31 @@ export const useAgentRuns = create<AgentRunsState>()(
 
   addRunMessage: (runId, message) =>
     set((state) => {
+      // DEFENSIVE: Validate message object
+      if (!message || typeof message !== 'object') {
+        console.error('[useAgentRuns] ❌ Invalid message object:', message);
+        return state; // Don't add invalid message
+      }
+      if (!message.id) {
+        console.error('[useAgentRuns] ❌ Message missing id:', message);
+        return state;
+      }
+      
+      // DEFENSIVE: Ensure content is a string
+      const sanitizedMessage = {
+        ...message,
+        content: typeof message.content === 'string' ? message.content : '',
+        blocks: Array.isArray(message.blocks) ? message.blocks : []
+      };
+      
       const updatedRuns = state.runs.map((run) =>
         run.id === runId
-          ? { ...run, messages: [...(run.messages || []), message] }
+          ? { ...run, messages: [...(run.messages || []), sanitizedMessage] }
           : run
       );
       const targetRun = updatedRuns.find(r => r.id === runId);
       console.log('[useAgentRuns] 💬 Added message to run', runId, '- Total messages:', targetRun?.messages?.length || 0);
+      console.log('[useAgentRuns] 📝 Message content type:', typeof sanitizedMessage.content, 'blocks:', sanitizedMessage.blocks?.length);
       return { runs: updatedRuns };
     }),
 

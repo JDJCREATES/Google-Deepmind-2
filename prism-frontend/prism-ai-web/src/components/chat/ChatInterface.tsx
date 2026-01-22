@@ -58,10 +58,7 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
       />
 
       <main className="chat-messages">
-         {/* Phase Indicator */}
-         {isAgentRunning && agentPhase !== 'idle' && agentPhase !== 'done' && (
-           {/* Phase indicator moved to RunCard */}
-         )}
+         {/* Phase Indicator - moved to RunCard */}
          
          {/* Messages - All content (including thinking) rendered as StreamBlocks */}
          {messages.length === 0 && !activeRunId && (
@@ -70,7 +67,7 @@ export function ChatInterface({ electronProjectPath }: ChatInterfaceProps) {
             </div>
          )}
          
-         {messages.map((message) => (
+         {Array.isArray(messages) && messages.filter(msg => msg && msg.id && typeof msg.content !== 'undefined').map((message) => (
            <ChatMessage 
              key={message.id} 
              message={message} 

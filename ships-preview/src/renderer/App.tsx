@@ -101,136 +101,128 @@ function App() {
     }, 30000);
   };
 
-  // Helper to probe if a URL is reachable
-  const probeUrl = async (url: string): Promise<boolean> => {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 2000);
-      
-      const response = await fetch(url, { 
-        method: 'HEAD',
-        signal: controller.signal 
-      });
-      clearTimeout(timeout);
-      console.log(`[Preview] Probe ${url}: OK (${response.status})`);
-      return true;
-    } catch (e: any) {
-      if (e.name === 'TypeError' && e.message?.includes('CORS')) {
-        console.log(`[Preview] Probe ${url}: CORS error (server is running)`);
-        return true;
-      }
-      if (e.name === 'AbortError') {
-        return false;
-      }
-      return false;
-    }
-  };
 
-  // Try backend ports ONLY (5200-5250) - PARALLEL SCAN
-  const tryBackendPorts = async () => {
-    const currentPort = window.location.port;
-    const backendPorts = Array.from({length: 51}, (_, i) => String(5200 + i)); 
-    const ports = backendPorts.filter(p => p !== currentPort);
-    
-    console.log(`[Preview] Scanning ShipS backend ports (${ports.length}) in parallel...`);
-    setStatusMessage(`Scanning ${ports.length} ports (5200-5250)...`);
 
-    // Scan in chunks of 10 to avoid flooding but speed up checks
-    const chunkSize = 10;
-    for (let i = 0; i < ports.length; i += chunkSize) {
-        const chunk = ports.slice(i, i + chunkSize);
-        
-        // Create checking promises
-        const promises = chunk.map(async (port) => {
-            const url = `http://localhost:${port}`;
-            // Skip self and forbidden
-            if (url === window.location.origin) return null;
-            
-            const alive = await probeUrl(url);
-            return alive ? url : null;
-        });
+  // State for active runs
+  const [activeRuns, setActiveRuns] = useState<any[]>([]);
 
-        // Wait for this chunk
-        const results = await Promise.all(promises);
-        const foundUrl = results.find(url => url !== null);
-        
-        if (foundUrl) {
-            console.log(`[Preview] ✓ Auto-detected dev server at ${foundUrl}`);
-            setProjectUrl(foundUrl);
-            setIsConnecting(false);
-            setStatusMessage(`✓ Auto-detected: ${foundUrl}`);
-            return true;
-        }
-    }
-    
-    return false;
-  };
-
-  // 2. Poll Backend for Preview Status
+  // 2. Poll Backend for Preview Status & Active Runs
   useEffect(() => {
     const checkStatus = async () => {
         try {
             const res = await fetch('http://localhost:8001/preview/status');
             const data = await res.json();
             
+            // DEBUG: Log the full structure to understand why it's empty
+            console.log("[Preview] Raw Backend Status:", JSON.stringify(data, null, 2));
+
             // Set error if present
             if (data.error) setError(data.error);
 
-            if (data.is_running && data.url) {
-                if (projectUrl !== data.url) {
-                   console.log('[Preview] ✓ Backend has running server at:', data.url);
-                   setProjectUrl(data.url);
-                   setStatusMessage('');
-                   setBackendConnected(true);
-                }
-                setIsConnecting(false);
-            } else if (!projectUrl && !isConnecting) {
-                // If backend says nothing running and we aren't scanning/connecting, show idle
-                setStatusMessage('');
+            // Update list of active runs
+            // NOTE: preview_manager.get_status() returns { active_count: N, instances: { ... } }
+            // So data.instances is THAT object, meaning we need data.instances.instances
+            const instancesMap = data.instances?.instances || data.instances;
+            
+            if (instancesMap && typeof instancesMap === 'object') {
+                const runs = Object.entries(instancesMap).map(([id, info]: [string, any]) => ({
+                    id,
+                    ...info
+                }));
+                // REMOVED FILTER temporarily to see ALL known instances
+                // .filter(r => r && (r.is_alive || r.status === 'running')); 
+                
+                // Deduplicate by ID just in case
+                const uniqueRuns = Array.from(new Map(runs.map(item => [item.id, item])).values());
+                setActiveRuns(uniqueRuns);
+            }
+
+            // Handle auto-connection if backend says a specific one is focused/running
+            if (data.is_running && data.url && !projectUrl) {
+                 // Optional: could auto-connect here, but user prefers selection
             }
 
             // Check for focus request
             if (data.focus_requested) {
+                console.log("[Preview] Focus requested by backend. Auto-connecting...");
+                
+                // FORCE CONNECTION to the running URL
+                if (data.is_running && data.url) {
+                    setProjectUrl(data.url);
+                    setBackendConnected(true);
+                }
+
                 if (window.electron?.focusWindow) {
                     await window.electron.focusWindow();
                     await fetch('http://localhost:8001/preview/ack-focus', { method: 'POST' });
                 }
             }
         } catch (e) {
-            // Backend down - say nothing, let manual scan handle it
+            // Backend down
+            setActiveRuns([]);
         }
     };
     
     checkStatus();
     const interval = setInterval(checkStatus, 2000);
     return () => clearInterval(interval);
-  }, [projectUrl, isConnecting]); // Removed currentPath dependency to prevent loops
+  }, [projectUrl]);
 
-  // Manual Scan Trigger
-  const handleManualScan = async () => {
-    if (isConnecting) return;
-    setIsConnecting(true);
-    setError(null);
-    
-    // 1. Try backend list first (fastest source of truth)
-    try {
-        setStatusMessage("Checking backend...");
-        const res = await fetch('http://localhost:8001/preview/status');
-        const data = await res.json();
-        if (data.is_running && data.url) {
-            setProjectUrl(data.url);
-            setIsConnecting(false);
-            return;
-        }
-    } catch(e) {}
-
-    // 2. Fallback to physical port scan
-    const found = await tryBackendPorts();
-    if (!found) {
-        setStatusMessage("No running servers found.");
-        setIsConnecting(false);
-    }
+  // Connect to a specific run
+  const handleConnectToRun = (url: string) => {
+      setProjectUrl(url);
+      setBackendConnected(true);
   };
+
+  // Render Run Cards
+  const renderRunCards = () => {
+    if (activeRuns.length === 0) return (
+        <div style={{ color: '#666', fontSize: '14px', marginTop: 20 }}>
+            No active previews found. Start a run in ShipS* to see it here.
+        </div>
+    );
+
+    return (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, width: '100%', maxWidth: 600, marginTop: 20 }}>
+            {activeRuns.map(run => (
+                <div 
+                    key={run.id}
+                    onClick={() => handleConnectToRun(run.url)}
+                    style={{
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        border: '1px solid #333',
+                        borderRadius: 8,
+                        padding: 12,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = '#FF5E57'}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = '#333'}
+                >
+                    <div style={{ fontWeight: 600, color: '#fff' }}>
+                        {run.id === 'default' ? 'Default Preview' : `Run: ${run.id.substring(0, 8)}`}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#888' }}>
+                         {run.url} 
+                    </div>
+                    <div style={{ 
+                        fontSize: '10px', 
+                        color: run.status === 'running' ? '#4cd964' : '#ff3b30',
+                        marginTop: 4,
+                        textTransform: 'uppercase',
+                        fontWeight: 700
+                    }}>
+                        ● {run.status}
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+  };
+
 
   // 3. User selects folder
   const handleSelectProject = async () => {
@@ -505,30 +497,11 @@ function App() {
             </button>
           )}
 
-          {/* Manual Scan Button */}
-          {!isConnecting && !projectUrl && (
-             <button
-                onClick={handleManualScan}
-                style={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                    color: '#aaa',
-                    border: '1px solid #444',
-                    padding: '12px 16px',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    transition: 'all 0.2s',
-                }}
-             >
-                <VscRefresh size={16} />
-                Scan for Servers
-             </button>
-          )}
-
         </div>
+        
+        {/* Active Run Cards */}
+        {renderRunCards()}
+        
       </div>
     </div>
   );

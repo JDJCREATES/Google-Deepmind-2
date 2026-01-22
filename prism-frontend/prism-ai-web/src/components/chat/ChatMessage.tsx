@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { VscEdit, VscDebugRestart, VscCheck, VscClose } from 'react-icons/vsc';
 import { BlockRenderer } from './BlockStreamRenderer';
 import type { ChatMessage as ChatMessageType } from '../agent-dashboard/types';
@@ -13,6 +13,21 @@ export default function ChatMessage({ message, onEdit, onRewind }: ChatMessagePr
   const isUser = message.sender === 'user';
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
+
+  // DEBUG: Log message to catch object rendering
+  React.useEffect(() => {
+    console.log('[ChatMessage] Rendering message:', {
+      id: message.id,
+      sender: message.sender,
+      contentType: typeof message.content,
+      hasBlocks: !!message.blocks,
+      blocksLength: message.blocks?.length,
+      timestampType: typeof message.timestamp
+    });
+    if (typeof message.content !== 'string' && typeof message.content !== 'undefined') {
+      console.error('[ChatMessage] ⚠️ INVALID CONTENT TYPE:', message.content);
+    }
+  }, [message]);
 
   const handleSaveEdit = () => {
     if (onEdit && editContent.trim() !== message.content) {

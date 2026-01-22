@@ -46,6 +46,7 @@ class ProjectAnalysis:
     scaffold_command: Optional[str] = None
     install_command: Optional[str] = None
     recommendation: str = ""
+    new_project_subpath: Optional[str] = None
 
 
 def analyze_project(project_path: str, user_request: str = "") -> ProjectAnalysis:
@@ -90,6 +91,7 @@ def analyze_project(project_path: str, user_request: str = "") -> ProjectAnalysi
     scaffold_command = None
     install_command = None
     needs_scaffolding = False
+    new_project_subpath = None
     
     # Check if directory is empty or near-empty
     is_empty = len(files) == 0 and len(dirs) == 0
@@ -103,8 +105,49 @@ def analyze_project(project_path: str, user_request: str = "") -> ProjectAnalysi
         # Infer framework from user request
         framework = _infer_framework_from_request(user_request)
         detected_framework = framework
-        scaffold_command = _get_scaffold_command(framework)
-        install_command = "npm install" if framework != "python" else "pip install -r requirements.txt"
+        
+        # Infer Project Name (for subfolder creation)
+        import re
+        # Look for "create [a] [framework] app/project [called/named] X"
+        project_name = None
+        
+        # Regex patterns to capture project name
+        patterns = [
+            r"create (?:a )?(?:new )?(?:react|vue|nextjs|svelte|angular|python|fastapi|flask|node)?\s*(?:app|project) (?:called|named) ([a-zA-Z0-9_-]+)",
+            r"scaffold (?:a )?(?:new )?([a-zA-Z0-9_-]+) (?:app|project)",
+            r"start (?:a )?(?:new )?([a-zA-Z0-9_-]+) (?:app|project)"
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, user_request, re.IGNORECASE)
+            if match:
+                project_name = match.group(1)
+                break
+        
+        # Validate project name (avoid generic terms)
+        generic_terms = ["app", "project", "application", "website", "backend", "frontend", "api"]
+        if project_name and project_name.lower() in generic_terms:
+            project_name = None
+
+        if project_name:
+            new_project_subpath = project_name
+            # Generate command with subfolder
+            scaffold_command = _get_scaffold_command(framework, target_dir=project_name)
+            
+            # Install command must cd into the new dir
+            base_install = "npm install" if framework != "python" else "pip install -r requirements.txt"
+            if framework == "python": # Python scaffolds usually don't create a wrapper folder by default unless specific template
+                 # FastAPI template might not create folder, depends. 
+                 # For safety, if it's python and we have a subpath, we should ensure the command creates it or we do.
+                 # Our simple _get_scaffold_command for python is just 'pip install...', which assumes current dir.
+                 # We'll skip subpath for python for now in this simple logic unless we switch to cookiecutter.
+                 pass
+            else:
+                 install_command = f"cd {project_name} && {base_install}"
+        else:
+            # Default to current directory
+            scaffold_command = _get_scaffold_command(framework, target_dir=".")
+            install_command = "npm install" if framework != "python" else "pip install -r requirements.txt"
         
     elif has_package_json:
         # Has package.json - check what kind
@@ -143,7 +186,8 @@ def analyze_project(project_path: str, user_request: str = "") -> ProjectAnalysi
         detected_framework=detected_framework,
         scaffold_command=scaffold_command,
         install_command=install_command,
-        recommendation=_get_recommendation(needs_scaffolding, scaffold_command, install_command)
+        recommendation=_get_recommendation(needs_scaffolding, scaffold_command, install_command),
+        new_project_subpath=new_project_subpath
     )
 
 
@@ -169,19 +213,22 @@ def _infer_framework_from_request(request: str) -> str:
     return "react-vite"
 
 
-def _get_scaffold_command(framework: str) -> str:
+def _get_scaffold_command(framework: str, target_dir: str = ".") -> str:
     """Get the scaffold command for a framework."""
+    # Ensure target_dir is safe/quoted if needed, though usually strict name regex handles it
+    t = target_dir
+    
     commands = {
-        "react-vite": "npx create-vite@latest . --template react-ts -- --yes",
-        "react": "npx create-vite@latest . --template react-ts -- --yes",
-        "nextjs": "npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-npm --no-git --yes",
-        "vue": "npx create-vue@latest . --typescript --yes",
-        "svelte": "npx sv create . --template minimal --types ts --no-add-ons --yes",
-        "angular": "npx @angular/cli new . --skip-git --interactive=false",
-        "python": "pip install fastapi uvicorn",
+        "react-vite": f"npx create-vite@latest {t} --template react-ts -- --yes",
+        "react": f"npx create-vite@latest {t} --template react-ts -- --yes",
+        "nextjs": f"npx create-next-app@latest {t} --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-npm --no-git --yes",
+        "vue": f"npx create-vue@latest {t} --typescript --yes",
+        "svelte": f"npx sv create {t} --template minimal --types ts --no-add-ons --yes",
+        "angular": f"npx @angular/cli new {t} --skip-git --interactive=false",
+        "python": "pip install fastapi uvicorn", # Python usually ignores target dir unless using cookiecutter
         "html": "",  # No scaffold needed
     }
-    return commands.get(framework, "npx create-vite@latest . --template react-ts -- --yes")
+    return commands.get(framework, f"npx create-vite@latest {t} --template react-ts -- --yes")
 
 
 def _analyze_package_json(package_json_path: Path) -> Tuple[ProjectType, str]:

@@ -426,6 +426,17 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
         # This prevents the Router/Quality Gates from blocking "Edit" runs.
         is_edit_mode = context.get("scaffolding", {}).get("scaffolding_needed", True) is False
         
+        # SCAFFOLDING SUBPATH UPDATE
+        # If the scaffolding analysis determined we need a new subfolder (e.g. "create react app foo"),
+        # we must update the project_path for all downstream agents so they work in the new folder.
+        final_project_path = environment.get("project_path")
+        new_subpath = scaffolding_result.get("analysis", {}).get("new_project_subpath")
+        
+        if new_subpath and final_project_path:
+            import os
+            final_project_path = os.path.join(final_project_path, new_subpath)
+            logger.info(f"[PLANNER] 🚀 Scaffolding created subfolder. Updating project_path -> {final_project_path}")
+
         return {
             "plan_manifest": plan_manifest,
             "task_list": task_list,
@@ -437,6 +448,11 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
             # Critical routing flags
             "scaffolding_complete": True if is_edit_mode else False,
             "scaffolding_skipped": True if is_edit_mode else False,
+            
+            # RETURN UPDATED ARTIFACTS (Merged by planner_node)
+            "artifacts": {
+                "project_path": final_project_path
+            }
         }
     
     async def _generate_llm_plan(
