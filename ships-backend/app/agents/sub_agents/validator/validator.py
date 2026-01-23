@@ -447,6 +447,17 @@ Output ONLY: pass or fail, with specific violations if failing."""
             {"complete": True}
         ))
         
+        # CRITICAL: Log what we're returning to orchestrator
+        logger.info(f"[VALIDATOR] → Returning to orchestrator:")
+        logger.info(f"[VALIDATOR]   Status: {report.status.value}")
+        logger.info(f"[VALIDATOR]   Violations: {report.total_violations}")
+        logger.info(f"[VALIDATOR]   Failure layer: {report.failure_layer.value}")
+        if report.total_violations > 0:
+            logger.info(f"[VALIDATOR]   validation_report has {len(report.layer_results)} layer_results")
+            for layer_name, layer_result in list(report.layer_results.items())[:3]:  # First 3 layers
+                if layer_result.violations:
+                    logger.info(f"[VALIDATOR]     {layer_name}: {len(layer_result.violations)} violations")
+        
         return {
             "artifacts": {
                 "validation_report": report.model_dump()

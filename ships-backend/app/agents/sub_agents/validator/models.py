@@ -2,6 +2,7 @@ from enum import Enum
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
+from uuid import uuid4
 
 # ==============================================================================
 # ENUMS
@@ -57,6 +58,7 @@ class ValidationLayerName(str, Enum):
 
 class Violation(BaseModel):
     """Represents a single validation issue."""
+    id: str = Field(default_factory=lambda: str(uuid4()))
     rule: str
     message: str
     file_path: Optional[str] = None

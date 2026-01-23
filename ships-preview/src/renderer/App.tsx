@@ -326,6 +326,8 @@ function App() {
             webview.removeEventListener('did-fail-load', handleFailLoad);
         };
     }
+    // Explicit return for else case
+    return undefined;
   }, [projectUrl, backendConnected]); // Re-bind if URL changes or backend reconnects
 
   if (projectUrl) {

@@ -562,31 +562,108 @@ Output your reasoning, then use tools to implement the fix."""
                 "stream_events": events,
             }
         
-        # Get recent errors for context
-        recent_errors = error_log[-5:] if error_log else ["No specific errors"]
+        # ================================================================
+        # Get errors from BOTH sources (robust against validator crashes)
+        # ================================================================
+        recent_errors = []
+        
+        # Source 1: error_log (traditional)
+        if error_log:
+            recent_errors.extend(error_log[-5:])
+            logger.info(f"[FIXER] Found {len(error_log)} errors in error_log")
+        
+        # Source 2: validation_report in artifacts (handles validator crashes)
+        # CRITICAL: validation_report is a DICT (from model_dump()), not a Pydantic object!
+        validation_report = artifacts.get("validation_report")
+        if validation_report and isinstance(validation_report, dict):
+            layer_results = validation_report.get("layer_results", {})
+            if layer_results:
+                # Extract violations from each layer
+                for layer_name, layer_result in layer_results.items():
+                    if isinstance(layer_result, dict):
+                        violations = layer_result.get("violations", [])
+                        for violation in violations[:3]:  # First 3 per layer
+                            if isinstance(violation, dict):
+                                layer = violation.get("layer", "unknown")
+                                message = violation.get("message", "")
+                                file_path = violation.get("file_path")
+                                line_number = violation.get("line_number")
+                                
+                                error_msg = f"[{layer}] {message}"
+                                if file_path:
+                                    error_msg += f" ({file_path}"
+                                    if line_number:
+                                        error_msg += f":{line_number}"
+                                    error_msg += ")"
+                                recent_errors.append(error_msg)
+                logger.info(f"[FIXER] Found {len(recent_errors)} violations in validation_report.layer_results")
+        
+        # Fallback: no errors found
+        if not recent_errors:
+            recent_errors = ["No specific errors found in error_log or validation_report"]
+            logger.warning("[FIXER] ⚠️ No errors found - fixer may not have context to fix anything")
         
         # CRITICAL: Log what fixer is trying to fix
         logger.info(f"[FIXER] 🔧 Attempt {fix_attempts}/{max_attempts}")
-        logger.info(f"[FIXER] 📋 Errors to fix:")
-        for i, error in enumerate(recent_errors, 1):
+        logger.info(f"[FIXER] 📋 Errors to fix ({len(recent_errors)} total):")
+        for i, error in enumerate(recent_errors[:10], 1):  # Show up to 10
             logger.info(f"  {i}. {error}")
+        
+        # ================================================================
+        # Extract file paths from errors and provide context
+        # ================================================================
+        import re
+        file_context = {}
+        for error_msg in recent_errors:
+            # Extract file paths from error messages (e.g., "Cannot apply unknown utility class `glass` (todo-app/src/index.css:1:1)")
+            # Pattern: look for file paths in parentheses or standalone
+            matches = re.findall(r'[\w\-./\\]+\.(css|tsx|ts|jsx|js|json|html)', str(error_msg))
+            for file_path in matches:
+                # Normalize path relative to project_path
+                from pathlib import Path
+                full_path = Path(project_path) / file_path if project_path else Path(file_path)
+                if full_path.exists() and file_path not in file_context:
+                    try:
+                        with open(full_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                            # Show first 100 lines to keep prompt manageable
+                            lines = content.split('\n')[:100]
+                            file_context[file_path] = '\n'.join(lines)
+                            logger.info(f"[FIXER] 📄 Loaded context for {file_path} ({len(lines)} lines)")
+                    except Exception as e:
+                        logger.warning(f"[FIXER] Could not read {file_path}: {e}")
+        
+        # Build context section
+        context_section = ""
+        if file_context:
+            context_section = "\n\nFILE CONTEXT:\n"
+            for path, content in file_context.items():
+                context_section += f"\n--- {path} ---\n{content}\n"
         
         # ================================================================
         # Build fix prompt with error context
         # ================================================================
-        fixer_prompt = f"""PROJECT: {project_path}
-ATTEMPT: {fix_attempts}/{max_attempts}
+        fixer_prompt = f"""You are fixing build/validation errors in: {project_path}
 
-ERRORS:
-{chr(10).join(['- ' + str(e) for e in recent_errors])}
+ERRORS TO FIX (Attempt {fix_attempts}/{max_attempts}):
+{chr(10).join(['• ' + str(e) for e in recent_errors])}
+{context_section}
 
-Fix these errors. Read files to understand the issue, then apply minimal fixes.
+YOUR TASK:
+1. Identify the root cause from the error messages above
+2. Open the specific file(s) mentioned in the errors
+3. Make the minimal surgical fix needed
+4. Save the fixed file(s)
 
-If build fails with "Cannot find module 'xxx'" → run: npm install xxx
+COMMON PATTERNS:
+- "Cannot find module X" → Run: npm install X
+- "Unknown utility class" → Remove the class or add to config
+- "Type error" → Fix the type annotation
+- "Syntax error" → Fix the syntax at the line mentioned
 
-If you can't fix it (architectural issue), respond: {{"escalate": true, "reason": "why"}}
-
-When fixed, respond: {{"status": "fixed"}}"""
+When done, respond: {{"status": "fixed"}}
+If impossible to fix, respond: {{"escalate": true, "reason": "explain why"}}
+"""
 
         # ================================================================
         # Execute using create_react_agent with FIXER_TOOLS

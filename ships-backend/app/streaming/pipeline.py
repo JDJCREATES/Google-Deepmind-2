@@ -153,39 +153,40 @@ async def stream_pipeline(
                         elif not isinstance(content, str):
                             content = str(content)
                         
-                        # DETECT JSON STREAMING (from planner's structured output)
-                        # Just accumulate - final output formatted in on_chain_end
-                        if not in_json_stream and content.strip().startswith('{'):
-                            in_json_stream = True
-                            json_buffer = content
-                            json_source_agent = current_agent  # Track which agent
-                            continue  # Don't stream raw JSON
-                        elif in_json_stream:
+                        # DETECT JSON STREAMING - look for opening brace anywhere in content
+                        if not in_json_stream:
+                            # Check if this chunk contains JSON start
+                            stripped = content.strip()
+                            if stripped and (stripped.startswith('{') or '{' in content):
+                                in_json_stream = True
+                                json_buffer = content
+                                json_source_agent = current_agent
+                                logger.info(f"[PIPELINE] Started JSON buffering for {current_agent}")
+                                continue
+                        
+                        if in_json_stream:
                             json_buffer += content
                             
-                            # Check if JSON is complete
-                            if json_buffer.count('{') > 0 and json_buffer.count('{') == json_buffer.count('}'):
+                            # Check if JSON is complete (balanced braces)
+                            open_count = json_buffer.count('{')
+                            close_count = json_buffer.count('}')
+                            
+                            if open_count > 0 and open_count == close_count:
+                                logger.info(f"[PIPELINE] JSON complete for {json_source_agent}, parsing...")
                                 # Parse and display meaningful parts
                                 try:
                                     import json as json_mod
-                                    parsed = json_mod.loads(json_buffer)
+                                    parsed = json_mod.loads(json_buffer.strip())
                                     
-                                    # IntentClassifier output - show reasoning/description
+                                    # IntentClassifier output - show description
                                     if json_source_agent == "orchestrator" and isinstance(parsed, dict):
                                         description = parsed.get("description", "")
-                                        scope = parsed.get("scope", "")
-                                        task_type = parsed.get("task_type", "")
-                                        
                                         if description:
-                                            # Show the clarified description to user
                                             yield block_mgr.create_block(BlockType.TEXT, "Understanding", description) + "\n"
-                                        elif scope == "project":
-                                            yield block_mgr.create_block(BlockType.TEXT, "Planning", "Setting up new project...") + "\n"
-                                    
-                                    # Planner output handled in on_chain_end
+                                        logger.info(f"[PIPELINE] Displayed IntentClassifier description")
                                     
                                 except Exception as e:
-                                    logger.warning(f"[PIPELINE] Failed to parse JSON buffer: {e}")
+                                    logger.error(f"[PIPELINE] Failed to parse JSON: {e}\nBuffer: {json_buffer[:200]}")
                                 
                                 in_json_stream = False
                                 json_buffer = ""
@@ -208,6 +209,11 @@ async def stream_pipeline(
 
             # 2. TOOL EXECUTION - Only show important actions, not every read
             elif event_type == "on_tool_start":
+                # Close any active thinking/text block before showing tool
+                end_block = block_mgr.end_current_block()
+                if end_block:
+                    yield end_block + "\n"
+                
                 # Filter: Only show write/modify operations, not reads or debugging
                 important_tools = [
                     "write_files_batch", "write_file_to_disk", "apply_source_edits",
@@ -240,19 +246,26 @@ async def stream_pipeline(
                     action_text = action_map.get(event_name, event_name)
                     yield block_mgr.start_block(BlockType.COMMAND, action_text) + "\n"
                 
-                # ALWAYS emit tool_start for ToolProgress sidebar (even if not shown in chat)
-                import json
-                file_path = None
-                if isinstance(tool_metadata, dict):
-                    file_path = tool_metadata.get("file_path") or tool_metadata.get("filename")
+                # Emit tool_start for ToolProgress sidebar - but filter out read-only operations
+                # Don't show: list_directory, read_file, get_file_tree, etc
+                read_only_tools = [
+                    "list_directory", "read_file", "read_file_from_disk", "get_file_tree",
+                    "scan_project_tree", "grep_search", "file_search", "semantic_search"
+                ]
                 
-                tool_start_json = json.dumps({
-                    "type": "tool_start",
-                    "tool": event_name,
-                    "file": file_path,
-                    "timestamp": int(time.time() * 1000)
-                })
-                yield tool_start_json + "\n"
+                if event_name not in read_only_tools:
+                    import json
+                    file_path = None
+                    if isinstance(tool_metadata, dict):
+                        file_path = tool_metadata.get("file_path") or tool_metadata.get("filename")
+                    
+                    tool_start_json = json.dumps({
+                        "type": "tool_start",
+                        "tool": event_name,
+                        "file": file_path,
+                        "timestamp": int(time.time() * 1000)
+                    })
+                    yield tool_start_json + "\n"
                 
             elif event_type == "on_tool_end":
                 import json
@@ -309,35 +322,37 @@ async def stream_pipeline(
                         block_json = block_mgr.create_block(BlockType.CMD_OUTPUT, "", formatted_output)
                         yield block_json + "\n"
                 
-                # ALWAYS emit tool_result for ToolProgress sidebar (even if not shown in chat)
-                file_path = None
-                if isinstance(tool_metadata, dict):
-                    file_path = tool_metadata.get("file_path") or tool_metadata.get("filename")
+                # Emit tool_result for ToolProgress sidebar - but filter out read-only operations
+                read_only_tools = [
+                    "list_directory", "read_file", "read_file_from_disk", "get_file_tree",
+                    "scan_project_tree", "grep_search", "file_search", "semantic_search"
+                ]
                 
-                # Determine success from output
-                success = True
-                if isinstance(output_content, str):
-                    try:
-                        parsed = json.loads(output_content)
-                        if isinstance(parsed, dict):
-                            success = parsed.get("success", True)
-                    except:
-                        pass
-                elif isinstance(output, dict):
-                    success = output.get("success", True)
-                
-                tool_result_json = json.dumps({
-                    "type": "tool_result",
-                    "tool": event_name,
-                    "file": file_path,
-                    "success": success,
-                    "timestamp": int(time.time() * 1000)
-                })
-                yield tool_result_json + "\n"
-                
-                # LOG COMPLETE EMITTED JSON
-                logger.info(f"✅ [PIPELINE] EMITTED tool_result NDJSON:")
-                logger.info(f"   {tool_result_json}")
+                if event_name not in read_only_tools:
+                    file_path = None
+                    if isinstance(tool_metadata, dict):
+                        file_path = tool_metadata.get("file_path") or tool_metadata.get("filename")
+                    
+                    # Determine success from output
+                    success = True
+                    if isinstance(output_content, str):
+                        try:
+                            parsed = json.loads(output_content)
+                            if isinstance(parsed, dict):
+                                success = parsed.get("success", True)
+                        except:
+                            pass
+                    elif isinstance(output, dict):
+                        success = output.get("success", True)
+                    
+                    tool_result_json = json.dumps({
+                        "type": "tool_result",
+                        "tool": event_name,
+                        "file": file_path,
+                        "success": success,
+                        "timestamp": int(time.time() * 1000)
+                    })
+                    yield tool_result_json + "\n"
 
             # 3. NODE TRANSITIONS - Conversational agent status
             elif event_type == "on_chain_start":
