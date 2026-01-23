@@ -142,7 +142,7 @@ async def stream_pipeline(
                             extracted = []
                             for item in content:
                                 if isinstance(item, dict):
-                                    if item.get("type") == "text"):
+                                    if item.get("type") == "text":
                                         extracted.append(item.get("text", ""))
                                 elif isinstance(item, str):
                                     extracted.append(item)

@@ -1177,60 +1177,93 @@ Create a detailed plan following this EXACT JSON format. Output ONLY valid JSON,
                     scaffold_command = _get_scaffold_command(self.current_project_type)
                     
                     # ============================================================
-                    # SMART NAMING & SUBFOLDER LOGIC (Must come BEFORE prefix calc)
+                    # INTELLIGENT SUBFOLDER CREATION
+                    # NEVER scaffold in workspace root - always create a subfolder
                     # ============================================================
                     import re
                     
-                    # PREFER LLM-chosen name if provided, fallback to extraction
+                    # 1. Generate base project name (slug)
                     llm_project_name = plan_artifacts.get("project_name", "")
                     if llm_project_name and isinstance(llm_project_name, str):
-                        suggested_slug = re.sub(r'[^a-z0-9-]+', '-', llm_project_name.lower()).strip('-')
-                        logger.info(f"[PLANNER] 📝 Using LLM-chosen project name: '{suggested_slug}'")
+                        base_slug = re.sub(r'[^a-z0-9-]+', '-', llm_project_name.lower()).strip('-')
+                        logger.info(f"[PLANNER] 📝 Using LLM-chosen project name: '{base_slug}'")
                     else:
-                        # Fallback: Extract from user description
+                        # Extract from user description
                         raw_desc = intent.get("description", "my-app")
                         words = raw_desc.lower().split()
                         if len(words) >= 2 and words[1] in ['app', 'application', 'system', 'website', 'site']:
-                            suggested_slug = words[0]
+                            base_slug = words[0]
                         else:
-                            meaningful = [w for w in words[:3] if w not in ['a', 'an', 'the', 'with', 'and', 'create', 'build', 'make']]
-                            suggested_slug = '-'.join(meaningful[:2]) if meaningful else "my-app"
-                        suggested_slug = re.sub(r'[^a-z0-9]+', '-', suggested_slug).strip('-')
-                        logger.info(f"[PLANNER] 🔍 Extracted project name from description: '{suggested_slug}'")
+                            meaningful = [w for w in words[:3] if w not in ['a', 'an', 'the', 'with', 'and', 'create', 'build', 'make', 'a']]
+                            base_slug = '-'.join(meaningful[:2]) if meaningful else "my-app"
+                        base_slug = re.sub(r'[^a-z0-9]+', '-', base_slug).strip('-')
+                        logger.info(f"[PLANNER] 🔍 Extracted project name from description: '{base_slug}'")
                     
-                    if not suggested_slug: suggested_slug = "my-app"
-                    suggested_slug = suggested_slug[:30]
+                    if not base_slug: base_slug = "my-app"
+                    base_slug = base_slug[:30]
                     
-                    # Decide if we scaffold here (.) or in a subfolder
-                    # Check if directory is EMPTY (no user files except .git, .ships, etc.)
-                    existing_entries = list(project_dir.iterdir()) if project_dir.exists() else []
-                    user_files = [e for e in existing_entries if e.name not in {'.git', '.ships', '.gitignore', 'routing_logs.json'}]
+                    # 2. Determine layer suffix based on target_area and scope
+                    layer_suffix = ""
+                    if scope == "project":
+                        # New project - always use layer suffix for clarity
+                        if target_area in ["frontend", "full-stack", "ui/ux", "unknown"]:
+                            layer_suffix = "-frontend"
+                        elif target_area == "backend":
+                            layer_suffix = "-backend"
+                        elif target_area == "database":
+                            layer_suffix = "-db"
+                        else:
+                            # Fallback: use target_area as suffix if not standard
+                            layer_suffix = f"-{target_area}" if target_area else ""
+                        
+                        # Special case: if template is fullstack (nextjs), use -app instead
+                        if self.current_project_type == "nextjs":
+                            layer_suffix = "-app"
+                    elif scope == "layer":
+                        # Adding a new layer - use target_area as suffix
+                        layer_suffix = f"-{target_area}"
+                    # For scope=feature or file, no suffix (but we won't scaffold anyway)
                     
-                    if len(user_files) == 0:
-                        # Empty directory - scaffold directly here
-                        target_arg = "."
-                        logger.info(f"[PLANNER] 🎯 Directory empty. Scaffolding directly in {project_dir}")
-                    else:
-                        # Directory has files - create subfolder to avoid conflicts
-                        target_arg = suggested_slug
-                        logger.info(f"[PLANNER] 📦 Directory has {len(user_files)} files. Scaffolding into subfolder '{suggested_slug}'")
+                    # 3. Build final project folder name
+                    project_folder_name = f"{base_slug}{layer_suffix}"
+                    project_subfolder = project_dir / project_folder_name
                     
-                    # 3. Update scaffold command with target
-                    # Use regex to replace " ." with " target" (handling both middle and end of string)
+                    # 4. Create the subfolder (this ensures clean directory for scaffolding)
+                    try:
+                        project_subfolder.mkdir(parents=True, exist_ok=True)
+                        logger.info(f"[PLANNER] 📁 Created project subfolder: {project_folder_name}")
+                    except Exception as mkdir_err:
+                        logger.error(f"[PLANNER] ❌ Failed to create subfolder {project_folder_name}: {mkdir_err}")
+                        raise
+                    
+                    # 5. Update project_path to point to the new subfolder
+                    actual_project_path = str(project_subfolder)
+                    project_path = actual_project_path
+                    plan_artifacts["project_path"] = actual_project_path
+                    plan_artifacts["project_name"] = project_folder_name
+                    
+                    # 6. Scaffold command will always use "." since we're running inside the subfolder
+                    target_arg = "."
                     scaffold_command = re.sub(r'\s\.(?:\s|$)', f" {target_arg} ", scaffold_command).strip()
 
                     
                     logger.info(f"[PLANNER] 🔧 Final Scaffold Command: {scaffold_command}")
+                    logger.info(f"[PLANNER] 📁 Running in directory: {actual_project_path}")
                     
-                    scaffold_prompt = f"""PROJECT: {project_dir}
-TARGET: "{target_arg}"
+                    scaffold_prompt = f"""PROJECT ROOT: {project_dir}
+SUBFOLDER: {project_folder_name}
+SCAFFOLD DIRECTORY: {actual_project_path}
 COMMAND: {scaffold_command}
 
-Run the scaffolding command above. If it succeeds, stop. If it fails, figure out why and fix it (don't retry blindly).
+You are running the scaffold command INSIDE the newly created subfolder: {project_folder_name}
 
-The command will create package.json, config files, and base folders. After it succeeds, run "npm install" to install deps.
+The subfolder has been pre-created for you. Your job:
+1. cd into {actual_project_path}
+2. Run the scaffold command: {scaffold_command}
+3. If it succeeds, stop
+4. If it fails, diagnose the error and fix it (don't blindly retry)
 
-That's it. The Coder will add the actual application code later."""
+After scaffolding succeeds, verify package.json was created and has scripts."""
 
                     # Simple system prompt - trust the LLM
                     scaffolder_system_prompt = """You're scaffolding a project using official CLI tools.
@@ -1254,40 +1287,12 @@ Use run_terminal_command for commands. Use list_directory to check results."""
                     )
                     
                     # ============================================================
-                    # POST-SCAFFOLDING: Detect what folder was ACTUALLY created
-                    # The LLM might pick a creative name different from our slug
+                    # POST-SCAFFOLDING: We already know where it is!
+                    # No need to scan - we pre-created the directory
                     # ============================================================
-                    actual_project_path = None
-                    try:
-                        # PRIORITIZE: Check if the intended target folder was validated
-                        target_path = project_dir / target_arg
-                        if target_arg != "." and target_path.exists() and target_path.is_dir():
-                             actual_project_path = str(target_path)
-                             logger.info(f"[PLANNER] 🎯 Confirmed scaffolded project at target: {actual_project_path}")
-                        else:
-                            # Fallback: Scan for new directories if we scaffolded to . or something else
-                            # Scan for new directories with package.json (indicator of scaffolded project)
-                            for item in project_dir.iterdir():
-                                if item.is_dir() and not item.name.startswith('.'):
-                                    pkg_json = item / "package.json"
-                                    if pkg_json.exists():
-                                        actual_project_path = str(item)
-                                        logger.info(f"[PLANNER] 🔍 Detected scaffolded project at: {actual_project_path}")
-                                        break
-                        
-                        # Update project_path to the ACTUAL created folder (ONLY if this is first scaffolding)
-                        if actual_project_path and actual_project_path != project_path:
-                            # CRITICAL: Only update if we haven't already set a project_path subfolder
-                            # This prevents nested "todo-app/robust" scenarios
-                            if project_path == str(project_dir):
-                                logger.info(f"[PLANNER] 📦 Updating project_path: {project_path} → {actual_project_path}")
-                                project_path = actual_project_path
-                                plan_artifacts["project_path"] = actual_project_path
-                                plan_artifacts["project_name"] = Path(actual_project_path).name
-                            else:
-                                logger.warning(f"[PLANNER] ⚠️ Skipping project_path update - already in subfolder {project_path}")
-                    except Exception as detect_err:
-                        logger.warning(f"[PLANNER] ⚠️ Could not detect scaffolded folder: {detect_err}")
+                    # The project is already at: actual_project_path
+                    # Just verify it worked by checking package.json
+                    logger.info(f"[PLANNER] ✅ Scaffolding complete. Project at: {actual_project_path}")
                     
                     # ================================================================
                     # VERIFY SCAFFOLDING ACTUALLY SUCCEEDED

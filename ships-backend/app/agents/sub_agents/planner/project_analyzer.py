@@ -214,21 +214,24 @@ def _infer_framework_from_request(request: str) -> str:
 
 
 def _get_scaffold_command(framework: str, target_dir: str = ".") -> str:
-    """Get the scaffold command for a framework."""
-    # Ensure target_dir is safe/quoted if needed, though usually strict name regex handles it
-    t = target_dir
+    """
+    Get the scaffold command for a framework.
     
+    Note: The planner now pre-creates the project directory, so these commands
+    always use '.' to scaffold in the current directory.
+    """
+    # All commands use "." since the planner creates the directory first
     commands = {
-        "react-vite": f"npx create-vite@latest {t} --template react-ts -- --yes",
-        "react": f"npx create-vite@latest {t} --template react-ts -- --yes",
-        "nextjs": f"npx create-next-app@latest {t} --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-npm --no-git --yes",
-        "vue": f"npx create-vue@latest {t} --typescript --yes",
-        "svelte": f"npx sv create {t} --template minimal --types ts --no-add-ons --yes",
-        "angular": f"npx @angular/cli new {t} --skip-git --interactive=false",
-        "python": "pip install fastapi uvicorn", # Python usually ignores target dir unless using cookiecutter
+        "react-vite": "npx create-vite@latest . --template react-ts -- --yes",
+        "react": "npx create-vite@latest . --template react-ts -- --yes",
+        "nextjs": "npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-npm --no-git --yes",
+        "vue": "npx create-vue@latest . --typescript --yes",
+        "svelte": "npx sv create . --template minimal --types ts --no-add-ons --yes",
+        "angular": "npx @angular/cli new . --skip-git --interactive=false",
+        "python": "pip install fastapi uvicorn",  # Python usually ignores target dir
         "html": "",  # No scaffold needed
     }
-    return commands.get(framework, f"npx create-vite@latest {t} --template react-ts -- --yes")
+    return commands.get(framework, "npx create-vite@latest . --template react-ts -- --yes")
 
 
 def _analyze_package_json(package_json_path: Path) -> Tuple[ProjectType, str]:
