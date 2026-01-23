@@ -226,11 +226,28 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
     planner = Planner()
     result = await planner.invoke(state)
         
-    # 3. Merge Artifacts (Safety: Don't lose project_path)
+    # 4. Move plan artifacts into artifacts dict (CRITICAL FIX)
+    # Planner returns top-level keys (plan_manifest, task_list, etc.) 
+    # but LangGraph only updates fields in AgentGraphState schema.
+    # We must move these into artifacts dict so they're accessible.
     merged_artifacts = {**state.get("artifacts", {})}
+    
+    # Merge nested artifacts from planner
     if "artifacts" in result:
         merged_artifacts.update(result["artifacts"])
-        result["artifacts"] = merged_artifacts
+    
+    # Move top-level plan artifacts into artifacts dict
+    plan_artifact_keys = [
+        "plan_manifest", "task_list", "folder_map", 
+        "api_contracts", "dependency_plan", "validation_checklist", "risk_report",
+        "scaffolding_complete", "scaffolding_skipped"
+    ]
+    
+    for key in plan_artifact_keys:
+        if key in result:
+            merged_artifacts[key] = result.pop(key)
+    
+    result["artifacts"] = merged_artifacts
         
     return result
 

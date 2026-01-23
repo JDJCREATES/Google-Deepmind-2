@@ -98,7 +98,7 @@ class DeterministicRouter:
             
             # Handle confirmations specially - check if there's a plan to confirm
             if task_type == "confirmation":
-                has_plan = bool(artifacts.get("plan") or artifacts.get("implementation_plan"))
+                has_plan = bool(artifacts.get("plan_manifest") or artifacts.get("task_list"))
                 if has_plan:
                     # User confirmed plan - proceed to coding
                     logger.info("[DETERMINISTIC_ROUTER] Confirmation with existing plan - proceeding to coder")
@@ -477,7 +477,7 @@ class DeterministicRouter:
              return self._route_from_coding(state)
         
         # PRIORITY 4: Just finished planning?
-        if artifacts.get("scaffolding_complete") or artifacts.get("plan"):
+        if artifacts.get("scaffolding_complete") or artifacts.get("plan_manifest"):
              return self._route_from_planning(state)
         
         # Fallback: Start from planning if no clear state

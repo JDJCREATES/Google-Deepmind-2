@@ -124,7 +124,8 @@ async def stream_pipeline(
     in_json_stream = False  # Are we currently streaming JSON?
     
     # Track which agents use structured output (no token streaming)
-    suppress_streaming_for = set()
+    # These agents do internal work - user doesn't need to see their raw LLM output
+    suppress_token_streaming_for = {"orchestrator", "intent_classifier", "IntentClassifier"}
     
     try:
         logger.info(f"[STREAM] 🚀 Starting graph.astream_events() with thread_id={thread_id}")
@@ -137,6 +138,12 @@ async def stream_pipeline(
             
             # 1. TOKEN STREAMING
             if event_type == "on_chat_model_stream":
+                # CRITICAL FIX: Suppress token streaming for internal routing agents
+                # IntentClassifier runs inside orchestrator and outputs structured JSON
+                # Users don't need to see this - it's internal metadata
+                if current_agent in suppress_token_streaming_for:
+                    continue  # Skip all tokens from orchestrator/IntentClassifier
+                
                 chunk = event_data.get("chunk")
                 if chunk and hasattr(chunk, "content"):
                     content = chunk.content
@@ -334,6 +341,9 @@ async def stream_pipeline(
                 # Orchestrator and IntentClassifier are silent (internal routing)
 
             elif event_type == "on_chain_end":
+                # Reset current_agent when a chain finishes (so next agent can stream)
+                if event_name == current_agent:
+                    current_agent = None
                 
                 # SKIP DISPLAY FOR INTERNAL OUTPUTS (routing metadata, not user-facing)
                 if event_name in ["orchestrator", "IntentClassifier", "intent_classifier", "Orchestrator"]:
