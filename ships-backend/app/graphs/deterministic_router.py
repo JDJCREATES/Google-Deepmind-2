@@ -96,8 +96,30 @@ class DeterministicRouter:
             structured_intent = artifacts.get("structured_intent", {})
             task_type = structured_intent.get("task_type")
             
-            # Route questions/confirmations/unclear to chat
-            if task_type in ["question", "confirmation", "unclear"]:
+            # Handle confirmations specially - check if there's a plan to confirm
+            if task_type == "confirmation":
+                has_plan = bool(artifacts.get("plan") or artifacts.get("implementation_plan"))
+                if has_plan:
+                    # User confirmed plan - proceed to coding
+                    logger.info("[DETERMINISTIC_ROUTER] Confirmation with existing plan - proceeding to coder")
+                    return RoutingDecision(
+                        next_phase="coder",
+                        reason="User confirmed plan - starting implementation",
+                        requires_llm=False,
+                        metadata={"task_type": task_type, "confirmed": True}
+                    )
+                else:
+                    # No plan to confirm - ask what they're confirming
+                    logger.info("[DETERMINISTIC_ROUTER] Confirmation without plan - routing to chat for clarification")
+                    return RoutingDecision(
+                        next_phase="chat_setup",
+                        reason="Confirmation without context - asking for clarification",
+                        requires_llm=False,
+                        metadata={"task_type": task_type, "missing_context": True}
+                    )
+            
+            # Route questions/unclear to chat
+            if task_type in ["question", "unclear"]:
                 logger.info(f"[DETERMINISTIC_ROUTER] task_type={task_type} - routing to chat instead of engineering pipeline")
                 return RoutingDecision(
                     next_phase="chat_setup",

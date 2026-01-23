@@ -1061,8 +1061,8 @@ def create_agent_graph(checkpointer: Optional[MemorySaver] = None) -> StateGraph
         if decision == "chat":
             return "chat_setup"
         
-        # Valid phases
-        if decision in ["planner", "coder", "validator", "fixer", "complete"]:
+        # Valid phases (including chat_setup for questions)
+        if decision in ["planner", "coder", "validator", "fixer", "complete", "chat_setup"]:
             return decision
         
         # Default: complete if unrecognized
