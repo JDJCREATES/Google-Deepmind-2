@@ -120,6 +120,9 @@ async def stream_pipeline(
     
     block_mgr = StreamBlockManager()
     current_agent = None  # Track which agent is active
+    json_buffer = ""  # Buffer for accumulating JSON tokens
+    in_json_stream = False  # Are we currently streaming JSON?
+    json_source_agent = None  # Which agent is producing the JSON
     
     try:
         logger.info(f"[STREAM] 🚀 Starting graph.astream_events() with thread_id={thread_id}")
@@ -149,6 +152,46 @@ async def stream_pipeline(
                             content = "".join(extracted)
                         elif not isinstance(content, str):
                             content = str(content)
+                        
+                        # DETECT JSON STREAMING (from planner's structured output)
+                        # Just accumulate - final output formatted in on_chain_end
+                        if not in_json_stream and content.strip().startswith('{'):
+                            in_json_stream = True
+                            json_buffer = content
+                            json_source_agent = current_agent  # Track which agent
+                            continue  # Don't stream raw JSON
+                        elif in_json_stream:
+                            json_buffer += content
+                            
+                            # Check if JSON is complete
+                            if json_buffer.count('{') > 0 and json_buffer.count('{') == json_buffer.count('}'):
+                                # Parse and display meaningful parts
+                                try:
+                                    import json as json_mod
+                                    parsed = json_mod.loads(json_buffer)
+                                    
+                                    # IntentClassifier output - show reasoning/description
+                                    if json_source_agent == "orchestrator" and isinstance(parsed, dict):
+                                        description = parsed.get("description", "")
+                                        scope = parsed.get("scope", "")
+                                        task_type = parsed.get("task_type", "")
+                                        
+                                        if description:
+                                            # Show the clarified description to user
+                                            yield block_mgr.create_block(BlockType.TEXT, "Understanding", description) + "\n"
+                                        elif scope == "project":
+                                            yield block_mgr.create_block(BlockType.TEXT, "Planning", "Setting up new project...") + "\n"
+                                    
+                                    # Planner output handled in on_chain_end
+                                    
+                                except Exception as e:
+                                    logger.warning(f"[PIPELINE] Failed to parse JSON buffer: {e}")
+                                
+                                in_json_stream = False
+                                json_buffer = ""
+                                json_source_agent = None
+                            
+                            continue  # Don't stream raw JSON tokens
                         
                         # Filter out internal markers (IntentClassifier - shouldn't happen with disabled callbacks)
                         if "__INTENT_RESULT__:" in content:
