@@ -307,6 +307,11 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
         project_path = environment.get("project_path") if environment else None
         file_tree = environment.get("file_tree", {}) if environment else {}
         
+        if not project_path:
+            logger.error(f"[PLANNER.plan] ❌ NO PROJECT PATH! environment={environment}")
+        else:
+            logger.info(f"[PLANNER.plan] ✅ Project path: {project_path}")
+        
         logger.info(f"[PLANNER.plan] 📋 Planning for request: {intent.get('description', 'N/A')[:100]}...")
         
         # Get the system prompt (with validation feedback if retrying)
@@ -429,8 +434,9 @@ EFFICIENCY: This should be a quick targeted edit, not a full rewrite.
         # SCAFFOLDING SUBPATH UPDATE
         # If the scaffolding analysis determined we need a new subfolder (e.g. "create react app foo"),
         # we must update the project_path for all downstream agents so they work in the new folder.
-        final_project_path = environment.get("project_path")
-        new_subpath = scaffolding_result.get("analysis", {}).get("new_project_subpath")
+        final_project_path = (environment or {}).get("project_path")
+        analysis = (scaffolding_result or {}).get("analysis") or {}
+        new_subpath = analysis.get("new_project_subpath")
         
         if new_subpath and final_project_path:
             import os

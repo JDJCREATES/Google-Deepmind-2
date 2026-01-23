@@ -218,5 +218,6 @@ class PlannerTools:
                 "scaffold_command": analysis.scaffold_command,
                 "install_command": analysis.install_command,
                 "recommendation": analysis.recommendation,
+                "new_project_subpath": analysis.new_project_subpath,
             }
         }

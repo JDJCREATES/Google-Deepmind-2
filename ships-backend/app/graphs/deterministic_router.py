@@ -89,6 +89,23 @@ class DeterministicRouter:
         
         logger.info(f"[DETERMINISTIC_ROUTER] Current phase: {current_phase}")
         
+        # STEP 0: Check intent classification for non-engineering tasks
+        # If we're in planning phase, check if this is actually a question/chat request
+        if current_phase == "planning":
+            artifacts = state.get("artifacts", {})
+            structured_intent = artifacts.get("structured_intent", {})
+            task_type = structured_intent.get("task_type")
+            
+            # Route questions/confirmations/unclear to chat
+            if task_type in ["question", "confirmation", "unclear"]:
+                logger.info(f"[DETERMINISTIC_ROUTER] task_type={task_type} - routing to chat instead of engineering pipeline")
+                return RoutingDecision(
+                    next_phase="chat_setup",
+                    reason=f"Non-engineering task ({task_type}) - routing to chat",
+                    requires_llm=False,
+                    metadata={"task_type": task_type}
+                )
+        
         # Handle special phases first
         if current_phase == "chat":
             return self._route_chat(state)

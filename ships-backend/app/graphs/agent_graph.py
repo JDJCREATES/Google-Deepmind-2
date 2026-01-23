@@ -214,8 +214,15 @@ async def planner_node(state: AgentGraphState) -> Dict[str, Any]:
     project_path = artifacts.get("project_path")
     if project_path:
         set_project_root(project_path)
+    
+    # 2. Ensure environment exists in state (CRITICAL: Planner.plan() expects this)
+    if "environment" not in state or state.get("environment") is None:
+        state["environment"] = {
+            "project_path": project_path,
+            "settings": artifacts.get("settings", {})
+        }
         
-    # 2. Invoke Planner
+    # 3. Invoke Planner
     planner = Planner()
     result = await planner.invoke(state)
         
@@ -651,12 +658,21 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
             
         except Exception as e:
             logger.error(f"[ORCHESTRATOR] ⚠️ Intent classification failed: {e}")
-            # Fallback intent
-            structured_intent = {"scope": "feature", "task_type": "feature", "description": user_request}
+            # Fallback intent - route to chat for safe handling
+            structured_intent = {
+                "scope": "feature", 
+                "task_type": "unclear", 
+                "action": "analyze",
+                "description": user_request,
+                "is_ambiguous": True,
+                "clarification_questions": ["I had trouble understanding your request. Could you rephrase or provide more details?"],
+                "confidence": 0.0
+            }
 
     # ================================================================
     # STEP 2: INITIALIZE DETERMINISTIC ROUTER
     # ================================================================
+    # DeterministicRouter now checks task_type for questions/chat routing
     router = DeterministicRouter()
     
     # ================================================================
