@@ -844,7 +844,23 @@ class BuildLayer(ValidationLayer):
                         # Timeout is expected for dev server - this is fine
                         logger.info("[BUILD] Dev server check passed (no immediate errors)")
                 else:
-                    logger.debug("[BUILD] No build or dev script found")
+                    # NO build or dev script - this is a FAILURE for projects that should have them
+                    # Check if this looks like a scaffolded project that failed
+                    has_any_deps = bool(pkg_data.get("dependencies", {})) or bool(pkg_data.get("devDependencies", {}))
+                    
+                    if not has_any_deps:
+                        # Empty package.json with no scripts AND no deps = failed scaffolding
+                        logger.error("[BUILD] ❌ package.json has no scripts AND no dependencies - scaffolding likely failed")
+                        violations.append(BuildViolation(
+                            rule="valid_project_structure",
+                            message="package.json has no scripts and no dependencies - project scaffolding appears to have failed",
+                            layer=FailureLayer.BUILD,
+                            severity=ViolationSeverity.CRITICAL,
+                            file_path=pkg_path,
+                            fix_hint="Re-run scaffolding or manually add dependencies and scripts to package.json"
+                        ))
+                    else:
+                        logger.debug("[BUILD] No build or dev script found, but project has dependencies")
             else:
                 checks_run += 1
                 logger.info("[BUILD] 🏗️ Running npm run build...")

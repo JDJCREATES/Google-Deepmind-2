@@ -120,12 +120,6 @@ async def stream_pipeline(
     
     block_mgr = StreamBlockManager()
     current_agent = None  # Track which agent is active
-    json_buffer = ""  # Buffer for accumulating JSON tokens
-    in_json_stream = False  # Are we currently streaming JSON?
-    
-    # Track which agents use structured output (no token streaming)
-    # These agents do internal work - user doesn't need to see their raw LLM output
-    suppress_token_streaming_for = {"orchestrator", "intent_classifier", "IntentClassifier"}
     
     try:
         logger.info(f"[STREAM] 🚀 Starting graph.astream_events() with thread_id={thread_id}")
@@ -138,12 +132,6 @@ async def stream_pipeline(
             
             # 1. TOKEN STREAMING
             if event_type == "on_chat_model_stream":
-                # CRITICAL FIX: Suppress token streaming for internal routing agents
-                # IntentClassifier runs inside orchestrator and outputs structured JSON
-                # Users don't need to see this - it's internal metadata
-                if current_agent in suppress_token_streaming_for:
-                    continue  # Skip all tokens from orchestrator/IntentClassifier
-                
                 chunk = event_data.get("chunk")
                 if chunk and hasattr(chunk, "content"):
                     content = chunk.content
@@ -154,7 +142,7 @@ async def stream_pipeline(
                             extracted = []
                             for item in content:
                                 if isinstance(item, dict):
-                                    if item.get("type") == "text":
+                                    if item.get("type") == "text"):
                                         extracted.append(item.get("text", ""))
                                 elif isinstance(item, str):
                                     extracted.append(item)
@@ -162,28 +150,11 @@ async def stream_pipeline(
                         elif not isinstance(content, str):
                             content = str(content)
                         
-                        # DETECT JSON STREAMING (from planner's structured output)
-                        # Just accumulate - final output formatted in on_chain_end
-                        if not in_json_stream and content.strip().startswith('{'):
-                            in_json_stream = True
-                            json_buffer = content
-                            continue  # Don't stream raw JSON
-                        elif in_json_stream:
-                            json_buffer += content
-                            
-                            # Check if JSON is complete
-                            if json_buffer.count('{') > 0 and json_buffer.count('{') == json_buffer.count('}'):
-                                in_json_stream = False
-                                json_buffer = ""
-                            
-                            continue  # Don't stream raw JSON tokens
-                        
-                        # Filter out internal markers (IntentClassifier final output)
+                        # Filter out internal markers (IntentClassifier - shouldn't happen with disabled callbacks)
                         if "__INTENT_RESULT__:" in content:
-                            continue  # Skip - this is internal metadata, not for UI
+                            continue
                         
-                        # Regular token streaming (non-JSON)
-                        # Default to Thinking if no block active
+                        # Regular token streaming
                         if not block_mgr.active_block or block_mgr.active_block.type not in [
                             BlockType.THINKING, BlockType.TEXT, BlockType.CODE, BlockType.PLAN
                         ]:

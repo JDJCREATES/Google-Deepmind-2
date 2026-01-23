@@ -642,17 +642,21 @@ async def orchestrator_node(state: AgentGraphState) -> Dict[str, Any]:
             
             logger.info(f"[ORCHESTRATOR] 🕵️ Running Intent Classifier on: {user_request[:50]}...")
             
-            # CRITICAL: Use non-streaming invocation to prevent JSON leak to UI
-            # Intent classification is internal metadata, not user-facing output
+            # CRITICAL: Disable streaming callbacks for IntentClassifier
+            # This prevents raw JSON from leaking to the UI via astream_events
             intent_agent = IntentClassifier()
             
             # Use current project context if known
             folder_map = artifacts.get("folder_map")
             
-            # Use .classify() which uses ainvoke (non-streaming) instead of astream
+            # Pass config to disable streaming (blocks callbacks from propagating)
+            from langchain_core.runnables import RunnableConfig
+            no_stream_config = RunnableConfig(callbacks=[])  # Empty callbacks = no streaming events
+            
             structured_intent_obj = await intent_agent.classify(
                 user_request=user_request,
-                folder_map=folder_map
+                folder_map=folder_map,
+                config=no_stream_config
             )
             
             structured_intent = structured_intent_obj.model_dump()

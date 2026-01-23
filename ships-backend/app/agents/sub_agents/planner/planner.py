@@ -1289,8 +1289,39 @@ Use run_terminal_command for commands. Use list_directory to check results."""
                     except Exception as detect_err:
                         logger.warning(f"[PLANNER] ⚠️ Could not detect scaffolded folder: {detect_err}")
                     
-                    plan_artifacts["scaffolding_complete"] = True
-                    plan_artifacts["scaffolding_messages"] = len(scaffold_result.get("messages", []))
+                    # ================================================================
+                    # VERIFY SCAFFOLDING ACTUALLY SUCCEEDED
+                    # Don't just trust the agent - check for real artifacts
+                    # ================================================================
+                    actual_root = Path(actual_project_path) if actual_project_path else project_dir
+                    pkg_json_check = actual_root / "package.json"
+                    
+                    if pkg_json_check.exists():
+                        # Further verify it has actual content (scripts section)
+                        try:
+                            import json as json_check
+                            with open(pkg_json_check) as f:
+                                pkg_data = json_check.load(f)
+                            has_scripts = bool(pkg_data.get("scripts", {}))
+                            has_deps = bool(pkg_data.get("dependencies", {}))
+                            
+                            if has_scripts or has_deps:
+                                plan_artifacts["scaffolding_complete"] = True
+                                plan_artifacts["scaffolding_messages"] = len(scaffold_result.get("messages", []))
+                                logger.info(f"[PLANNER] ✅ Scaffolding verified: package.json has scripts={has_scripts}, deps={has_deps}")
+                            else:
+                                # package.json exists but is empty/minimal - scaffolding failed
+                                plan_artifacts["scaffolding_complete"] = False
+                                plan_artifacts["scaffolding_error"] = "package.json exists but has no scripts or dependencies - scaffolding likely failed"
+                                logger.error(f"[PLANNER] ❌ Scaffolding failed: package.json has no scripts/deps")
+                        except Exception as verify_err:
+                            plan_artifacts["scaffolding_complete"] = False
+                            plan_artifacts["scaffolding_error"] = f"Failed to verify package.json: {verify_err}"
+                            logger.error(f"[PLANNER] ❌ Scaffolding verification failed: {verify_err}")
+                    else:
+                        plan_artifacts["scaffolding_complete"] = False
+                        plan_artifacts["scaffolding_error"] = f"No package.json found at {pkg_json_check}"
+                        logger.error(f"[PLANNER] ❌ Scaffolding failed: no package.json at {pkg_json_check}")
                 else:
                     plan_artifacts["scaffolding_complete"] = True
                     plan_artifacts["scaffolding_skipped"] = True
